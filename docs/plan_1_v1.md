@@ -267,14 +267,14 @@ Test coverage must include: creating and retrieving every entity type, cascade d
 ---
 
 ### Phase 1 Completion Checklist
-- [ ] All five entities (Project, Goal, Job, Run, RunLog) can be created, read, updated, and deleted via IPC
-- [ ] Cascade deletes work correctly through the full hierarchy (deleting a Project removes everything beneath it)
-- [ ] Settings persist across agent restarts
-- [ ] `nextFireAt` is calculated correctly for once, interval, and cron schedule types
-- [ ] Invalid cron expressions are rejected with a clear, structured error at create time
-- [ ] All query functions are covered by unit tests and all tests pass
-- [ ] A temporary debug panel in the UI can list projects from the real database
-- [ ] No TypeScript errors in `shared/types.ts`, `agent/`, or `src/lib/api.ts`
+- [x] All five entities (Project, Goal, Job, Run, RunLog) can be created, read, updated, and deleted via IPC
+- [x] Cascade deletes work correctly through the full hierarchy (deleting a Project removes everything beneath it)
+- [x] Settings persist across agent restarts
+- [x] `nextFireAt` is calculated correctly for once, interval, and cron schedule types
+- [x] Invalid cron expressions are rejected with a clear, structured error at create time
+- [x] All query functions are covered by unit tests and all tests pass (70 tests across 7 files)
+- [x] A temporary debug panel in the UI can list projects from the real database
+- [x] No TypeScript errors in `shared/types.ts`, `agent/`, or `src/lib/api.ts`
 
 ---
 

@@ -3,33 +3,38 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "workspaces": ["agent", "shared"],
+  "workspaces": [
+    "agent",
+    "shared"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
+    "test": "npm run test --workspace=agent",
     "lint": "eslint .",
     "tauri": "tauri"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
     "@tauri-apps/api": "^2.5.0",
     "@tauri-apps/plugin-shell": "^2.2.0",
-    "zustand": "^5.0.3",
     "clsx": "^2.1.1",
-    "tailwind-merge": "^3.2.0"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^3.2.0",
+    "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.8",
     "@tauri-apps/cli": "^2.10.1",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.19.0",
+    "tailwindcss": "^4.1.8",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
-    "tailwindcss": "^4.1.8",
-    "@tailwindcss/vite": "^4.1.8",
-    "eslint": "^9.19.0"
+    "vitest": "^4.0.18"
   }
 }

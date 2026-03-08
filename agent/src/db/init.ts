@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { drizzle, BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { mkdirSync, existsSync } from "fs";
 import { join } from "path";
@@ -9,13 +9,19 @@ import * as schema from "./schema.js";
 const DATA_DIR = join(homedir(), ".openorchestra");
 const DB_PATH = join(DATA_DIR, "openorchestra.db");
 
-export function initDatabase() {
+let dbInstance: BetterSQLite3Database<typeof schema> | null = null;
+
+export function initDatabase(dbPath?: string) {
+  const resolvedPath = dbPath ?? DB_PATH;
+  const resolvedDir =
+    dbPath != null ? join(resolvedPath, "..") : DATA_DIR;
+
   // Ensure data directory exists
-  if (!existsSync(DATA_DIR)) {
-    mkdirSync(DATA_DIR, { recursive: true });
+  if (!existsSync(resolvedDir)) {
+    mkdirSync(resolvedDir, { recursive: true });
   }
 
-  const sqlite = new Database(DB_PATH);
+  const sqlite = new Database(resolvedPath);
 
   // Enable WAL mode for better concurrent read performance
   sqlite.pragma("journal_mode = WAL");
@@ -31,6 +37,15 @@ export function initDatabase() {
 
   migrate(db, { migrationsFolder: migrationsPath });
 
-  console.error(`[agent] database initialized at ${DB_PATH}`);
+  dbInstance = db;
+  console.error(`[agent] database initialized at ${resolvedPath}`);
   return db;
+}
+
+/** Get the initialized database instance. Throws if not yet initialized. */
+export function getDb(): BetterSQLite3Database<typeof schema> {
+  if (!dbInstance) {
+    throw new Error("Database not initialized. Call initDatabase() first.");
+  }
+  return dbInstance;
 }

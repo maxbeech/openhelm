@@ -1,3 +1,5 @@
+// ─── IPC Protocol Types ───
+
 /** IPC request sent from UI to agent via stdin */
 export interface IpcRequest {
   id: string;
@@ -43,4 +45,208 @@ export function isIpcEvent(obj: unknown): obj is IpcEvent {
     typeof (obj as IpcEvent).event === "string" &&
     !("id" in obj)
   );
+}
+
+// ─── Entity Types ───
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string | null;
+  directoryPath: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type GoalStatus = "active" | "paused" | "archived";
+
+export interface Goal {
+  id: string;
+  projectId: string;
+  description: string;
+  status: GoalStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ScheduleType = "once" | "interval" | "cron";
+
+export interface ScheduleConfigOnce {
+  fireAt: string; // ISO 8601 datetime
+}
+
+export interface ScheduleConfigInterval {
+  minutes: number;
+}
+
+export interface ScheduleConfigCron {
+  expression: string;
+}
+
+export type ScheduleConfig =
+  | ScheduleConfigOnce
+  | ScheduleConfigInterval
+  | ScheduleConfigCron;
+
+export interface Job {
+  id: string;
+  goalId: string | null;
+  projectId: string;
+  name: string;
+  description: string | null;
+  prompt: string;
+  scheduleType: ScheduleType;
+  scheduleConfig: ScheduleConfig;
+  isEnabled: boolean;
+  nextFireAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type RunStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "permanent_failure"
+  | "cancelled";
+
+export type TriggerSource = "scheduled" | "manual" | "corrective";
+
+export interface Run {
+  id: string;
+  jobId: string;
+  status: RunStatus;
+  triggerSource: TriggerSource;
+  startedAt: string | null;
+  finishedAt: string | null;
+  exitCode: number | null;
+  summary: string | null;
+  createdAt: string;
+}
+
+export type LogStream = "stdout" | "stderr";
+
+export interface RunLog {
+  id: string;
+  runId: string;
+  sequence: number;
+  stream: LogStream;
+  text: string;
+  timestamp: string;
+}
+
+export type SettingKey =
+  | "anthropic_api_key"
+  | "claude_code_path"
+  | "max_concurrent_runs"
+  | "default_timeout_minutes"
+  | "theme";
+
+export interface Setting {
+  key: SettingKey;
+  value: string;
+  updatedAt: string;
+}
+
+// ─── IPC Method Params & Results ───
+
+// Projects
+export interface CreateProjectParams {
+  name: string;
+  description?: string;
+  directoryPath: string;
+}
+
+export interface UpdateProjectParams {
+  id: string;
+  name?: string;
+  description?: string;
+  directoryPath?: string;
+}
+
+// Goals
+export interface CreateGoalParams {
+  projectId: string;
+  description: string;
+}
+
+export interface UpdateGoalParams {
+  id: string;
+  description?: string;
+  status?: GoalStatus;
+}
+
+// Jobs
+export interface CreateJobParams {
+  projectId: string;
+  goalId?: string;
+  name: string;
+  description?: string;
+  prompt: string;
+  scheduleType: ScheduleType;
+  scheduleConfig: ScheduleConfig;
+  isEnabled?: boolean;
+}
+
+export interface UpdateJobParams {
+  id: string;
+  name?: string;
+  description?: string;
+  prompt?: string;
+  scheduleType?: ScheduleType;
+  scheduleConfig?: ScheduleConfig;
+  isEnabled?: boolean;
+}
+
+// Runs
+export interface CreateRunParams {
+  jobId: string;
+  triggerSource: TriggerSource;
+}
+
+export interface UpdateRunParams {
+  id: string;
+  status?: RunStatus;
+  startedAt?: string;
+  finishedAt?: string;
+  exitCode?: number;
+  summary?: string;
+}
+
+// RunLogs
+export interface CreateRunLogParams {
+  runId: string;
+  stream: LogStream;
+  text: string;
+}
+
+// Settings
+export interface SetSettingParams {
+  key: SettingKey;
+  value: string;
+}
+
+// List params
+export interface ListRunsParams {
+  jobId?: string;
+  status?: RunStatus;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListRunLogsParams {
+  runId: string;
+  afterSequence?: number;
+}
+
+export interface ListJobsParams {
+  projectId?: string;
+  goalId?: string;
+  isEnabled?: boolean;
+}
+
+export interface ListGoalsParams {
+  projectId: string;
+  status?: GoalStatus;
 }

@@ -27,11 +27,24 @@ npx tauri dev
 
 This starts the Vite dev server (port 1420), compiles the Rust shell, and launches the agent sidecar.
 
+## Testing
+
+```bash
+npm test              # Run all agent tests
+cd agent && npm test  # Run agent tests directly
+```
+
+Tests use real SQLite databases in temporary directories — no mocks.
+
 ## Architecture
 
 - **`src/`** — React frontend (Vite + Tailwind CSS 4)
 - **`src-tauri/`** — Tauri Rust shell (thin wrapper)
 - **`agent/`** — Node.js background agent (sidecar)
+  - `agent/src/db/schema.ts` — Drizzle schema (Projects, Goals, Jobs, Runs, RunLogs, Settings)
+  - `agent/src/db/queries/` — Named query functions per entity
+  - `agent/src/ipc/handlers/` — IPC handlers per domain
+  - `agent/src/scheduler/schedule.ts` — Schedule computation (once, interval, cron)
 - **`shared/`** — IPC type contract shared between frontend and agent
 - **`docs/`** — PRD, implementation plan, competitor research
 

@@ -1,6 +1,7 @@
 import { createInterface } from "readline";
 import type { IpcRequest, IpcEvent } from "@openorchestra/shared";
 import { handleRequest } from "./ipc/handler.js";
+import { registerAllHandlers } from "./ipc/handlers/index.js";
 import { initDatabase } from "./db/init.js";
 
 /** Write a JSON message to stdout (IPC channel) */
@@ -26,7 +27,10 @@ try {
   process.exit(1);
 }
 
-// 2. Start IPC listener on stdin
+// 2. Register all IPC handlers
+registerAllHandlers();
+
+// 3. Start IPC listener on stdin
 const rl = createInterface({ input: process.stdin });
 
 rl.on("line", async (line) => {
@@ -53,6 +57,6 @@ rl.on("close", () => {
   process.exit(0);
 });
 
-// 3. Signal readiness
+// 4. Signal readiness
 emit("agent.ready", { version: "0.1.0" });
 console.error("[agent] ready, listening for IPC on stdin");
