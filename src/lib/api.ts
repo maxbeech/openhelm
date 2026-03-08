@@ -24,6 +24,9 @@ import type {
   ClaudeCodeDetectionResult,
   DetectClaudeCodeParams,
   VerifyClaudeCodeParams,
+  TriggerRunParams,
+  CancelRunParams,
+  SchedulerStatus,
 } from "@openorchestra/shared";
 
 // ─── Projects ───
@@ -168,4 +171,18 @@ export function getClaudeCodeStatus(): Promise<ClaudeCodeDetectionResult> {
   return agentClient.request<ClaudeCodeDetectionResult>(
     "claudeCode.getStatus",
   );
+}
+
+// ─── Scheduler & Executor ───
+
+export function triggerRun(params: TriggerRunParams): Promise<Run> {
+  return agentClient.request<Run>("runs.trigger", params);
+}
+
+export function cancelRun(params: CancelRunParams): Promise<{ cancelled: boolean }> {
+  return agentClient.request<{ cancelled: boolean }>("runs.cancel", params);
+}
+
+export function getSchedulerStatus(): Promise<SchedulerStatus> {
+  return agentClient.request<SchedulerStatus>("scheduler.status");
 }

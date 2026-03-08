@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, lte, isNotNull } from "drizzle-orm";
 import { getDb } from "../init.js";
 import { jobs } from "../schema.js";
 import {
@@ -151,6 +151,43 @@ export function updateJobNextFireAt(
   const db = getDb();
   db.update(jobs)
     .set({ nextFireAt, updatedAt: new Date().toISOString() })
+    .where(eq(jobs.id, id))
+    .run();
+}
+
+/**
+ * Find enabled jobs whose nextFireAt is in the past (due for execution).
+ * Used by the scheduler on each tick.
+ */
+export function listDueJobs(): Job[] {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const rows = db
+    .select()
+    .from(jobs)
+    .where(
+      and(
+        eq(jobs.isEnabled, true),
+        isNotNull(jobs.nextFireAt),
+        lte(jobs.nextFireAt, now),
+      ),
+    )
+    .all();
+  return rows.map(rowToJob);
+}
+
+/**
+ * Disable a job and clear its nextFireAt.
+ * Used for once-jobs after their single run completes.
+ */
+export function disableJob(id: string): void {
+  const db = getDb();
+  db.update(jobs)
+    .set({
+      isEnabled: false,
+      nextFireAt: null,
+      updatedAt: new Date().toISOString(),
+    })
     .where(eq(jobs.id, id))
     .run();
 }

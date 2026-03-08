@@ -440,16 +440,16 @@ The 24-hour stability test at the end of this phase is critical and should not b
 ---
 
 ### Phase 3 Completion Checklist
-- [ ] A job created with a 2-minute interval fires within 2 minutes without the UI open
-- [ ] Manual trigger via IPC fires within seconds and takes priority over queued scheduled runs
-- [ ] Status transitions follow the state machine exactly — no invalid transitions occur
-- [ ] Cancelling a queued run removes it from the in-memory queue and sets database status to `cancelled`
-- [ ] Cancelling a running run kills the Claude Code process and sets status to `cancelled`
-- [ ] Runs in `running` status at agent startup are transitioned to `failed` with an explanatory log entry
-- [ ] Queued runs at agent startup are re-enqueued and execute correctly
-- [ ] The watchdog kills a hung process after the configured timeout and marks it `failed`
-- [ ] `nextFireAt` is updated correctly for all three schedule types after each run
-- [ ] All scheduler and executor unit tests pass
+- [x] A job created with a 2-minute interval fires within 2 minutes without the UI open
+- [x] Manual trigger via IPC fires within seconds and takes priority over queued scheduled runs
+- [x] Status transitions follow the state machine exactly — no invalid transitions occur
+- [x] Cancelling a queued run removes it from the in-memory queue and sets database status to `cancelled`
+- [x] Cancelling a running run kills the Claude Code process and sets status to `cancelled`
+- [x] Runs in `running` status at agent startup are transitioned to `failed` with an explanatory log entry
+- [x] Queued runs at agent startup are re-enqueued and execute correctly
+- [x] The watchdog kills a hung process after the configured timeout and marks it `failed`
+- [x] `nextFireAt` is updated correctly for all three schedule types after each run
+- [x] All scheduler and executor unit tests pass
 - [ ] 24-hour stability test with 5 recurring jobs shows stable memory usage
 
 ---

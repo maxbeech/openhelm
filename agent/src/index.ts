@@ -5,6 +5,8 @@ import { registerAllHandlers } from "./ipc/handlers/index.js";
 import { initDatabase } from "./db/init.js";
 import { emit, send } from "./ipc/emitter.js";
 import { detectClaudeCode } from "./claude-code/detector.js";
+import { scheduler } from "./scheduler/index.js";
+import { executor } from "./executor/index.js";
 
 // -- Bootstrap --
 
@@ -21,7 +23,10 @@ try {
 // 2. Register all IPC handlers
 registerAllHandlers();
 
-// 3. Start IPC listener on stdin
+// 3. Crash recovery — must happen after DB init, before scheduler start
+executor.recoverFromCrash();
+
+// 4. Start IPC listener on stdin
 const rl = createInterface({ input: process.stdin });
 
 rl.on("line", async (line) => {
@@ -45,14 +50,16 @@ rl.on("line", async (line) => {
 
 rl.on("close", () => {
   console.error("[agent] stdin closed, shutting down");
+  scheduler.stop();
+  executor.stopAll();
   process.exit(0);
 });
 
-// 4. Signal readiness
+// 5. Signal readiness
 emit("agent.ready", { version: "0.1.0" });
 console.error("[agent] ready, listening for IPC on stdin");
 
-// 5. Auto-detect Claude Code CLI in background (non-blocking)
+// 6. Auto-detect Claude Code CLI in background (non-blocking)
 detectClaudeCode()
   .then((result) => {
     if (result.found) {
@@ -60,12 +67,17 @@ detectClaudeCode()
         `[agent] Claude Code detected: ${result.path} (v${result.version})`,
       );
     } else {
-      console.error(
-        `[agent] Claude Code not found: ${result.error}`,
-      );
+      console.error(`[agent] Claude Code not found: ${result.error}`);
     }
     emit("claudeCode.detected", result);
   })
   .catch((err) => {
     console.error("[agent] Claude Code detection error:", err);
   });
+
+// 7. Start scheduler — connects to executor via callback
+scheduler.setOnWorkEnqueued(() => executor.processNext());
+scheduler.start();
+
+// Process any re-enqueued runs from crash recovery
+executor.processNext();

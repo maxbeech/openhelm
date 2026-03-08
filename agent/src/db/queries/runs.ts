@@ -9,6 +9,19 @@ import type {
   ListRunsParams,
 } from "@openorchestra/shared";
 
+/**
+ * Valid status transitions for the run state machine.
+ * Terminal states (succeeded, failed, permanent_failure, cancelled) have no outgoing edges.
+ */
+const VALID_TRANSITIONS: Record<RunStatus, RunStatus[]> = {
+  queued: ["running", "cancelled", "permanent_failure"],
+  running: ["succeeded", "failed", "permanent_failure", "cancelled"],
+  succeeded: [],
+  failed: [],
+  permanent_failure: [],
+  cancelled: [],
+};
+
 export function createRun(params: CreateRunParams): Run {
   const db = getDb();
   const now = new Date().toISOString();
@@ -69,6 +82,16 @@ export function updateRun(params: UpdateRunParams): Run {
   const existing = getRun(params.id);
   if (!existing) {
     throw new Error(`Run not found: ${params.id}`);
+  }
+
+  // Enforce state machine when status is changing
+  if (params.status !== undefined && params.status !== existing.status) {
+    const allowed = VALID_TRANSITIONS[existing.status] ?? [];
+    if (!allowed.includes(params.status)) {
+      throw new Error(
+        `Invalid status transition: ${existing.status} → ${params.status}`,
+      );
+    }
   }
 
   const row = db

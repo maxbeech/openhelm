@@ -290,3 +290,24 @@ export interface ClaudeCodeRunResult {
   timedOut: boolean;
   killed: boolean;
 }
+
+// ─── Scheduler & Executor Types ───
+
+/** Params for manually triggering a job run */
+export interface TriggerRunParams {
+  jobId: string;
+}
+
+/** Params for cancelling a run */
+export interface CancelRunParams {
+  runId: string;
+}
+
+/** Current status of the scheduler and executor */
+export interface SchedulerStatus {
+  schedulerRunning: boolean;
+  tickIntervalMs: number;
+  activeRuns: number;
+  queuedRuns: number;
+  maxConcurrency: number;
+}

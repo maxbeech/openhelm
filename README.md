@@ -49,6 +49,9 @@ Tests use real SQLite databases in temporary directories — no mocks.
   - `agent/src/claude-code/detector.ts` — CLI auto-detection and version management
   - `agent/src/claude-code/interactive-detector.ts` — Detects when Claude Code is waiting for input
   - `agent/src/claude-code/stream-parser.ts` — Parses `stream-json` output into log entries
+  - `agent/src/scheduler/index.ts` — 1-minute tick scheduler, enqueues due jobs
+  - `agent/src/scheduler/queue.ts` — In-memory priority queue (manual > scheduled > corrective)
+  - `agent/src/executor/index.ts` — Worker pool: dequeues runs, spawns ClaudeCodeRunner, manages lifecycle
 - **`shared/`** — IPC type contract shared between frontend and agent
 - **`docs/`** — PRD, implementation plan, competitor research
 

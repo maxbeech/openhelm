@@ -48,3 +48,34 @@
 - New setting keys: `claude_code_version`, `run_timeout_minutes`
 - Auto-detection runs on agent startup, emits `claudeCode.detected` event
 - 42 new tests (112 total): detector, runner, interactive detector, stream parser
+
+### Phase 3 — Scheduler & Executor
+- In-memory priority queue (`agent/src/scheduler/queue.ts`)
+  - Priority levels: 0=manual, 1=scheduled, 2=corrective
+  - FIFO ordering within same priority level
+  - Singleton instance shared between scheduler and executor
+- Scheduler (`agent/src/scheduler/index.ts`)
+  - 1-minute tick interval querying for due jobs (`nextFireAt <= now`)
+  - Creates run records and enqueues them automatically
+  - Updates `nextFireAt` after each enqueue (interval: completion+minutes, once: disable, cron: next future)
+  - Callback-based notification to executor via `setOnWorkEnqueued`
+- Executor (`agent/src/executor/index.ts`)
+  - Worker pool consuming from priority queue
+  - Configurable concurrency: default 1, max 3, via `max_concurrent_runs` setting
+  - Full run lifecycle: pre-flight checks → mark running (DB before spawn) → ClaudeCodeRunner → completion
+  - DB insert before IPC emit invariant for log ordering
+  - Pre-flight checks: job existence, project directory existence, Claude Code path
+  - `permanent_failure` status for unrecoverable pre-flight failures
+- Crash recovery on agent startup
+  - Stuck "running" runs → failed with explanatory log entry ("agent restart")
+  - Orphaned "queued" runs → re-enqueued with correct priority
+- Run status state machine enforcement (`agent/src/db/queries/runs.ts`)
+  - Valid transitions enforced at query layer; invalid transitions throw errors
+  - Terminal states (succeeded, failed, permanent_failure, cancelled) have no outgoing edges
+- IPC handlers for `runs.trigger`, `runs.cancel`, `scheduler.status`
+  - Manual trigger creates run with priority 0 (highest) for immediate execution
+  - Cancel supports both queued (queue removal) and running (abort signal) runs
+- Shared types: `TriggerRunParams`, `CancelRunParams`, `SchedulerStatus`
+- Frontend API wrappers: `triggerRun()`, `cancelRun()`, `getSchedulerStatus()`
+- Due job query: `listDueJobs()` and `disableJob()` added to jobs query layer
+- 50 new tests (162 total): queue (10), state machine (13), scheduler tick (10), executor (17)

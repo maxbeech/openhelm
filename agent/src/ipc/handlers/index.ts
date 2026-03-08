@@ -4,6 +4,7 @@ import { registerJobHandlers } from "./jobs.js";
 import { registerRunHandlers } from "./runs.js";
 import { registerSettingHandlers } from "./settings.js";
 import { registerClaudeCodeHandlers } from "./claude-code.js";
+import { registerSchedulerHandlers } from "./scheduler.js";
 
 /** Register all domain IPC handlers */
 export function registerAllHandlers() {
@@ -13,4 +14,5 @@ export function registerAllHandlers() {
   registerRunHandlers();
   registerSettingHandlers();
   registerClaudeCodeHandlers();
+  registerSchedulerHandlers();
 }
