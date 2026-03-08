@@ -21,12 +21,35 @@ fn write_to_sidecar(
     }
 }
 
+#[tauri::command]
+fn relaunch_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SidecarChild(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![write_to_sidecar])
+        .invoke_handler(tauri::generate_handler![
+            write_to_sidecar,
+            relaunch_app,
+        ])
+        .on_window_event(|window, event| {
+            // Hide window on close instead of quitting (agent keeps running).
+            // The macOS "Quit" menu item still terminates the app normally.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .setup(|app| {
             let shell = app.shell();
             let (mut rx, child) = shell

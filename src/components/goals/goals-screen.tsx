@@ -80,7 +80,7 @@ export function GoalsScreen() {
         <EmptyState
           icon={Target}
           title="No goals yet"
-          description="Type a goal above to get started. OpenOrchestra will create a plan of Claude Code jobs to achieve it."
+          description="Goals are the outcomes you want to achieve. Type your first goal above and OpenOrchestra will create a plan of Claude Code jobs to achieve it."
         />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

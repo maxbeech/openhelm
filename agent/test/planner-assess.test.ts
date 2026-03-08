@@ -123,24 +123,28 @@ describe("assessGoal", () => {
     ).rejects.toThrow("Project not found");
   });
 
-  it("should throw on invalid JSON response", async () => {
-    createMock.mockResolvedValueOnce({
+  it("should throw on invalid JSON response after retry", async () => {
+    const badResponse = {
       content: [{ type: "text", text: "This is not JSON" }],
       stop_reason: "end_turn",
       usage: { input_tokens: 10, output_tokens: 10 },
-    });
+    };
+    createMock.mockResolvedValueOnce(badResponse);
+    createMock.mockResolvedValueOnce(badResponse); // retry also fails
 
     await expect(
       assessGoal(projectId, "Some goal"),
     ).rejects.toThrow("Failed to parse assessment response");
   });
 
-  it("should throw when response missing needsClarification", async () => {
-    createMock.mockResolvedValueOnce({
+  it("should throw when response missing needsClarification after retry", async () => {
+    const badResponse = {
       content: [{ type: "text", text: JSON.stringify({ foo: "bar" }) }],
       stop_reason: "end_turn",
       usage: { input_tokens: 10, output_tokens: 10 },
-    });
+    };
+    createMock.mockResolvedValueOnce(badResponse);
+    createMock.mockResolvedValueOnce(badResponse); // retry also fails
 
     await expect(
       assessGoal(projectId, "Some goal"),

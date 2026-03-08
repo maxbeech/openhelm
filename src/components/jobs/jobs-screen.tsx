@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { Briefcase, Plus } from "lucide-react";
+import { Briefcase, Plus, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -23,7 +23,7 @@ import { formatSchedule, formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export function JobsScreen() {
-  const { activeProjectId, filter } = useAppStore();
+  const { activeProjectId, filter, setPage } = useAppStore();
   const { jobs, loading, fetchJobs, toggleEnabled } = useJobStore();
   const { goals, fetchGoals } = useGoalStore();
   const { runs, fetchRuns } = useRunStore();
@@ -115,15 +115,42 @@ export function JobsScreen() {
             </tbody>
           </table>
         ) : filteredJobs.length === 0 ? (
-          <EmptyState
-            icon={Briefcase}
-            title="No jobs"
-            description={
-              showDisabled
-                ? "No jobs match the current filters."
-                : "No enabled jobs. Toggle 'Show disabled' to see all."
-            }
-          />
+          jobs.length === 0 ? (
+            <EmptyState
+              icon={Briefcase}
+              title="No jobs yet"
+              description="Jobs are created when you set a goal, or you can create one manually."
+              action={
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage("goals")}
+                  >
+                    <Target className="size-4" />
+                    Set a goal
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => setShowCreationSheet(true)}
+                  >
+                    <Plus className="size-4" />
+                    Create job
+                  </Button>
+                </div>
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={Briefcase}
+              title="No jobs"
+              description={
+                showDisabled
+                  ? "No jobs match the current filters."
+                  : "No enabled jobs. Toggle 'Show disabled' to see all."
+              }
+            />
+          )
         ) : (
           <table className="w-full text-sm">
             <thead>

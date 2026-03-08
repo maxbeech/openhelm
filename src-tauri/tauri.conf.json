@@ -10,6 +10,7 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "OpenOrchestra",
@@ -36,5 +37,20 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "notification": {
+      "registerForRemoteNotifications": false
+    },
+    "autostart": {
+      "macosLauncher": "LaunchAgent"
+    },
+    "updater": {
+      "active": true,
+      "dialog": true,
+      "endpoints": [
+        "https://github.com/openorchestra/openorchestra/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

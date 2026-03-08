@@ -10,12 +10,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   CheckCircle2,
   XCircle,
   Loader2,
   ExternalLink,
 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import * as api from "@/lib/api";
 import type { ClaudeCodeDetectionResult } from "@openorchestra/shared";
 
@@ -247,11 +249,47 @@ function ExecutionSection() {
 }
 
 function ApplicationSection() {
+  const [launchAtLogin, setLaunchAtLogin] = useState(false);
+  const [launchLoading, setLaunchLoading] = useState(true);
+
+  useEffect(() => {
+    invoke<boolean>("plugin:autostart|is_enabled")
+      .then(setLaunchAtLogin)
+      .catch(() => setLaunchAtLogin(false))
+      .finally(() => setLaunchLoading(false));
+  }, []);
+
+  const toggleLaunchAtLogin = async (enabled: boolean) => {
+    try {
+      if (enabled) {
+        await invoke("plugin:autostart|enable");
+      } else {
+        await invoke("plugin:autostart|disable");
+      }
+      setLaunchAtLogin(enabled);
+    } catch (err) {
+      console.error("Failed to toggle launch at login:", err);
+    }
+  };
+
   return (
     <div>
       <h3 className="mb-3 font-medium">Application</h3>
-      <div className="space-y-2 text-sm text-muted-foreground">
+      <div className="space-y-4 text-sm text-muted-foreground">
         <p>Version: 0.1.0</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <Label className="text-sm text-foreground">Launch at login</Label>
+            <p className="text-xs text-muted-foreground">
+              Start OpenOrchestra automatically when you log in.
+            </p>
+          </div>
+          <Switch
+            checked={launchAtLogin}
+            onCheckedChange={toggleLaunchAtLogin}
+            disabled={launchLoading}
+          />
+        </div>
         <div className="flex gap-4">
           <a
             href="https://openorchestra.ai"

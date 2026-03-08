@@ -1,10 +1,20 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowDown, Search } from "lucide-react";
-import { useAutoScroll } from "@/hooks/use-auto-scroll";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import type { RunLog } from "@openorchestra/shared";
 import { cn } from "@/lib/utils";
+
+/**
+ * Virtual scroll constants.
+ * LINE_HEIGHT must match the rendered line height (text-xs leading-5 = 20px).
+ * OVERSCAN is extra lines rendered above/below the visible window to prevent
+ * flicker during fast scrolling.
+ */
+const LINE_HEIGHT = 20;
+const OVERSCAN = 20;
+/** Pixel threshold for "close enough to bottom" detection */
+const BOTTOM_THRESHOLD = 30;
 
 interface LogViewerProps {
   logs: RunLog[];
@@ -13,18 +23,80 @@ interface LogViewerProps {
 }
 
 export function LogViewer({ logs, loading, isLive }: LogViewerProps) {
-  const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll([
-    logs.length,
-  ]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const wasAtBottomRef = useRef(true);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(0);
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
+  // ---------- filtered logs ----------
   const filteredLogs = useMemo(() => {
     if (!searchQuery) return logs;
     const q = searchQuery.toLowerCase();
     return logs.filter((l) => l.text.toLowerCase().includes(q));
   }, [logs, searchQuery]);
 
+  // ---------- virtual range calculation ----------
+  const startIndex = Math.max(
+    0,
+    Math.floor(scrollTop / LINE_HEIGHT) - OVERSCAN,
+  );
+  const endIndex = Math.min(
+    filteredLogs.length,
+    Math.ceil((scrollTop + containerHeight) / LINE_HEIGHT) + OVERSCAN,
+  );
+  const visibleLogs = filteredLogs.slice(startIndex, endIndex);
+  const topPad = startIndex * LINE_HEIGHT;
+  const bottomPad = Math.max(
+    0,
+    (filteredLogs.length - endIndex) * LINE_HEIGHT,
+  );
+
+  // ---------- scroll handler ----------
+  const handleScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      const el = e.currentTarget;
+      setScrollTop(el.scrollTop);
+      const atBottom =
+        el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD;
+      wasAtBottomRef.current = atBottom;
+      setIsAtBottom(atBottom);
+    },
+    [],
+  );
+
+  // ---------- ResizeObserver for container height ----------
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      setContainerHeight(entries[0]?.contentRect.height ?? 0);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // ---------- auto-scroll on new logs ----------
+  useEffect(() => {
+    if (wasAtBottomRef.current && containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
+  }, [filteredLogs.length]);
+
+  // ---------- scrollToBottom (for button) ----------
+  const scrollToBottom = useCallback(() => {
+    const el = containerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+      wasAtBottomRef.current = true;
+      setIsAtBottom(true);
+    }
+  }, []);
+
+  // ---------- search highlight ----------
   const highlightText = (text: string, query: string) => {
     if (!query) return text;
     const q = query.toLowerCase();
@@ -81,9 +153,10 @@ export function LogViewer({ logs, loading, isLive }: LogViewerProps) {
         </button>
       </div>
 
-      {/* Log Content */}
+      {/* Log Content — virtualized */}
       <div
         ref={containerRef}
+        onScroll={handleScroll}
         className="flex-1 overflow-auto bg-background p-2 font-mono text-xs leading-5"
       >
         {filteredLogs.length === 0 && !loading ? (
@@ -91,19 +164,24 @@ export function LogViewer({ logs, loading, isLive }: LogViewerProps) {
             {isLive ? "Waiting for output..." : "No log output"}
           </p>
         ) : (
-          filteredLogs.map((log) => (
-            <div
-              key={`${log.runId}-${log.sequence}`}
-              className={cn(
-                "whitespace-pre-wrap break-all",
-                log.stream === "stderr" && "text-destructive/80",
-              )}
-            >
-              {searchQuery
-                ? highlightText(log.text, searchQuery)
-                : log.text}
-            </div>
-          ))
+          <>
+            <div style={{ height: topPad }} />
+            {visibleLogs.map((log, i) => (
+              <div
+                key={startIndex + i}
+                style={{ height: LINE_HEIGHT }}
+                className={cn(
+                  "whitespace-pre-wrap break-all",
+                  log.stream === "stderr" && "text-destructive/80",
+                )}
+              >
+                {searchQuery
+                  ? highlightText(log.text, searchQuery)
+                  : log.text}
+              </div>
+            ))}
+            <div style={{ height: bottomPad }} />
+          </>
         )}
       </div>
 

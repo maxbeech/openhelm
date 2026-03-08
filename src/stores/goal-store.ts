@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Goal, GoalStatus } from "@openorchestra/shared";
 import * as api from "@/lib/api";
+import { friendlyError } from "@/lib/utils";
 
 interface GoalState {
   goals: Goal[];
@@ -23,16 +24,21 @@ export const useGoalStore = create<GoalState>((set) => ({
       set({ goals, loading: false });
     } catch (err) {
       set({
-        error: err instanceof Error ? err.message : String(err),
+        error: friendlyError(err, "Failed to load goals"),
         loading: false,
       });
     }
   },
 
   updateGoalStatus: async (id, status) => {
-    const updated = await api.updateGoal({ id, status });
-    set((s) => ({
-      goals: s.goals.map((g) => (g.id === id ? updated : g)),
-    }));
+    try {
+      const updated = await api.updateGoal({ id, status });
+      set((s) => ({
+        goals: s.goals.map((g) => (g.id === id ? updated : g)),
+      }));
+    } catch (err) {
+      set({ error: friendlyError(err, "Failed to update goal") });
+      throw err;
+    }
   },
 }));

@@ -5,11 +5,14 @@ import type { AssessmentResult, ClarifyingQuestion } from "@openorchestra/shared
 
 const MAX_QUESTIONS = 2;
 
+const JSON_PARSE_MAX_RETRIES = 1;
+
 /**
  * Assess whether a goal description is specific enough to generate a plan,
  * or whether clarifying questions are needed first.
  *
  * Uses a fast classification call (not the full agent loop).
+ * Retries once automatically on JSON parse failures (malformed LLM output).
  */
 export async function assessGoal(
   projectId: string,
@@ -22,20 +25,35 @@ export async function assessGoal(
 
   const userMessage = buildAssessmentMessage(project.name, project.description, goalDescription);
 
-  const response = await callLlm({
-    model: "classification",
-    system: ASSESSMENT_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }],
-    maxTokens: 1024,
-    temperature: 0,
-  });
+  let lastError: unknown;
 
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new LlmError("Assessment returned no text response", "unknown");
+  for (let attempt = 0; attempt <= JSON_PARSE_MAX_RETRIES; attempt++) {
+    const response = await callLlm({
+      model: "classification",
+      system: ASSESSMENT_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userMessage }],
+      maxTokens: 1024,
+      temperature: 0,
+    });
+
+    const textBlock = response.content.find((b) => b.type === "text");
+    if (!textBlock || textBlock.type !== "text") {
+      throw new LlmError("Assessment returned no text response", "unknown");
+    }
+
+    try {
+      return parseAssessmentResponse(textBlock.text);
+    } catch (err) {
+      lastError = err;
+      if (attempt < JSON_PARSE_MAX_RETRIES) {
+        console.error(
+          `[planner] assessment JSON parse failed (attempt ${attempt + 1}), retrying`,
+        );
+      }
+    }
   }
 
-  return parseAssessmentResponse(textBlock.text);
+  throw lastError;
 }
 
 function buildAssessmentMessage(

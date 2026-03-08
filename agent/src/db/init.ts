@@ -21,25 +21,45 @@ export function initDatabase(dbPath?: string) {
     mkdirSync(resolvedDir, { recursive: true });
   }
 
-  const sqlite = new Database(resolvedPath);
+  try {
+    const sqlite = new Database(resolvedPath);
 
-  // Enable WAL mode for better concurrent read performance
-  sqlite.pragma("journal_mode = WAL");
-  // Enforce foreign key constraints
-  sqlite.pragma("foreign_keys = ON");
+    // Enable WAL mode for better concurrent read performance
+    sqlite.pragma("journal_mode = WAL");
+    // Enforce foreign key constraints
+    sqlite.pragma("foreign_keys = ON");
 
-  const db = drizzle(sqlite, { schema });
+    const db = drizzle(sqlite, { schema });
 
-  // Run migrations
-  const migrationsPath =
-    process.env.OPENORCHESTRA_MIGRATIONS_PATH ||
-    join(import.meta.dirname, "migrations");
+    // Run migrations
+    const migrationsPath =
+      process.env.OPENORCHESTRA_MIGRATIONS_PATH ||
+      join(import.meta.dirname, "migrations");
 
-  migrate(db, { migrationsFolder: migrationsPath });
+    migrate(db, { migrationsFolder: migrationsPath });
 
-  dbInstance = db;
-  console.error(`[agent] database initialized at ${resolvedPath}`);
-  return db;
+    dbInstance = db;
+    console.error(`[agent] database initialized at ${resolvedPath}`);
+    return db;
+  } catch (err: unknown) {
+    // Handle disk-full errors from better-sqlite3
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code: string }).code === "SQLITE_FULL"
+    ) {
+      throw new Error(
+        "OpenOrchestra couldn't save data. Your disk may be full.",
+      );
+    }
+
+    // Rethrow with additional context for other database errors
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Database initialization failed at ${resolvedPath}: ${detail}`,
+    );
+  }
 }
 
 /** Get the initialized database instance. Throws if not yet initialized. */

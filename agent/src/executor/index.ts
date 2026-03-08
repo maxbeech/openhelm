@@ -209,7 +209,20 @@ export class Executor {
 
     const claudePathSetting = getSetting("claude_code_path");
     if (!claudePathSetting) {
-      this.failPermanently(runId, "queued", "Claude Code CLI not configured");
+      this.failPermanently(
+        runId,
+        "queued",
+        "Claude Code CLI path is not configured. Go to Settings to set it up.",
+      );
+      return null;
+    }
+
+    if (!existsSync(claudePathSetting.value)) {
+      this.failPermanently(
+        runId,
+        "queued",
+        `Claude Code CLI not found at the configured path. It may have been moved or uninstalled. Update the path in Settings.`,
+      );
       return null;
     }
 
@@ -217,7 +230,7 @@ export class Executor {
       this.failPermanently(
         runId,
         "queued",
-        `Project directory not found: ${project.directoryPath}`,
+        `Project directory not found: ${project.directoryPath}. Check that the project directory still exists.`,
       );
       return null;
     }

@@ -81,3 +81,32 @@ scheduler.start();
 
 // Process any re-enqueued runs from crash recovery
 executor.processNext();
+
+// 8. Fatal error handlers — log and notify frontend before exiting
+process.on("uncaughtException", (err) => {
+  console.error("[agent] uncaught exception:", err);
+  try {
+    emit("agent.error", {
+      type: "uncaughtException",
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+  } catch {
+    // emit itself failed — nothing more we can do
+  }
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[agent] unhandled rejection:", reason);
+  try {
+    emit("agent.error", {
+      type: "unhandledRejection",
+      message: reason instanceof Error ? reason.message : String(reason),
+      stack: reason instanceof Error ? reason.stack : undefined,
+    });
+  } catch {
+    // emit itself failed — nothing more we can do
+  }
+  process.exit(1);
+});

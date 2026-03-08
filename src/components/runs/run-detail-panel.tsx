@@ -66,13 +66,15 @@ export function RunDetailPanel({ run, jobName, onClose }: RunDetailPanelProps) {
       )}
 
       {/* AI Summary */}
-      {isTerminal && (
+      {(isRunning || isTerminal) && (
         <div className="border-b border-border px-4 py-3">
           <h4 className="mb-1 text-xs font-medium text-muted-foreground">
             Summary
           </h4>
           <p className="text-sm">
-            {run.summary ?? "Summary unavailable"}
+            {isRunning
+              ? "Summary will appear when the run completes."
+              : (run.summary ?? "Summary unavailable.")}
           </p>
         </div>
       )}

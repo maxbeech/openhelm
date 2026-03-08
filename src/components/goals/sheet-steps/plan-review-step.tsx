@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2, Pencil, Trash2, Plus, Check, X } from "lucide-react";
 import * as api from "@/lib/api";
+import { ErrorBanner } from "@/components/shared/error-banner";
 import type { GeneratedPlan, PlannedJob, ScheduleType } from "@openorchestra/shared";
 import { formatSchedule } from "@/lib/format";
 
@@ -157,7 +158,13 @@ export function PlanReviewStep({
         </button>
       )}
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <ErrorBanner
+          message={error}
+          onRetry={handleCommit}
+          onDismiss={() => setError(null)}
+        />
+      )}
 
       <Button
         onClick={handleCommit}

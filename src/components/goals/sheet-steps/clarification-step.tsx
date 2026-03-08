@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
 import * as api from "@/lib/api";
+import { ErrorBanner } from "@/components/shared/error-banner";
 import type { ClarifyingQuestion, GeneratedPlan } from "@openorchestra/shared";
 import { cn } from "@/lib/utils";
 
@@ -106,7 +107,13 @@ export function ClarificationStep({
         </div>
       ))}
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <ErrorBanner
+          message={error}
+          onRetry={handleGenerate}
+          onDismiss={() => setError(null)}
+        />
+      )}
 
       <Button
         onClick={handleGenerate}

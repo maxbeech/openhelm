@@ -96,11 +96,13 @@ describe("generatePlan", () => {
       ],
     };
 
-    createMock.mockResolvedValueOnce({
+    const badResponse = {
       content: [{ type: "text", text: JSON.stringify(invalidPlan) }],
       stop_reason: "end_turn",
       usage: { input_tokens: 50, output_tokens: 50 },
-    });
+    };
+    createMock.mockResolvedValueOnce(badResponse);
+    createMock.mockResolvedValueOnce(badResponse); // retry also fails
 
     await expect(
       generatePlan(projectId, "Do something"),
@@ -121,11 +123,13 @@ describe("generatePlan", () => {
       ],
     };
 
-    createMock.mockResolvedValueOnce({
+    const badResponse = {
       content: [{ type: "text", text: JSON.stringify(tooFew) }],
       stop_reason: "end_turn",
       usage: { input_tokens: 50, output_tokens: 50 },
-    });
+    };
+    createMock.mockResolvedValueOnce(badResponse);
+    createMock.mockResolvedValueOnce(badResponse); // retry also fails
 
     await expect(
       generatePlan(projectId, "Simple goal"),
@@ -144,11 +148,13 @@ describe("generatePlan", () => {
       })),
     };
 
-    createMock.mockResolvedValueOnce({
+    const badResponse = {
       content: [{ type: "text", text: JSON.stringify(tooMany) }],
       stop_reason: "end_turn",
       usage: { input_tokens: 50, output_tokens: 50 },
-    });
+    };
+    createMock.mockResolvedValueOnce(badResponse);
+    createMock.mockResolvedValueOnce(badResponse); // retry also fails
 
     await expect(
       generatePlan(projectId, "Lots of jobs"),
@@ -177,11 +183,13 @@ describe("generatePlan", () => {
       ],
     };
 
-    createMock.mockResolvedValueOnce({
+    const badResponse = {
       content: [{ type: "text", text: JSON.stringify(badSchedule) }],
       stop_reason: "end_turn",
       usage: { input_tokens: 50, output_tokens: 50 },
-    });
+    };
+    createMock.mockResolvedValueOnce(badResponse);
+    createMock.mockResolvedValueOnce(badResponse); // retry also fails
 
     await expect(
       generatePlan(projectId, "Invalid schedule"),
@@ -210,11 +218,13 @@ describe("generatePlan", () => {
       ],
     };
 
-    createMock.mockResolvedValueOnce({
+    const badResponse = {
       content: [{ type: "text", text: JSON.stringify(emptyFields) }],
       stop_reason: "end_turn",
       usage: { input_tokens: 50, output_tokens: 50 },
-    });
+    };
+    createMock.mockResolvedValueOnce(badResponse);
+    createMock.mockResolvedValueOnce(badResponse); // retry also fails
 
     await expect(
       generatePlan(projectId, "Empty fields"),

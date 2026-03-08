@@ -144,6 +144,7 @@ export type SettingKey =
   | "max_concurrent_runs"
   | "default_timeout_minutes"
   | "run_timeout_minutes"
+  | "notification_permission_requested"
   | "theme";
 
 export interface Setting {

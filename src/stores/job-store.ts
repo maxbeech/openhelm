@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Job, CreateJobParams } from "@openorchestra/shared";
 import * as api from "@/lib/api";
+import { friendlyError } from "@/lib/utils";
 
 interface JobState {
   jobs: Job[];
@@ -20,9 +21,14 @@ export const useJobStore = create<JobState>((set) => ({
   error: null,
 
   createJob: async (params) => {
-    const job = await api.createJob(params);
-    set((s) => ({ jobs: [job, ...s.jobs] }));
-    return job;
+    try {
+      const job = await api.createJob(params);
+      set((s) => ({ jobs: [job, ...s.jobs] }));
+      return job;
+    } catch (err) {
+      set({ error: friendlyError(err, "Failed to create job") });
+      throw err;
+    }
   },
 
   fetchJobs: async (projectId) => {
@@ -32,22 +38,32 @@ export const useJobStore = create<JobState>((set) => ({
       set({ jobs, loading: false });
     } catch (err) {
       set({
-        error: err instanceof Error ? err.message : String(err),
+        error: friendlyError(err, "Failed to load jobs"),
         loading: false,
       });
     }
   },
 
   toggleEnabled: async (id, isEnabled) => {
-    const updated = await api.updateJob({ id, isEnabled });
-    set((s) => ({
-      jobs: s.jobs.map((j) => (j.id === id ? updated : j)),
-    }));
+    try {
+      const updated = await api.updateJob({ id, isEnabled });
+      set((s) => ({
+        jobs: s.jobs.map((j) => (j.id === id ? updated : j)),
+      }));
+    } catch (err) {
+      set({ error: friendlyError(err, "Failed to toggle job") });
+      throw err;
+    }
   },
 
   deleteJob: async (id) => {
-    await api.deleteJob(id);
-    set((s) => ({ jobs: s.jobs.filter((j) => j.id !== id) }));
+    try {
+      await api.deleteJob(id);
+      set((s) => ({ jobs: s.jobs.filter((j) => j.id !== id) }));
+    } catch (err) {
+      set({ error: friendlyError(err, "Failed to delete job") });
+      throw err;
+    }
   },
 
   updateJobInStore: (job) => {

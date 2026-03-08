@@ -12,10 +12,12 @@ import type {
 const MIN_JOBS = 2;
 const MAX_JOBS = 6;
 const VALID_SCHEDULE_TYPES: ScheduleType[] = ["once", "interval", "cron"];
+const JSON_PARSE_MAX_RETRIES = 1;
 
 /**
  * Generate a plan of Claude Code jobs for a given goal.
  * Uses the agent loop with tool calling (cron validation, datetime).
+ * Retries once automatically on JSON parse failures (malformed LLM output).
  */
 export async function generatePlan(
   projectId: string,
@@ -35,17 +37,32 @@ export async function generatePlan(
     clarificationAnswers,
   );
 
-  const result = await runAgentLoop({
-    model: "planning",
-    system: PLAN_GENERATION_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }],
-    tools: PLANNING_TOOLS,
-    maxTokens: 8192,
-    maxIterations: 5,
-    temperature: 0.3,
-  });
+  let lastError: unknown;
 
-  return parsePlanResponse(result.text);
+  for (let attempt = 0; attempt <= JSON_PARSE_MAX_RETRIES; attempt++) {
+    const result = await runAgentLoop({
+      model: "planning",
+      system: PLAN_GENERATION_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userMessage }],
+      tools: PLANNING_TOOLS,
+      maxTokens: 8192,
+      maxIterations: 5,
+      temperature: 0.3,
+    });
+
+    try {
+      return parsePlanResponse(result.text);
+    } catch (err) {
+      lastError = err;
+      if (attempt < JSON_PARSE_MAX_RETRIES) {
+        console.error(
+          `[planner] plan generation JSON parse failed (attempt ${attempt + 1}), retrying`,
+        );
+      }
+    }
+  }
+
+  throw lastError;
 }
 
 function buildGenerationMessage(

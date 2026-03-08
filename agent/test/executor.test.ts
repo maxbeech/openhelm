@@ -256,6 +256,43 @@ describe("Executor pre-flight checks", () => {
     expect(logs.some((l) => l.text.includes("Job not found"))).toBe(true);
   });
 
+  it("fails permanently when Claude Code binary doesn't exist", async () => {
+    // Temporarily point to a non-existent binary path
+    setSetting("claude_code_path", "/nonexistent/claude-code-binary");
+
+    const job = createJob({
+      projectId,
+      name: "Bad Binary Job",
+      prompt: "test binary check",
+      scheduleType: "interval",
+      scheduleConfig: { minutes: 10 },
+    });
+    const run = createRun({ jobId: job.id, triggerSource: "manual" });
+
+    queue.enqueue({
+      runId: run.id,
+      jobId: job.id,
+      priority: 0,
+      enqueuedAt: Date.now(),
+    });
+
+    const executor = new Executor(mockRunner());
+    executor.processNext();
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const updated = getRun(run.id);
+    expect(updated!.status).toBe("permanent_failure");
+
+    const logs = listRunLogs({ runId: run.id });
+    expect(
+      logs.some((l) => l.text.includes("Claude Code CLI not found")),
+    ).toBe(true);
+
+    // Restore valid path for remaining tests
+    setSetting("claude_code_path", "/usr/bin/true");
+  });
+
   it("fails permanently when project directory doesn't exist", async () => {
     const badProject = createProject({
       name: "Bad Dir",

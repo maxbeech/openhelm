@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Run, RunStatus } from "@openorchestra/shared";
 import * as api from "@/lib/api";
+import { friendlyError } from "@/lib/utils";
 
 interface RunState {
   runs: Run[];
@@ -27,7 +28,7 @@ export const useRunStore = create<RunState>((set) => ({
       set({ runs, loading: false });
     } catch (err) {
       set({
-        error: err instanceof Error ? err.message : String(err),
+        error: friendlyError(err, "Failed to load runs"),
         loading: false,
       });
     }
@@ -38,18 +39,28 @@ export const useRunStore = create<RunState>((set) => ({
   },
 
   triggerRun: async (jobId) => {
-    const run = await api.triggerRun({ jobId });
-    set((s) => ({ runs: [run, ...s.runs] }));
-    return run;
+    try {
+      const run = await api.triggerRun({ jobId });
+      set((s) => ({ runs: [run, ...s.runs] }));
+      return run;
+    } catch (err) {
+      set({ error: friendlyError(err, "Failed to trigger run") });
+      throw err;
+    }
   },
 
   cancelRun: async (runId) => {
-    await api.cancelRun({ runId });
-    set((s) => ({
-      runs: s.runs.map((r) =>
-        r.id === runId ? { ...r, status: "cancelled" as RunStatus } : r,
-      ),
-    }));
+    try {
+      await api.cancelRun({ runId });
+      set((s) => ({
+        runs: s.runs.map((r) =>
+          r.id === runId ? { ...r, status: "cancelled" as RunStatus } : r,
+        ),
+      }));
+    } catch (err) {
+      set({ error: friendlyError(err, "Failed to cancel run") });
+      throw err;
+    }
   },
 
   updateRunStatus: (runId, status) => {

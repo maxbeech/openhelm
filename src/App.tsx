@@ -1,6 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
+import { RefreshCw } from "lucide-react";
 import { agentClient } from "./lib/agent-client";
 import * as api from "./lib/api";
+import {
+  isPermissionGranted,
+  requestPermission,
+} from "@tauri-apps/plugin-notification";
 import { useAppStore } from "./stores/app-store";
 import { useProjectStore } from "./stores/project-store";
 import { OnboardingWizard } from "./components/onboarding/onboarding-wizard";
@@ -25,6 +30,7 @@ export default function App() {
   const { projects, fetchProjects } = useProjectStore();
   const [showNewProject, setShowNewProject] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [agentTimeout, setAgentTimeout] = useState(false);
 
   // Start agent client and detect readiness
   useEffect(() => {
@@ -37,6 +43,13 @@ export default function App() {
 
     return () => window.removeEventListener("agent:agent.ready", onReady);
   }, [setAgentReady]);
+
+  // Timeout: show error if agent hasn't responded within 15 seconds
+  useEffect(() => {
+    if (agentReady) return;
+    const timer = setTimeout(() => setAgentTimeout(true), 15_000);
+    return () => clearTimeout(timer);
+  }, [agentReady]);
 
   // Once agent is ready, load initial state
   useEffect(() => {
@@ -54,6 +67,28 @@ export default function App() {
       setInitialLoading(false);
     })();
   }, [agentReady, fetchProjects, setOnboardingComplete, setActiveProjectId]);
+
+  // Request notification permission on first launch
+  useEffect(() => {
+    if (!agentReady || initialLoading) return;
+    (async () => {
+      try {
+        const notifRequested = await api.getSetting("notification_permission_requested");
+        if (!notifRequested?.value) {
+          const permissionGranted = await isPermissionGranted();
+          if (!permissionGranted) {
+            await requestPermission();
+          }
+          await api.setSetting({
+            key: "notification_permission_requested",
+            value: "true",
+          });
+        }
+      } catch (err) {
+        console.error("Failed to request notification permission:", err);
+      }
+    })();
+  }, [agentReady, initialLoading]);
 
   // Sync active project data when project changes
   useEffect(() => {
@@ -90,10 +125,26 @@ export default function App() {
         <h1 className="text-2xl font-bold tracking-tight">
           <span className="text-primary">Open</span>Orchestra
         </h1>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <div className="size-2 animate-pulse rounded-full bg-primary" />
-          Starting agent...
-        </div>
+        {agentTimeout ? (
+          <div className="flex flex-col items-center gap-3">
+            <p className="max-w-xs text-center text-sm text-destructive">
+              The background agent is not responding. Check that Claude Code is
+              installed and try restarting.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <RefreshCw className="size-4" />
+              Restart
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="size-2 animate-pulse rounded-full bg-primary" />
+            Starting agent...
+          </div>
+        )}
       </div>
     );
   }

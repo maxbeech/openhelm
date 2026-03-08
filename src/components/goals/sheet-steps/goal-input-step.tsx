@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2 } from "lucide-react";
 import * as api from "@/lib/api";
+import { ErrorBanner } from "@/components/shared/error-banner";
 import type { AssessmentResult } from "@openorchestra/shared";
 
 interface GoalInputStepProps {
@@ -32,7 +33,9 @@ export function GoalInputStep({
       });
       onAssessmentComplete(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Assessment failed");
+      setError(
+        err instanceof Error ? err.message : "Goal assessment failed",
+      );
     } finally {
       setAssessing(false);
     }
@@ -51,7 +54,13 @@ export function GoalInputStep({
         />
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <ErrorBanner
+          message={error}
+          onRetry={handleContinue}
+          onDismiss={() => setError(null)}
+        />
+      )}
 
       <Button
         onClick={handleContinue}

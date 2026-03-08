@@ -216,3 +216,82 @@
 - Frontend API: `assessPrompt()` wrapper
 - Shared types: `AssessPromptParams`, `PromptAssessmentResult`
 - 37 new tests (291 total): prompt assessment (9), job store (4), creation sheet (6), clarification component (5), existing suites unchanged
+
+### Phase 8 — Polish, Hardening & Distribution
+
+#### 8.1 Comprehensive Error Handling
+- Typed LLM error propagation through IPC (`agent/src/ipc/handler.ts`)
+  - `LlmError` instances mapped to dedicated IPC error code `-32001` with human-readable messages
+  - Per-code user-friendly messages: missing_api_key, authentication_failed, rate_limited, overloaded, network_error, timeout, invalid_request, unknown
+- Executor preflight checks enhanced (`agent/src/executor/index.ts`)
+  - Claude Code binary existence check via `existsSync` (not just config presence)
+  - Actionable messages for missing CLI path, missing binary, missing project directory
+  - All preflight failures produce `permanent_failure` with clear guidance
+- Database initialization error handling (`agent/src/db/init.ts`)
+  - `SQLITE_FULL` caught and surfaced as "Your disk may be full"
+  - Generic init failures include database path in error message
+- Malformed LLM response retry (`agent/src/planner/assess.ts`, `agent/src/planner/generate.ts`)
+  - Single automatic retry on JSON parse failures before surfacing error
+  - Console logging on retry for debugging
+- Agent crash handlers (`agent/src/index.ts`)
+  - `uncaughtException` and `unhandledRejection` handlers emit `agent.error` event before exit
+- Frontend `friendlyError` utility (`src/lib/utils.ts`)
+  - Extracts human-readable messages from JSON-RPC errors, timeout errors, and raw exceptions
+  - Used in all Zustand store catch blocks (goal, job, run stores)
+- Reusable `ErrorBanner` component (`src/components/shared/error-banner.tsx`)
+  - AlertTriangle icon, message, optional Retry and Dismiss buttons
+- Agent timeout detection in `App.tsx`
+  - 15-second timeout on agent readiness with error UI and Restart button (`relaunch_app` Tauri command)
+- 22 new tests: IPC error mapping (7), friendlyError utility (7), ErrorBanner component (8)
+
+#### 8.2 Empty States
+- Goals screen: descriptive guidance text directing users to type their first goal
+- Jobs screen: dual empty states — no jobs at all (with "Set a goal" + "Create job" action buttons) vs. filtered to empty (filter-specific message)
+- Runs screen: dynamic empty description showing next scheduled run time when jobs with `nextFireAt` exist
+- Run detail panel: summary section for running state ("Summary will appear when the run completes.") and terminal with no summary ("Summary unavailable.")
+
+#### 8.3 Performance — Virtualized Log Viewer
+- Log viewer rewritten with virtual scrolling (`src/components/runs/log-viewer.tsx`)
+  - Only renders visible lines plus overscan buffer (~60-80 DOM nodes regardless of total log count)
+  - Constants: `LINE_HEIGHT = 20px`, `OVERSCAN = 20 lines`, `BOTTOM_THRESHOLD = 30px`
+  - `ResizeObserver` for responsive container height tracking
+  - Auto-scroll tracking via `wasAtBottomRef` — pauses when user scrolls up, resumes at bottom
+  - "Jump to latest" button when user is scrolled up during live run
+  - Handles 10,000+ log lines without freezing or scroll jank
+
+#### 8.4 macOS Integration
+- Dock behaviour: hide-on-close via `on_window_event` handler in `lib.rs`
+  - `CloseRequested` → `api.prevent_close()` + `window.hide()` — agent keeps running in background
+  - macOS "Quit" menu item still terminates the app normally
+- Launch at login: `tauri-plugin-autostart` with `MacosLauncher::LaunchAgent`
+  - Toggle in Settings screen under Application section
+  - Invokes `plugin:autostart|enable` / `plugin:autostart|disable` via Tauri invoke
+- Notification permission: requested on first launch via `tauri-plugin-notification`
+  - Checks `notification_permission_requested` setting to avoid repeat prompts
+  - Requests permission early (not at notification time) per macOS UX best practice
+- Native file picker: `tauri-plugin-dialog` registered for directory selection throughout the app
+- `relaunch_app` Tauri command added for restart functionality
+- Rust plugins added to `Cargo.toml`: `tauri-plugin-autostart`, `tauri-plugin-notification`, `tauri-plugin-dialog`, `tauri-plugin-updater`
+- Capabilities updated with permissions for all four plugins
+- `macOSPrivateApi` enabled in `tauri.conf.json` for dock behaviour support
+
+#### 8.5 Build Pipeline & Distribution
+- GitHub Actions release workflow (`.github/workflows/release.yml`)
+  - Triggers on `v*` tag push, builds on `macos-latest` (Apple Silicon)
+  - Installs Node 20, Rust stable (aarch64 + x86_64 targets), npm dependencies
+  - Builds agent sidecar and copies to `src-tauri/binaries/` with Tauri target-triple naming
+  - Imports Apple Developer certificate for code signing (optional, via secrets)
+  - Uses `tauri-apps/tauri-action@v0` for build, sign, notarize, and GitHub Release creation
+  - Attaches DMG and `latest.json` updater manifest to release
+  - Secrets: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`
+- GitHub Actions CI workflow (`.github/workflows/ci.yml`)
+  - Runs on PRs to main and pushes to main
+  - `lint-and-test` job: TypeScript type-check, ESLint, full test suite
+  - `build-check` job: agent sidecar build + Rust `cargo check` compilation verification
+  - Concurrency groups cancel in-progress runs for same branch/PR
+- Tauri auto-updater integration
+  - `tauri-plugin-updater = "2"` added to Rust dependencies
+  - Plugin registered in `lib.rs` via `.plugin(tauri_plugin_updater::Builder::new().build())`
+  - Updater configured in `tauri.conf.json` plugins section with GitHub Releases endpoint
+  - `updater:default` permission added to default capabilities
+- 24 new tests (315 total): IPC error mapping (7), friendlyError (7), ErrorBanner (8), executor preflight (1), planner retry fixes (1)

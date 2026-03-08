@@ -95,6 +95,24 @@ export function RunsScreen() {
     return job?.name ?? "Deleted job";
   };
 
+  const getEmptyRunsDescription = () => {
+    if (runs.length === 0) {
+      // Check if any enabled jobs have a future nextFireAt
+      const nextJob = jobs
+        .filter((j) => j.isEnabled && j.nextFireAt)
+        .sort(
+          (a, b) =>
+            new Date(a.nextFireAt!).getTime() -
+            new Date(b.nextFireAt!).getTime(),
+        )[0];
+
+      if (nextJob) {
+        return `No runs yet. Next scheduled run: '${nextJob.name}' ${formatRelativeTime(nextJob.nextFireAt!)}.`;
+      }
+    }
+    return "No runs yet. Runs will appear here once your jobs start running.";
+  };
+
   if (!activeProjectId) return null;
 
   return (
@@ -146,7 +164,7 @@ export function RunsScreen() {
           <EmptyState
             icon={Play}
             title="No runs"
-            description="Runs will appear here when jobs execute."
+            description={getEmptyRunsDescription()}
           />
         ) : (
           <table className="w-full text-sm">
