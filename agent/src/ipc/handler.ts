@@ -10,11 +10,16 @@ export function registerHandler(method: string, fn: HandlerFn) {
   handlers.set(method, fn);
 }
 
+// Methods too noisy to log on every call
+const SILENT_METHODS = new Set(["ping", "health"]);
+
 /** Route an IPC request to the appropriate handler */
 export async function handleRequest(req: IpcRequest): Promise<IpcResponse> {
   const handler = handlers.get(req.method);
+  const silent = SILENT_METHODS.has(req.method);
 
   if (!handler) {
+    console.error(`[ipc] unknown method: ${req.method}`);
     const error: IpcError = {
       code: -32601,
       message: `Unknown method: ${req.method}`,
@@ -22,10 +27,15 @@ export async function handleRequest(req: IpcRequest): Promise<IpcResponse> {
     return { id: req.id, error };
   }
 
+  if (!silent) console.error(`[ipc] → ${req.method}`);
+  const t0 = Date.now();
+
   try {
     const result = await handler(req.params);
+    if (!silent) console.error(`[ipc] ← ${req.method} (${Date.now() - t0}ms)`);
     return { id: req.id, result };
   } catch (err) {
+    console.error(`[ipc] ✗ ${req.method} (${Date.now() - t0}ms):`, err instanceof Error ? err.message : err);
     if (err instanceof PrintError) {
       const error: IpcError = {
         code: -32001,

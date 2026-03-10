@@ -1,0 +1,1 @@
+ALTER TABLE `jobs` ADD `is_archived` integer NOT NULL DEFAULT 0;

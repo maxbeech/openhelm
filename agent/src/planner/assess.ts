@@ -1,10 +1,9 @@
 import { callLlmViaCli } from "./llm-via-cli.js";
-import { extractJson } from "./extract-json.js";
+import { validateQuestions } from "./validators.js";
 import { getProject } from "../db/queries/projects.js";
 import { ASSESSMENT_SYSTEM_PROMPT } from "./prompts.js";
-import type { AssessmentResult, ClarifyingQuestion } from "@openorchestra/shared";
-
-const MAX_QUESTIONS = 2;
+import { ASSESSMENT_SCHEMA } from "./schemas.js";
+import type { AssessmentResult } from "@openorchestra/shared";
 
 const JSON_PARSE_MAX_RETRIES = 1;
 
@@ -33,6 +32,7 @@ export async function assessGoal(
       model: "classification",
       systemPrompt: ASSESSMENT_SYSTEM_PROMPT,
       userMessage,
+      jsonSchema: ASSESSMENT_SCHEMA,
     });
 
     try {
@@ -66,7 +66,7 @@ function buildAssessmentMessage(
 function parseAssessmentResponse(text: string): AssessmentResult {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(extractJson(text));
+    parsed = JSON.parse(text);
   } catch {
     throw new Error(
       `Failed to parse assessment response as JSON: ${text.slice(0, 200)}`,
@@ -87,31 +87,6 @@ function parseAssessmentResponse(text: string): AssessmentResult {
     return { needsClarification: false, questions: [] };
   }
 
-  // Validate and cap questions
   const questions = validateQuestions(obj.questions);
   return { needsClarification: true, questions };
-}
-
-function validateQuestions(raw: unknown): ClarifyingQuestion[] {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return [];
-  }
-
-  const questions: ClarifyingQuestion[] = [];
-  for (const item of raw.slice(0, MAX_QUESTIONS)) {
-    if (
-      typeof item === "object" &&
-      item !== null &&
-      typeof (item as Record<string, unknown>).question === "string" &&
-      Array.isArray((item as Record<string, unknown>).options)
-    ) {
-      questions.push({
-        question: (item as Record<string, unknown>).question as string,
-        options: ((item as Record<string, unknown>).options as unknown[])
-          .filter((o) => typeof o === "string")
-          .slice(0, 5) as string[],
-      });
-    }
-  }
-  return questions;
 }

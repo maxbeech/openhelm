@@ -27,6 +27,8 @@ export interface PrintConfig {
   jsonSchema?: object;
   /** Pass --tools "" to disable tool use (default: true) */
   disableTools?: boolean;
+  /** Optional callback fired per stdout line as it arrives */
+  onProgress?: (chunk: string) => void;
 }
 
 export interface PrintResult {
@@ -57,7 +59,9 @@ export function runClaudeCodePrint(config: PrintConfig): Promise<PrintResult> {
 
     const args = buildPrintArgs(config);
 
-    console.error(`[print] spawning: ${config.binaryPath} ${args.join(" ")}`);
+    console.error(
+      `[print] spawning: ${config.binaryPath} --print --model ${config.model ?? "(default)"} (${args.length} args)`,
+    );
 
     // Remove CLAUDECODE env var so Claude Code doesn't refuse to run
     // when the agent itself is being developed inside a Claude Code session.
@@ -75,7 +79,10 @@ export function runClaudeCodePrint(config: PrintConfig): Promise<PrintResult> {
     let resolved = false;
 
     const stdoutRl = createInterface({ input: child.stdout! });
-    stdoutRl.on("line", (line) => stdoutChunks.push(line));
+    stdoutRl.on("line", (line) => {
+      stdoutChunks.push(line);
+      config.onProgress?.(line + "\n");
+    });
 
     const stderrRl = createInterface({ input: child.stderr! });
     stderrRl.on("line", (line) => stderrChunks.push(line));
@@ -147,6 +154,10 @@ function buildPrintArgs(config: PrintConfig): string[] {
   if (config.disableTools !== false) {
     args.push("--tools", "");
   }
+
+  // Prevent session state from being saved/loaded so internal LLM calls
+  // do not bleed across invocations or load unrelated session history.
+  args.push("--no-session-persistence");
 
   return args;
 }

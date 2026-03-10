@@ -5,7 +5,7 @@ import { registerRunHandlers } from "./runs.js";
 import { registerSettingHandlers } from "./settings.js";
 import { registerClaudeCodeHandlers } from "./claude-code.js";
 import { registerSchedulerHandlers } from "./scheduler.js";
-import { registerPlannerHandlers } from "./planner.js";
+import { registerChatHandlers } from "./chat.js";
 
 /** Register all domain IPC handlers */
 export function registerAllHandlers() {
@@ -16,5 +16,5 @@ export function registerAllHandlers() {
   registerSettingHandlers();
   registerClaudeCodeHandlers();
   registerSchedulerHandlers();
-  registerPlannerHandlers();
+  registerChatHandlers();
 }

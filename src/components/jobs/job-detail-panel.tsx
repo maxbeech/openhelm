@@ -2,8 +2,9 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { X, Play, Clock, AlertTriangle } from "lucide-react";
+import { X, Play, Clock, AlertTriangle, Archive, Trash2 } from "lucide-react";
 import { RunStatusBadge } from "@/components/shared/status-badge";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { useJobStore } from "@/stores/job-store";
 import { useRunStore } from "@/stores/run-store";
 import { useAppStore } from "@/stores/app-store";
@@ -17,11 +18,15 @@ interface JobDetailPanelProps {
 }
 
 export function JobDetailPanel({ job, runs, onClose }: JobDetailPanelProps) {
-  const { toggleEnabled } = useJobStore();
+  const { toggleEnabled, archiveJob, deleteJob } = useJobStore();
   const { triggerRun } = useRunStore();
-  const { setPage } = useAppStore();
+  const { selectRun } = useAppStore();
   const [triggering, setTriggering] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<
+    "archive" | "delete" | null
+  >(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
 
   const hasRunningRun = runs.some((r) => r.status === "running");
   const recentRuns = runs.slice(0, 20);
@@ -37,6 +42,22 @@ export function JobDetailPanel({ job, runs, onClose }: JobDetailPanelProps) {
       await triggerRun(job.id);
     } finally {
       setTriggering(false);
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (!confirmAction) return;
+    setConfirmLoading(true);
+    try {
+      if (confirmAction === "archive") {
+        await archiveJob(job.id);
+      } else {
+        await deleteJob(job.id);
+      }
+      onClose();
+    } finally {
+      setConfirmLoading(false);
+      setConfirmAction(null);
     }
   };
 
@@ -120,7 +141,7 @@ export function JobDetailPanel({ job, runs, onClose }: JobDetailPanelProps) {
             {recentRuns.map((run) => (
               <button
                 key={run.id}
-                onClick={() => setPage("runs", { runId: run.id })}
+                onClick={() => selectRun(run.id, run.jobId)}
                 className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent/50"
               >
                 <RunStatusBadge status={run.status} />
@@ -131,7 +152,51 @@ export function JobDetailPanel({ job, runs, onClose }: JobDetailPanelProps) {
             ))}
           </div>
         )}
+
+        <Separator className="my-4" />
+
+        {/* Archive & Delete */}
+        <div className="flex gap-2">
+          {!job.isArchived && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={() => setConfirmAction("archive")}
+            >
+              <Archive className="size-3.5" />
+              Archive
+            </Button>
+          )}
+          <Button
+            variant="destructive"
+            size="sm"
+            className="flex-1"
+            onClick={() => setConfirmAction("delete")}
+          >
+            <Trash2 className="size-3.5" />
+            Delete
+          </Button>
+        </div>
       </div>
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        open={confirmAction !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmAction(null);
+        }}
+        title={confirmAction === "archive" ? "Archive job" : "Delete job"}
+        description={
+          confirmAction === "archive"
+            ? `This will archive "${job.name}" and disable it. It will appear in the archived section.`
+            : `This will permanently delete "${job.name}" and all its runs and logs. This cannot be undone.`
+        }
+        confirmLabel={confirmAction === "archive" ? "Archive" : "Delete"}
+        variant={confirmAction === "delete" ? "destructive" : "default"}
+        onConfirm={handleConfirm}
+        loading={confirmLoading}
+      />
     </div>
   );
 }

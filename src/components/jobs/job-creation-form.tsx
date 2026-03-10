@@ -8,12 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PromptClarification } from "./prompt-clarification";
-import type {
-  Goal,
-  ScheduleType,
-  ClarifyingQuestion,
-} from "@openorchestra/shared";
+import type { Goal, ScheduleType } from "@openorchestra/shared";
 
 export interface JobFormState {
   name: string;
@@ -36,12 +31,8 @@ interface JobCreationFormProps {
   errors: JobFormErrors;
   goals: Goal[];
   projectDirectory: string;
-  clarifyQuestions: ClarifyingQuestion[] | null;
-  clarifyAnswers: Record<string, string>;
   onFieldChange: (field: keyof JobFormState, value: string | number) => void;
   onFieldBlur: (field: string) => void;
-  onClarifyAnswersChange: (answers: Record<string, string>) => void;
-  onClarifyReset: () => void;
   error: string | null;
 }
 
@@ -50,12 +41,8 @@ export function JobCreationForm({
   errors,
   goals,
   projectDirectory,
-  clarifyQuestions,
-  clarifyAnswers,
   onFieldChange,
   onFieldBlur,
-  onClarifyAnswersChange,
-  onClarifyReset,
   error,
 }: JobCreationFormProps) {
   return (
@@ -91,10 +78,7 @@ export function JobCreationForm({
         <Textarea
           id="job-prompt"
           value={form.prompt}
-          onChange={(e) => {
-            onFieldChange("prompt", e.target.value);
-            if (clarifyQuestions !== null) onClarifyReset();
-          }}
+          onChange={(e) => onFieldChange("prompt", e.target.value)}
           onBlur={() => onFieldBlur("prompt")}
           placeholder="Sent directly to Claude Code. Include context about your project and be specific."
           rows={5}
@@ -104,15 +88,6 @@ export function JobCreationForm({
           <p className="text-xs text-destructive">{errors.prompt}</p>
         )}
       </div>
-
-      {/* Inline clarification questions */}
-      {clarifyQuestions && clarifyQuestions.length > 0 && (
-        <PromptClarification
-          questions={clarifyQuestions}
-          answers={clarifyAnswers}
-          onAnswersChange={onClarifyAnswersChange}
-        />
-      )}
 
       {/* Goal association */}
       <div className="space-y-1.5">
@@ -128,8 +103,8 @@ export function JobCreationForm({
             <SelectItem value="none">No goal</SelectItem>
             {goals.map((g) => (
               <SelectItem key={g.id} value={g.id}>
-                {g.description.slice(0, 40)}
-                {g.description.length > 40 ? "..." : ""}
+                {(g.name || g.description).slice(0, 40)}
+                {(g.name || g.description).length > 40 ? "..." : ""}
               </SelectItem>
             ))}
           </SelectContent>

@@ -63,6 +63,7 @@ export type GoalStatus = "active" | "paused" | "archived";
 export interface Goal {
   id: string;
   projectId: string;
+  name: string;
   description: string;
   status: GoalStatus;
   createdAt: string;
@@ -98,6 +99,7 @@ export interface Job {
   scheduleType: ScheduleType;
   scheduleConfig: ScheduleConfig;
   isEnabled: boolean;
+  isArchived: boolean;
   workingDirectory: string | null;
   nextFireAt: string | null;
   createdAt: string;
@@ -172,11 +174,13 @@ export interface UpdateProjectParams {
 // Goals
 export interface CreateGoalParams {
   projectId: string;
-  description: string;
+  name: string;
+  description?: string;
 }
 
 export interface UpdateGoalParams {
   id: string;
+  name?: string;
   description?: string;
   status?: GoalStatus;
 }
@@ -202,6 +206,7 @@ export interface UpdateJobParams {
   scheduleType?: ScheduleType;
   scheduleConfig?: ScheduleConfig;
   isEnabled?: boolean;
+  isArchived?: boolean;
   workingDirectory?: string | null;
 }
 
@@ -256,6 +261,95 @@ export interface ListJobsParams {
 export interface ListGoalsParams {
   projectId: string;
   status?: GoalStatus;
+}
+
+// ─── Chat Types ───
+
+export type MessageRole = "user" | "assistant" | "system" | "tool_result";
+/** Source channel of a conversation. Extend for future 3P integrations (WhatsApp, Slack, etc.) */
+export type ChatChannel = "app";
+
+export interface Conversation {
+  id: string;
+  projectId: string;
+  channel: ChatChannel;
+  title: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatToolCall {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+}
+
+export interface ChatToolResult {
+  callId: string;
+  tool: string;
+  result: unknown;
+  error?: string;
+}
+
+export interface PendingAction {
+  callId: string;
+  tool: string;
+  args: Record<string, unknown>;
+  description: string;
+  status: "pending" | "approved" | "rejected";
+}
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  role: MessageRole;
+  content: string;
+  toolCalls: ChatToolCall[] | null;
+  toolResults: ChatToolResult[] | null;
+  pendingActions: PendingAction[] | null;
+  createdAt: string;
+}
+
+export interface ChatContext {
+  viewingGoalId?: string;
+  viewingJobId?: string;
+  viewingRunId?: string;
+}
+
+export interface SendChatMessageParams {
+  projectId: string;
+  content: string;
+  context?: ChatContext;
+}
+
+export interface ApproveChatActionParams {
+  messageId: string;
+  callId: string;
+  projectId: string;
+}
+
+export interface RejectChatActionParams {
+  messageId: string;
+  callId: string;
+}
+
+export interface ApproveAllChatActionsParams {
+  messageId: string;
+  projectId: string;
+}
+
+export interface RejectAllChatActionsParams {
+  messageId: string;
+}
+
+export interface ListChatMessagesParams {
+  projectId: string;
+  limit?: number;
+  beforeId?: string;
+}
+
+export interface ClearChatParams {
+  projectId: string;
 }
 
 // ─── Claude Code Integration Types ───
@@ -370,6 +464,29 @@ export interface CommitPlanParams {
   projectId: string;
   goalDescription: string;
   jobs: PlannedJob[];
+}
+
+/** Combined assess + generate result (plan path) */
+export interface AssessAndGenerateResultPlan {
+  needsClarification: false;
+  plan: GeneratedPlan;
+}
+
+/** Combined assess + generate result (clarification path) */
+export interface AssessAndGenerateResultClarify {
+  needsClarification: true;
+  questions: ClarifyingQuestion[];
+}
+
+/** Discriminated union for combined assess + generate */
+export type AssessAndGenerateResult =
+  | AssessAndGenerateResultPlan
+  | AssessAndGenerateResultClarify;
+
+/** Params for combined assess + generate */
+export interface AssessAndGenerateParams {
+  projectId: string;
+  goalDescription: string;
 }
 
 /** Params for assessing a manual job prompt */

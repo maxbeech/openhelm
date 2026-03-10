@@ -6,7 +6,7 @@
 import { runClaudeCodePrint } from "../claude-code/print.js";
 import { getSetting } from "../db/queries/settings.js";
 
-export type ModelTier = "planning" | "classification";
+export type ModelTier = "planning" | "classification" | "chat";
 
 export interface LlmCallConfig {
   model?: ModelTier;
@@ -14,17 +14,20 @@ export interface LlmCallConfig {
   userMessage: string;
   timeoutMs?: number;
   jsonSchema?: object;
+  onProgress?: (chunk: string) => void;
 }
 
 const MODEL_MAP: Record<ModelTier, string> = {
   planning: "sonnet",
   classification: "claude-haiku-4-5-20251001",
+  chat: "sonnet",
 };
 
-// Tier-specific timeouts: planning (sonnet) is much slower than classification (haiku).
+// Tier-specific timeouts: sonnet is slower than haiku, allow generous headroom.
 const TIMEOUT_MAP: Record<ModelTier, number> = {
   planning: 180_000,      // 3 minutes — sonnet plan generation can take 60-90s
   classification: 60_000, // 1 minute — haiku assess/summarise is fast but allow headroom
+  chat: 120_000,          // 2 minutes — sonnet for interactive chat (needs structured output)
 };
 
 /**
@@ -38,6 +41,9 @@ export async function callLlmViaCli(config: LlmCallConfig): Promise<string> {
   const model = MODEL_MAP[tier];
   const timeoutMs = config.timeoutMs ?? TIMEOUT_MAP[tier];
 
+  console.error(`[llm] calling ${model} (tier=${tier}, timeout=${timeoutMs}ms)`);
+  const t0 = Date.now();
+
   const result = await runClaudeCodePrint({
     binaryPath,
     prompt: config.userMessage,
@@ -46,8 +52,10 @@ export async function callLlmViaCli(config: LlmCallConfig): Promise<string> {
     disableTools: true,
     timeoutMs,
     jsonSchema: config.jsonSchema,
+    onProgress: config.onProgress,
   });
 
+  console.error(`[llm] ${model} completed in ${Date.now() - t0}ms (${result.text.length} chars)`);
   return result.text;
 }
 

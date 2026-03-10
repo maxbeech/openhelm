@@ -27,28 +27,34 @@ afterAll(() => {
 });
 
 describe("goal queries", () => {
-  it("should create a goal with default active status", () => {
+  it("should create a goal with name and default active status", () => {
     const goal = createGoal({
       projectId,
-      description: "Improve test coverage",
+      name: "Improve test coverage",
+      description: "Increase coverage from 60% to 80%",
     });
 
     expect(goal.id).toBeDefined();
     expect(goal.projectId).toBe(projectId);
-    expect(goal.description).toBe("Improve test coverage");
+    expect(goal.name).toBe("Improve test coverage");
+    expect(goal.description).toBe("Increase coverage from 60% to 80%");
     expect(goal.status).toBe("active");
     expect(goal.createdAt).toBeDefined();
   });
 
+  it("should create a goal with empty description when omitted", () => {
+    const goal = createGoal({ projectId, name: "Minimal Goal" });
+    expect(goal.name).toBe("Minimal Goal");
+    expect(goal.description).toBe("");
+  });
+
   it("should get a goal by id", () => {
-    const created = createGoal({
-      projectId,
-      description: "Get Test Goal",
-    });
+    const created = createGoal({ projectId, name: "Get Test Goal" });
 
     const fetched = getGoal(created.id);
     expect(fetched).not.toBeNull();
     expect(fetched!.id).toBe(created.id);
+    expect(fetched!.name).toBe("Get Test Goal");
   });
 
   it("should return null for non-existent goal", () => {
@@ -62,7 +68,7 @@ describe("goal queries", () => {
   });
 
   it("should list goals filtered by status", () => {
-    const goal = createGoal({ projectId, description: "To Pause" });
+    const goal = createGoal({ projectId, name: "To Pause" });
     updateGoal({ id: goal.id, status: "paused" });
 
     const paused = listGoals({ projectId, status: "paused" });
@@ -70,14 +76,20 @@ describe("goal queries", () => {
     paused.forEach((g) => expect(g.status).toBe("paused"));
   });
 
+  it("should update goal name", () => {
+    const goal = createGoal({ projectId, name: "Old Name" });
+    const updated = updateGoal({ id: goal.id, name: "New Name" });
+    expect(updated.name).toBe("New Name");
+  });
+
   it("should update goal description", () => {
-    const goal = createGoal({ projectId, description: "Old" });
+    const goal = createGoal({ projectId, name: "Desc Test", description: "Old" });
     const updated = updateGoal({ id: goal.id, description: "New" });
     expect(updated.description).toBe("New");
   });
 
   it("should disable all jobs when archiving a goal", () => {
-    const goal = createGoal({ projectId, description: "Archive Test" });
+    const goal = createGoal({ projectId, name: "Archive Test" });
 
     // Create a job under this goal
     createJob({
@@ -105,14 +117,14 @@ describe("goal queries", () => {
   });
 
   it("should delete a goal", () => {
-    const goal = createGoal({ projectId, description: "To Delete" });
+    const goal = createGoal({ projectId, name: "To Delete" });
     expect(deleteGoal(goal.id)).toBe(true);
     expect(getGoal(goal.id)).toBeNull();
   });
 
   it("should throw on foreign key violation (invalid project)", () => {
     expect(() =>
-      createGoal({ projectId: "non-existent", description: "Bad FK" }),
+      createGoal({ projectId: "non-existent", name: "Bad FK" }),
     ).toThrow();
   });
 });

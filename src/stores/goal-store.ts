@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Goal, GoalStatus } from "@openorchestra/shared";
+import type { Goal, GoalStatus, CreateGoalParams } from "@openorchestra/shared";
 import * as api from "@/lib/api";
 import { friendlyError } from "@/lib/utils";
 
@@ -9,13 +9,27 @@ interface GoalState {
   error: string | null;
 
   fetchGoals: (projectId: string) => Promise<void>;
+  createGoal: (params: CreateGoalParams) => Promise<Goal>;
   updateGoalStatus: (id: string, status: GoalStatus) => Promise<void>;
+  archiveGoal: (id: string) => Promise<void>;
+  deleteGoal: (id: string) => Promise<void>;
 }
 
 export const useGoalStore = create<GoalState>((set) => ({
   goals: [],
   loading: false,
   error: null,
+
+  createGoal: async (params) => {
+    try {
+      const goal = await api.createGoal(params);
+      set((s) => ({ goals: [goal, ...s.goals] }));
+      return goal;
+    } catch (err) {
+      set({ error: friendlyError(err, "Failed to create goal") });
+      throw err;
+    }
+  },
 
   fetchGoals: async (projectId) => {
     set({ loading: true, error: null });
@@ -38,6 +52,28 @@ export const useGoalStore = create<GoalState>((set) => ({
       }));
     } catch (err) {
       set({ error: friendlyError(err, "Failed to update goal") });
+      throw err;
+    }
+  },
+
+  archiveGoal: async (id) => {
+    try {
+      const updated = await api.archiveGoal(id);
+      set((s) => ({
+        goals: s.goals.map((g) => (g.id === id ? updated : g)),
+      }));
+    } catch (err) {
+      set({ error: friendlyError(err, "Failed to archive goal") });
+      throw err;
+    }
+  },
+
+  deleteGoal: async (id) => {
+    try {
+      await api.deleteGoal(id);
+      set((s) => ({ goals: s.goals.filter((g) => g.id !== id) }));
+    } catch (err) {
+      set({ error: friendlyError(err, "Failed to delete goal") });
       throw err;
     }
   },

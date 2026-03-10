@@ -146,6 +146,8 @@ export class Executor {
   private async executeRun(item: QueueItem): Promise<void> {
     const { runId, jobId } = item;
 
+    console.error(`[executor] starting run ${runId} for job ${jobId}`);
+
     // Pre-flight: load job, project, check prerequisites
     const preflight = this.preflightCheck(runId, jobId);
     if (!preflight) return;
@@ -287,6 +289,7 @@ export class Executor {
       summary: summary ?? undefined,
     });
 
+    console.error(`[executor] run ${runId} finished: ${finalStatus} (exit=${result.exitCode ?? "n/a"})`);
     emit("run.statusChanged", {
       runId,
       status: finalStatus,

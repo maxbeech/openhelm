@@ -8,21 +8,30 @@ import {
 } from "@tauri-apps/plugin-notification";
 import { useAppStore } from "./stores/app-store";
 import { useProjectStore } from "./stores/project-store";
+import { useGoalStore } from "./stores/goal-store";
+import { useJobStore } from "./stores/job-store";
 import { useRunStore } from "./stores/run-store";
+import { useChatStore } from "./stores/chat-store";
 import { useAgentEvent } from "./hooks/use-agent-event";
-import type { RunStatus } from "@openorchestra/shared";
+import type { RunStatus, ChatMessage } from "@openorchestra/shared";
 import { OnboardingWizard } from "./components/onboarding/onboarding-wizard";
 import { AppShell } from "./components/layout/app-shell";
-import { GoalsScreen } from "./components/goals/goals-screen";
-import { JobsScreen } from "./components/jobs/jobs-screen";
-import { RunsScreen } from "./components/runs/runs-screen";
+import { WelcomeView } from "./components/content/welcome-view";
+import { HomeView } from "./components/content/home-view";
+import { GoalDetailView } from "./components/content/goal-detail-view";
+import { JobDetailView } from "./components/content/job-detail-view";
+import { RunDetailView } from "./components/content/run-detail-view";
 import { SettingsScreen } from "./components/settings/settings-screen";
+import { JobCreationSheet } from "./components/jobs/job-creation-sheet";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { NewProjectDialog } from "./components/shared/new-project-dialog";
 
 export default function App() {
   const {
-    page,
+    contentView,
+    selectedGoalId,
+    selectedJobId,
+    selectedRunId,
     activeProjectId,
     onboardingComplete,
     agentReady,
@@ -31,12 +40,29 @@ export default function App() {
     setAgentReady,
   } = useAppStore();
   const { projects, fetchProjects } = useProjectStore();
+  const { goals, fetchGoals } = useGoalStore();
+  const { fetchJobs } = useJobStore();
   const { fetchRuns, updateRunInStore } = useRunStore();
+  const {
+    messages: chatMessages,
+    sending: chatSending,
+    fetchMessages,
+    addMessageToStore,
+    updateMessageInStore,
+  } = useChatStore();
+
   const [showNewProject, setShowNewProject] = useState(false);
+  const [showJobSheet, setShowJobSheet] = useState(false);
+  const [jobSheetInitialName, setJobSheetInitialName] = useState("");
+  const [jobSheetInitialGoalId, setJobSheetInitialGoalId] = useState<
+    string | undefined
+  >(undefined);
   const [initialLoading, setInitialLoading] = useState(true);
   const [agentTimeout, setAgentTimeout] = useState(false);
 
-  // Global run event handlers — active regardless of which screen is shown
+  const activeProject = projects.find((p) => p.id === activeProjectId);
+
+  // Global run event handlers
   const handleRunCreated = useCallback(() => {
     if (activeProjectId) fetchRuns(activeProjectId);
   }, [activeProjectId, fetchRuns]);
@@ -65,35 +91,79 @@ export default function App() {
   useAgentEvent("run.created", handleRunCreated);
   useAgentEvent("run.statusChanged", handleRunStatusChanged);
 
-  // Start agent client and detect readiness
+  // Chat event handlers
+  const handleChatMessageCreated = useCallback(
+    (msg: ChatMessage) => {
+      const existing = useChatStore
+        .getState()
+        .messages.find((m) => m.id === msg.id);
+      if (existing) {
+        updateMessageInStore(msg);
+      } else {
+        addMessageToStore(msg);
+      }
+    },
+    [addMessageToStore, updateMessageInStore],
+  );
+
+  const handleChatStatus = useCallback(
+    (data: { status: string; tools?: string[] }) => {
+      const { setStatusText } = useChatStore.getState();
+      if (data.status === "done") {
+        setStatusText(null);
+        return;
+      }
+      if (data.status === "reading" && data.tools) {
+        const label = data.tools
+          .map((t) => t.replace(/_/g, " "))
+          .join(", ");
+        setStatusText(`Looking up ${label}...`);
+      } else if (data.status === "analyzing") {
+        setStatusText("Analyzing results...");
+      } else {
+        setStatusText("Thinking...");
+      }
+    },
+    [],
+  );
+
+  const handleChatActionResolved = useCallback(() => {
+    if (activeProjectId) {
+      fetchGoals(activeProjectId);
+      fetchJobs(activeProjectId);
+      fetchRuns(activeProjectId);
+    }
+  }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns]);
+
+  useAgentEvent("chat.messageCreated", handleChatMessageCreated);
+  useAgentEvent("chat.status", handleChatStatus);
+  useAgentEvent("chat.actionResolved", handleChatActionResolved);
+
+  // Start agent client
   useEffect(() => {
     const onReady = () => setAgentReady(true);
     window.addEventListener("agent:agent.ready", onReady);
-
     agentClient.start().catch((err) => {
       console.error("Failed to start agent client:", err);
     });
-
     return () => window.removeEventListener("agent:agent.ready", onReady);
   }, [setAgentReady]);
 
-  // Timeout: show error if agent hasn't responded within 15 seconds
+  // Timeout
   useEffect(() => {
     if (agentReady) return;
     const timer = setTimeout(() => setAgentTimeout(true), 15_000);
     return () => clearTimeout(timer);
   }, [agentReady]);
 
-  // Once agent is ready, load initial state
+  // Load initial state
   useEffect(() => {
     if (!agentReady) return;
     (async () => {
       await fetchProjects();
-      // Check if onboarding is complete by looking at existing projects and settings
       const projectsList = useProjectStore.getState().projects;
       if (projectsList.length > 0) {
         setOnboardingComplete(true);
-        // Restore last active project or fall back to the first one
         const saved = await api.getSetting("active_project");
         const savedId = saved?.value;
         const activeProj =
@@ -104,17 +174,29 @@ export default function App() {
     })();
   }, [agentReady, fetchProjects, setOnboardingComplete, setActiveProjectId]);
 
-  // Request notification permission on first launch
+  // Centralized data fetching when project changes
+  useEffect(() => {
+    if (!activeProjectId) return;
+    fetchGoals(activeProjectId);
+    fetchJobs(activeProjectId);
+    fetchRuns(activeProjectId);
+    fetchMessages(activeProjectId);
+    api
+      .setSetting({ key: "active_project", value: activeProjectId })
+      .catch(() => {});
+  }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns, fetchMessages]);
+
+  // Notification permission
   useEffect(() => {
     if (!agentReady || initialLoading) return;
     (async () => {
       try {
-        const notifRequested = await api.getSetting("notification_permission_requested");
+        const notifRequested = await api.getSetting(
+          "notification_permission_requested",
+        );
         if (!notifRequested?.value) {
           const permissionGranted = await isPermissionGranted();
-          if (!permissionGranted) {
-            await requestPermission();
-          }
+          if (!permissionGranted) await requestPermission();
           await api.setSetting({
             key: "notification_permission_requested",
             value: "true",
@@ -125,14 +207,6 @@ export default function App() {
       }
     })();
   }, [agentReady, initialLoading]);
-
-  // Sync active project data when project changes
-  useEffect(() => {
-    if (activeProjectId) {
-      // Persist active project for next session
-      api.setSetting({ key: "active_project", value: activeProjectId }).catch(() => {});
-    }
-  }, [activeProjectId]);
 
   const handleOnboardingComplete = useCallback(
     (projectId: string) => {
@@ -152,6 +226,15 @@ export default function App() {
       });
     },
     [fetchProjects, setActiveProjectId],
+  );
+
+  const handleNewJobForGoal = useCallback(
+    (goalId: string, initialName: string) => {
+      setJobSheetInitialName(initialName);
+      setJobSheetInitialGoalId(goalId);
+      setShowJobSheet(true);
+    },
+    [],
   );
 
   // Loading state
@@ -194,14 +277,40 @@ export default function App() {
     );
   }
 
+  const hasGoals = goals.length > 0;
+  // Hide welcome screen once the user has sent a message (or is sending one)
+  const showWelcome = !hasGoals && chatMessages.length === 0 && !chatSending;
+
   // Main app
   return (
     <TooltipProvider>
-      <AppShell onNewProject={() => setShowNewProject(true)}>
-        {page === "goals" && <GoalsScreen />}
-        {page === "jobs" && <JobsScreen />}
-        {page === "runs" && <RunsScreen />}
-        {page === "settings" && <SettingsScreen />}
+      <AppShell
+        onNewProject={() => setShowNewProject(true)}
+        onNewJobForGoal={handleNewJobForGoal}
+      >
+        {contentView === "home" &&
+          (showWelcome && activeProjectId ? (
+            <WelcomeView projectId={activeProjectId} />
+          ) : (
+            <HomeView />
+          ))}
+        {contentView === "goal-detail" && selectedGoalId && (
+          <GoalDetailView
+            goalId={selectedGoalId}
+            onNewJob={() => {
+              setJobSheetInitialName("");
+              setJobSheetInitialGoalId(selectedGoalId);
+              setShowJobSheet(true);
+            }}
+          />
+        )}
+        {contentView === "job-detail" && selectedJobId && (
+          <JobDetailView jobId={selectedJobId} />
+        )}
+        {contentView === "run-detail" && selectedRunId && (
+          <RunDetailView runId={selectedRunId} />
+        )}
+        {contentView === "settings" && <SettingsScreen />}
       </AppShell>
 
       <NewProjectDialog
@@ -209,6 +318,22 @@ export default function App() {
         onOpenChange={setShowNewProject}
         onCreated={handleNewProject}
       />
+
+      {/* Job Creation Sheet */}
+      {activeProject && activeProjectId && (
+        <JobCreationSheet
+          open={showJobSheet}
+          onOpenChange={setShowJobSheet}
+          projectId={activeProjectId}
+          projectDirectory={activeProject.directoryPath}
+          initialName={jobSheetInitialName}
+          initialGoalId={jobSheetInitialGoalId}
+          onComplete={() => {
+            fetchGoals(activeProjectId);
+            fetchJobs(activeProjectId);
+          }}
+        />
+      )}
     </TooltipProvider>
   );
 }

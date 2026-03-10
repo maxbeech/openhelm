@@ -29,7 +29,8 @@ export const goals = sqliteTable("goals", {
   projectId: text("project_id")
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
-  description: text("description").notNull(),
+  name: text("name").notNull().default(""),
+  description: text("description").notNull().default(""),
   status: text("status", { enum: ["active", "paused", "archived"] })
     .notNull()
     .default("active"),
@@ -56,6 +57,7 @@ export const jobs = sqliteTable("jobs", {
   }).notNull(),
   scheduleConfig: text("schedule_config").notNull(), // JSON string
   isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true),
+  isArchived: integer("is_archived", { mode: "boolean" }).notNull().default(false),
   workingDirectory: text("working_directory"),
   nextFireAt: text("next_fire_at"),
   createdAt: text("created_at")
@@ -91,6 +93,42 @@ export const runs = sqliteTable("runs", {
   finishedAt: text("finished_at"),
   exitCode: integer("exit_code"),
   summary: text("summary"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+/** A conversation thread for the AI chat sidebar (one per project for v1) */
+export const conversations = sqliteTable("conversations", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  /** Channel source — 'app' for the desktop UI, extensible for WhatsApp/Slack/etc. */
+  channel: text("channel").notNull().default("app"),
+  title: text("title"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+/** A single chat message in a conversation */
+export const messages = sqliteTable("messages", {
+  id: text("id").primaryKey(),
+  conversationId: text("conversation_id")
+    .notNull()
+    .references(() => conversations.id, { onDelete: "cascade" }),
+  role: text("role", { enum: ["user", "assistant", "system", "tool_result"] }).notNull(),
+  content: text("content").notNull(),
+  /** JSON array of ChatToolCall objects when the assistant invokes tools */
+  toolCalls: text("tool_calls"),
+  /** JSON array of ChatToolResult objects with execution results */
+  toolResults: text("tool_results"),
+  /** JSON array of PendingAction objects awaiting user confirmation */
+  pendingActions: text("pending_actions"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

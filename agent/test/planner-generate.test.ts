@@ -192,13 +192,19 @@ describe("generatePlan", () => {
     ).rejects.toThrow("missing required field");
   });
 
-  it("should strip markdown code fences from response", async () => {
-    const wrapped = "```json\n" + JSON.stringify(VALID_PLAN) + "\n```";
+  it("should pass jsonSchema to the LLM call", async () => {
+    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(VALID_PLAN));
 
-    callLlmViaCliMock.mockResolvedValueOnce(wrapped);
+    await generatePlan(projectId, "Test coverage");
 
-    const plan = await generatePlan(projectId, "Test coverage");
-    expect(plan.jobs).toHaveLength(3);
+    expect(callLlmViaCliMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jsonSchema: expect.objectContaining({
+          type: "object",
+          required: ["jobs"],
+        }),
+      }),
+    );
   });
 
   it("should throw on non-existent project", async () => {

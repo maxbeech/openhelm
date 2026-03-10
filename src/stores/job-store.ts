@@ -11,6 +11,7 @@ interface JobState {
   fetchJobs: (projectId: string) => Promise<void>;
   createJob: (params: CreateJobParams) => Promise<Job>;
   toggleEnabled: (id: string, isEnabled: boolean) => Promise<void>;
+  archiveJob: (id: string) => Promise<void>;
   deleteJob: (id: string) => Promise<void>;
   updateJobInStore: (job: Job) => void;
 }
@@ -52,6 +53,18 @@ export const useJobStore = create<JobState>((set) => ({
       }));
     } catch (err) {
       set({ error: friendlyError(err, "Failed to toggle job") });
+      throw err;
+    }
+  },
+
+  archiveJob: async (id) => {
+    try {
+      const updated = await api.archiveJob(id);
+      set((s) => ({
+        jobs: s.jobs.map((j) => (j.id === id ? updated : j)),
+      }));
+    } catch (err) {
+      set({ error: friendlyError(err, "Failed to archive job") });
       throw err;
     }
   },

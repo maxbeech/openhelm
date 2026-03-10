@@ -19,7 +19,8 @@ export function createGoal(params: CreateGoalParams): Goal {
     .values({
       id,
       projectId: params.projectId,
-      description: params.description,
+      name: params.name,
+      description: params.description ?? "",
       status: "active",
       createdAt: now,
       updatedAt: now,
@@ -60,10 +61,10 @@ export function updateGoal(params: UpdateGoalParams): Goal {
 
   const now = new Date().toISOString();
 
-  // If archiving, disable all associated jobs
+  // If archiving, disable and archive all associated jobs
   if (params.status === "archived" && existing.status !== "archived") {
     db.update(jobs)
-      .set({ isEnabled: false, updatedAt: now })
+      .set({ isEnabled: false, isArchived: true, nextFireAt: null, updatedAt: now })
       .where(eq(jobs.goalId, params.id))
       .run();
   }
@@ -71,9 +72,8 @@ export function updateGoal(params: UpdateGoalParams): Goal {
   const row = db
     .update(goals)
     .set({
-      ...(params.description !== undefined && {
-        description: params.description,
-      }),
+      ...(params.name !== undefined && { name: params.name }),
+      ...(params.description !== undefined && { description: params.description }),
       ...(params.status !== undefined && { status: params.status }),
       updatedAt: now,
     })
@@ -86,6 +86,9 @@ export function updateGoal(params: UpdateGoalParams): Goal {
 
 export function deleteGoal(id: string): boolean {
   const db = getDb();
+  // Delete associated jobs first (FK is set null, not cascade)
+  // Deleting jobs cascades to their runs and run_logs via FK
+  db.delete(jobs).where(eq(jobs.goalId, id)).run();
   const result = db.delete(goals).where(eq(goals.id, id)).run();
   return result.changes > 0;
 }

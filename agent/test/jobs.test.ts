@@ -21,7 +21,7 @@ beforeAll(() => {
     directoryPath: "/tmp/job-test",
   });
   projectId = project.id;
-  const goal = createGoal({ projectId, description: "Job Goal" });
+  const goal = createGoal({ projectId, name: "Job Goal" });
   goalId = goal.id;
 });
 

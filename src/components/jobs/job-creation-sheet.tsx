@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { Loader2 } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -6,17 +7,10 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
 import { useJobStore } from "@/stores/job-store";
 import { useGoalStore } from "@/stores/goal-store";
-import * as api from "@/lib/api";
-import {
-  JobCreationForm,
-  type JobFormState,
-  type JobFormErrors,
-} from "./job-creation-form";
-import type { ScheduleConfig, ClarifyingQuestion } from "@openorchestra/shared";
-import { JobSheetFooter } from "./job-sheet-footer";
+import { JobCreationForm, type JobFormState, type JobFormErrors } from "./job-creation-form";
+import type { ScheduleConfig } from "@openorchestra/shared";
 
 interface JobCreationSheetProps {
   open: boolean;
@@ -24,6 +18,8 @@ interface JobCreationSheetProps {
   projectId: string;
   projectDirectory: string;
   onComplete: () => void;
+  initialName?: string;
+  initialGoalId?: string;
 }
 
 const INITIAL_FORM: JobFormState = {
@@ -36,27 +32,39 @@ const INITIAL_FORM: JobFormState = {
   workingDirectory: "",
 };
 
+function getScheduleConfig(form: JobFormState): ScheduleConfig {
+  if (form.scheduleType === "interval") return { minutes: form.intervalMinutes };
+  if (form.scheduleType === "cron") return { expression: form.cronExpression };
+  return { fireAt: new Date(Date.now() + 10_000).toISOString() };
+}
+
 export function JobCreationSheet({
   open,
   onOpenChange,
   projectId,
   projectDirectory,
   onComplete,
+  initialName,
+  initialGoalId,
 }: JobCreationSheetProps) {
   const { createJob } = useJobStore();
   const { goals } = useGoalStore();
 
   const [form, setForm] = useState<JobFormState>(INITIAL_FORM);
+
+  // Re-initialise form whenever the sheet opens (or initial values change)
+  useEffect(() => {
+    if (open) {
+      setForm({ ...INITIAL_FORM, name: initialName ?? "", goalId: initialGoalId ?? "none" });
+      setTouched({});
+      setError(null);
+      setCreating(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const [assessing, setAssessing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [clarifyQuestions, setClarifyQuestions] = useState<
-    ClarifyingQuestion[] | null
-  >(null);
-  const [clarifyAnswers, setClarifyAnswers] = useState<
-    Record<string, string>
-  >({});
 
   const activeGoals = useMemo(
     () => goals.filter((g) => g.status === "active"),
@@ -65,8 +73,7 @@ export function JobCreationSheet({
 
   const errors: JobFormErrors = {
     name: touched.name && !form.name.trim() ? "Name is required" : null,
-    prompt:
-      touched.prompt && !form.prompt.trim() ? "Prompt is required" : null,
+    prompt: touched.prompt && !form.prompt.trim() ? "Prompt is required" : null,
     interval:
       form.scheduleType === "interval" && form.intervalMinutes < 1
         ? "Interval must be at least 1 minute"
@@ -77,11 +84,8 @@ export function JobCreationSheet({
   const handleReset = useCallback(() => {
     setForm(INITIAL_FORM);
     setTouched({});
-    setAssessing(false);
     setCreating(false);
     setError(null);
-    setClarifyQuestions(null);
-    setClarifyAnswers({});
   }, []);
 
   const handleOpenChange = (nextOpen: boolean) => {
@@ -89,34 +93,20 @@ export function JobCreationSheet({
     onOpenChange(nextOpen);
   };
 
-  const onFieldChange = (field: keyof JobFormState, value: string | number) =>
-    setForm((f) => ({ ...f, [field]: value }));
+  const handleSubmit = async () => {
+    setTouched({ name: true, prompt: true });
+    if (!isValid) return;
 
-  const getScheduleConfig = (): ScheduleConfig => {
-    if (form.scheduleType === "interval") return { minutes: form.intervalMinutes };
-    if (form.scheduleType === "cron") return { expression: form.cronExpression };
-    return { fireAt: new Date(Date.now() + 10_000).toISOString() };
-  };
-
-  const doCreate = async () => {
     setCreating(true);
     setError(null);
     try {
-      let finalPrompt = form.prompt.trim();
-      const answered = Object.entries(clarifyAnswers).filter(
-        ([, v]) => v.trim(),
-      );
-      if (answered.length > 0) {
-        const context = answered.map(([q, a]) => `${q}: ${a}`).join("\n");
-        finalPrompt += `\n\nAdditional context:\n${context}`;
-      }
       await createJob({
         projectId,
         goalId: form.goalId !== "none" ? form.goalId : undefined,
         name: form.name.trim(),
-        prompt: finalPrompt,
+        prompt: form.prompt.trim(),
         scheduleType: form.scheduleType,
-        scheduleConfig: getScheduleConfig(),
+        scheduleConfig: getScheduleConfig(form),
         workingDirectory: form.workingDirectory.trim() || undefined,
       });
       handleOpenChange(false);
@@ -125,35 +115,6 @@ export function JobCreationSheet({
       setError(err instanceof Error ? err.message : "Failed to create job");
     } finally {
       setCreating(false);
-    }
-  };
-
-  const handleSubmit = async () => {
-    setTouched({ name: true, prompt: true });
-    if (!isValid) return;
-    if (clarifyQuestions !== null) {
-      await doCreate();
-      return;
-    }
-    setAssessing(true);
-    setError(null);
-    try {
-      const result = await api.assessPrompt({
-        projectId,
-        prompt: form.prompt.trim(),
-      });
-      if (result.needsClarification && result.questions.length > 0) {
-        setClarifyQuestions(result.questions);
-        setAssessing(false);
-        return;
-      }
-      setClarifyQuestions([]);
-      setAssessing(false);
-      await doCreate();
-    } catch {
-      setClarifyQuestions([]);
-      setAssessing(false);
-      await doCreate();
     }
   };
 
@@ -172,26 +133,25 @@ export function JobCreationSheet({
           errors={errors}
           goals={activeGoals}
           projectDirectory={projectDirectory}
-          clarifyQuestions={clarifyQuestions}
-          clarifyAnswers={clarifyAnswers}
-          onFieldChange={onFieldChange}
+          onFieldChange={(field, value) => setForm((f) => ({ ...f, [field]: value }))}
           onFieldBlur={(f) => setTouched((t) => ({ ...t, [f]: true }))}
-          onClarifyAnswersChange={setClarifyAnswers}
-          onClarifyReset={() => {
-            setClarifyQuestions(null);
-            setClarifyAnswers({});
-          }}
           error={error}
         />
 
-        <JobSheetFooter
-          hasClarification={!!clarifyQuestions?.length}
-          assessing={assessing}
-          creating={creating}
-          isValid={!!isValid}
-          onSubmit={handleSubmit}
-          onCreateAnyway={doCreate}
-        />
+        <div className="flex gap-2 border-t border-border p-4">
+          <Button
+            variant="outline"
+            className="flex-1"
+            onClick={() => handleOpenChange(false)}
+            disabled={creating}
+          >
+            Cancel
+          </Button>
+          <Button className="flex-1" onClick={handleSubmit} disabled={creating || !isValid}>
+            {creating && <Loader2 className="mr-2 size-4 animate-spin" />}
+            {creating ? "Creating..." : "Create Job"}
+          </Button>
+        </div>
       </SheetContent>
     </Sheet>
   );

@@ -28,7 +28,7 @@ describe("cascade deletes", () => {
     });
     const goal = createGoal({
       projectId: project.id,
-      description: "Cascade Goal",
+      name: "Cascade Goal",
     });
     const job = createJob({
       projectId: project.id,
@@ -58,7 +58,7 @@ describe("cascade deletes", () => {
     });
     const goal = createGoal({
       projectId: project.id,
-      description: "Delete Me",
+      name: "Delete Me",
     });
     const job = createJob({
       projectId: project.id,
@@ -71,20 +71,15 @@ describe("cascade deletes", () => {
     const run = createRun({ jobId: job.id, triggerSource: "manual" });
     createRunLog({ runId: run.id, stream: "stdout", text: "log" });
 
-    // Delete the goal — job's goalId should become null (SET NULL)
-    // But runs and logs under the job remain
+    // Delete the goal — cascades to delete all associated jobs, runs, and logs
     deleteGoal(goal.id);
 
     expect(getGoal(goal.id)).toBeNull();
 
-    // Job still exists but goalId is now null
-    const jobAfter = getJob(job.id);
-    expect(jobAfter).not.toBeNull();
-    expect(jobAfter!.goalId).toBeNull();
-
-    // Run and logs still exist
-    expect(getRun(run.id)).not.toBeNull();
-    expect(listRunLogs({ runId: run.id })).toHaveLength(1);
+    // Job and its children are also deleted
+    expect(getJob(job.id)).toBeNull();
+    expect(getRun(run.id)).toBeNull();
+    expect(listRunLogs({ runId: run.id })).toHaveLength(0);
   });
 
   it("should cascade delete runs and logs when job is deleted", () => {

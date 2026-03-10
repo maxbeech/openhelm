@@ -1,0 +1,178 @@
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { SidebarTree } from "./sidebar-tree";
+import { useAppStore } from "@/stores/app-store";
+import { useGoalStore } from "@/stores/goal-store";
+import { useJobStore } from "@/stores/job-store";
+import { useRunStore } from "@/stores/run-store";
+
+const mockGoals = [
+  {
+    id: "g1",
+    projectId: "p1",
+    name: "Improve test coverage",
+    description: "Improve test coverage",
+    status: "active" as const,
+    createdAt: "2026-01-01",
+    updatedAt: "2026-01-01",
+  },
+  {
+    id: "g2",
+    projectId: "p1",
+    name: "Fix TypeScript errors",
+    description: "Fix TypeScript errors",
+    status: "active" as const,
+    createdAt: "2026-01-01",
+    updatedAt: "2026-01-01",
+  },
+];
+
+const mockJobs = [
+  {
+    id: "j1",
+    goalId: "g1",
+    projectId: "p1",
+    name: "Run tests",
+    description: null,
+    prompt: "test",
+    scheduleType: "once" as const,
+    scheduleConfig: { fireAt: "2026-01-01" },
+    isEnabled: true,
+    isArchived: false,
+    workingDirectory: null,
+    nextFireAt: null,
+    createdAt: "2026-01-01",
+    updatedAt: "2026-01-01",
+  },
+  {
+    id: "j2",
+    goalId: null,
+    projectId: "p1",
+    name: "Standalone job",
+    description: null,
+    prompt: "do something",
+    scheduleType: "once" as const,
+    scheduleConfig: { fireAt: "2026-01-01" },
+    isEnabled: true,
+    isArchived: false,
+    workingDirectory: null,
+    nextFireAt: null,
+    createdAt: "2026-01-01",
+    updatedAt: "2026-01-01",
+  },
+];
+
+const mockCreateGoal = vi.fn().mockResolvedValue({ id: "g-new", name: "New goal", projectId: "p1" });
+
+describe("SidebarTree", () => {
+  const onNewJobForGoal = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAppStore.setState({
+      contentView: "home",
+      selectedGoalId: null,
+      selectedJobId: null,
+      selectedRunId: null,
+      collapsedGoalIds: [],
+    });
+    useGoalStore.setState({ goals: mockGoals, createGoal: mockCreateGoal } as any);
+    useJobStore.setState({ jobs: mockJobs });
+    useRunStore.setState({ runs: [] });
+  });
+
+  it("renders goals and jobs in tree", () => {
+    render(<SidebarTree projectId="p1" onNewJobForGoal={onNewJobForGoal} />);
+    expect(screen.getByText("Improve test coverage")).toBeDefined();
+    expect(screen.getByText("Fix TypeScript errors")).toBeDefined();
+    expect(screen.getByText("Run tests")).toBeDefined();
+    expect(screen.getByText("Standalone job")).toBeDefined();
+  });
+
+  it("renders Goals header with + button", () => {
+    render(<SidebarTree projectId="p1" onNewJobForGoal={onNewJobForGoal} />);
+    expect(screen.getByText("Goals")).toBeDefined();
+    expect(screen.getByTitle("New goal")).toBeDefined();
+  });
+
+  it("shows inline goal input when + is clicked", () => {
+    render(<SidebarTree projectId="p1" onNewJobForGoal={onNewJobForGoal} />);
+    fireEvent.click(screen.getByTitle("New goal"));
+    expect(screen.getByPlaceholderText("Goal name...")).toBeDefined();
+  });
+
+  it("creates goal on Enter and closes input", async () => {
+    render(<SidebarTree projectId="p1" onNewJobForGoal={onNewJobForGoal} />);
+    fireEvent.click(screen.getByTitle("New goal"));
+    const input = screen.getByPlaceholderText("Goal name...");
+    fireEvent.change(input, { target: { value: "New goal" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(screen.queryByPlaceholderText("Goal name...")).toBeNull(),
+    );
+    expect(mockCreateGoal).toHaveBeenCalledWith({ projectId: "p1", name: "New goal" });
+  });
+
+  it("dismisses goal input on Escape without creating", async () => {
+    render(<SidebarTree projectId="p1" onNewJobForGoal={onNewJobForGoal} />);
+    fireEvent.click(screen.getByTitle("New goal"));
+    const input = screen.getByPlaceholderText("Goal name...");
+    fireEvent.change(input, { target: { value: "Draft" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByPlaceholderText("Goal name...")).toBeNull(),
+    );
+    expect(mockCreateGoal).not.toHaveBeenCalled();
+  });
+
+  it("selects a goal on click", () => {
+    render(<SidebarTree projectId="p1" onNewJobForGoal={onNewJobForGoal} />);
+    fireEvent.click(screen.getByText("Improve test coverage"));
+    const s = useAppStore.getState();
+    expect(s.contentView).toBe("goal-detail");
+    expect(s.selectedGoalId).toBe("g1");
+  });
+
+  it("selects a job on click", () => {
+    render(<SidebarTree projectId="p1" onNewJobForGoal={onNewJobForGoal} />);
+    fireEvent.click(screen.getByText("Run tests"));
+    const s = useAppStore.getState();
+    expect(s.contentView).toBe("job-detail");
+    expect(s.selectedJobId).toBe("j1");
+  });
+
+  it("shows job name input when goal + button is clicked", () => {
+    render(<SidebarTree projectId="p1" onNewJobForGoal={onNewJobForGoal} />);
+    // Click the first goal's + button (g1)
+    fireEvent.click(screen.getAllByTitle("New job in this goal")[0]);
+    expect(screen.getByPlaceholderText("Job name...")).toBeDefined();
+  });
+
+  it("calls onNewJobForGoal with goalId and name on Enter", () => {
+    render(<SidebarTree projectId="p1" onNewJobForGoal={onNewJobForGoal} />);
+    // Click the first goal's + button (g1)
+    fireEvent.click(screen.getAllByTitle("New job in this goal")[0]);
+    const input = screen.getByPlaceholderText("Job name...");
+    fireEvent.change(input, { target: { value: "My new job" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onNewJobForGoal).toHaveBeenCalledWith("g1", "My new job");
+  });
+
+  it("collapses goal to hide nested jobs", () => {
+    render(<SidebarTree projectId="p1" onNewJobForGoal={onNewJobForGoal} />);
+    expect(screen.getByText("Run tests")).toBeDefined();
+
+    const chevronButtons = screen
+      .getAllByRole("button")
+      .filter((btn) => btn.querySelector(".lucide-chevron-right"));
+    fireEvent.click(chevronButtons[0]);
+
+    expect(screen.queryByText("Run tests")).toBeNull();
+  });
+
+  it("shows standalone jobs section", () => {
+    render(<SidebarTree projectId="p1" onNewJobForGoal={onNewJobForGoal} />);
+    expect(screen.getByText("Jobs")).toBeDefined();
+    expect(screen.getByText("Standalone job")).toBeDefined();
+  });
+});

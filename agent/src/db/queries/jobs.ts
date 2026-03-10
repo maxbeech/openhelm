@@ -17,6 +17,7 @@ function rowToJob(row: typeof jobs.$inferSelect): Job {
   return {
     ...row,
     isEnabled: Boolean(row.isEnabled),
+    isArchived: Boolean(row.isArchived),
     scheduleConfig: JSON.parse(row.scheduleConfig) as ScheduleConfig,
   } as Job;
 }
@@ -138,6 +139,7 @@ export function updateJob(params: UpdateJobParams): Job {
         scheduleConfig: JSON.stringify(params.scheduleConfig),
       }),
       ...(params.isEnabled !== undefined && { isEnabled }),
+      ...(params.isArchived !== undefined && { isArchived: params.isArchived }),
       nextFireAt,
       updatedAt: now,
     })
@@ -194,6 +196,26 @@ export function disableJob(id: string): void {
     })
     .where(eq(jobs.id, id))
     .run();
+}
+
+export function archiveJob(id: string): Job {
+  const db = getDb();
+  const existing = getJob(id);
+  if (!existing) {
+    throw new Error(`Job not found: ${id}`);
+  }
+  const row = db
+    .update(jobs)
+    .set({
+      isArchived: true,
+      isEnabled: false,
+      nextFireAt: null,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(jobs.id, id))
+    .returning()
+    .get();
+  return rowToJob(row);
 }
 
 export function deleteJob(id: string): boolean {

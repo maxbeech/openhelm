@@ -35,6 +35,12 @@ export function registerJobHandlers() {
     return jobQueries.updateJob(p);
   });
 
+  registerHandler("jobs.archive", (params) => {
+    const { id } = params as { id: string };
+    if (!id) throw new Error("id is required");
+    return jobQueries.archiveJob(id);
+  });
+
   registerHandler("jobs.delete", (params) => {
     const { id } = params as { id: string };
     if (!id) throw new Error("id is required");

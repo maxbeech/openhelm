@@ -13,7 +13,8 @@
     "@openorchestra/shared": "*",
     "better-sqlite3": "^11.9.1",
     "cron-parser": "^5.5.0",
-    "drizzle-orm": "0.38.4"
+    "drizzle-orm": "0.38.4",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

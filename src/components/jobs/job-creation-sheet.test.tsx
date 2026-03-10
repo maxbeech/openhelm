@@ -6,10 +6,6 @@ import { useGoalStore } from "@/stores/goal-store";
 
 // Mock the api module
 vi.mock("@/lib/api", () => ({
-  assessPrompt: vi.fn().mockResolvedValue({
-    needsClarification: false,
-    questions: [],
-  }),
   createJob: vi.fn().mockResolvedValue({
     id: "j-new",
     goalId: null,
@@ -94,7 +90,8 @@ describe("JobCreationSheet", () => {
         {
           id: "g1",
           projectId: "p1",
-          description: "Improve test coverage",
+          name: "Improve test coverage",
+          description: "",
           status: "active",
           createdAt: "2026-01-01T00:00:00Z",
           updatedAt: "2026-01-01T00:00:00Z",
@@ -102,7 +99,8 @@ describe("JobCreationSheet", () => {
         {
           id: "g2",
           projectId: "p1",
-          description: "Archived goal",
+          name: "Archived goal",
+          description: "",
           status: "archived",
           createdAt: "2026-01-01T00:00:00Z",
           updatedAt: "2026-01-01T00:00:00Z",

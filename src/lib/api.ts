@@ -27,14 +27,14 @@ import type {
   TriggerRunParams,
   CancelRunParams,
   SchedulerStatus,
-  AssessGoalParams,
-  AssessmentResult,
-  AssessPromptParams,
-  PromptAssessmentResult,
-  GeneratePlanParams,
-  GeneratedPlan,
-  CommitPlanParams,
-  CommitPlanResult,
+  ChatMessage,
+  SendChatMessageParams,
+  ApproveChatActionParams,
+  RejectChatActionParams,
+  ApproveAllChatActionsParams,
+  RejectAllChatActionsParams,
+  ListChatMessagesParams,
+  ClearChatParams,
 } from "@openorchestra/shared";
 
 // ─── Projects ───
@@ -77,6 +77,10 @@ export function updateGoal(params: UpdateGoalParams): Promise<Goal> {
   return agentClient.request<Goal>("goals.update", params);
 }
 
+export function archiveGoal(id: string): Promise<Goal> {
+  return agentClient.request<Goal>("goals.archive", { id });
+}
+
 export function deleteGoal(id: string): Promise<{ deleted: boolean }> {
   return agentClient.request<{ deleted: boolean }>("goals.delete", { id });
 }
@@ -97,6 +101,10 @@ export function listJobs(params?: ListJobsParams): Promise<Job[]> {
 
 export function updateJob(params: UpdateJobParams): Promise<Job> {
   return agentClient.request<Job>("jobs.update", params);
+}
+
+export function archiveJob(id: string): Promise<Job> {
+  return agentClient.request<Job>("jobs.archive", { id });
 }
 
 export function deleteJob(id: string): Promise<{ deleted: boolean }> {
@@ -195,31 +203,44 @@ export function getSchedulerStatus(): Promise<SchedulerStatus> {
   return agentClient.request<SchedulerStatus>("scheduler.status");
 }
 
-// ─── Planner ───
+// ─── Chat ───
 
-export function assessPrompt(
-  params: AssessPromptParams,
-): Promise<PromptAssessmentResult> {
-  return agentClient.request<PromptAssessmentResult>(
-    "planner.assessPrompt",
-    params,
-  );
+export function sendChatMessage(
+  params: SendChatMessageParams,
+): Promise<ChatMessage[]> {
+  return agentClient.request<ChatMessage[]>("chat.send", params);
 }
 
-export function assessGoal(
-  params: AssessGoalParams,
-): Promise<AssessmentResult> {
-  return agentClient.request<AssessmentResult>("planner.assess", params);
+export function approveChatAction(
+  params: ApproveChatActionParams,
+): Promise<ChatMessage> {
+  return agentClient.request<ChatMessage>("chat.approveAction", params);
 }
 
-export function generatePlan(
-  params: GeneratePlanParams,
-): Promise<GeneratedPlan> {
-  return agentClient.request<GeneratedPlan>("planner.generate", params);
+export function rejectChatAction(
+  params: RejectChatActionParams,
+): Promise<ChatMessage> {
+  return agentClient.request<ChatMessage>("chat.rejectAction", params);
 }
 
-export function commitPlan(
-  params: CommitPlanParams,
-): Promise<CommitPlanResult> {
-  return agentClient.request<CommitPlanResult>("planner.commit", params);
+export function approveAllChatActions(
+  params: ApproveAllChatActionsParams,
+): Promise<ChatMessage> {
+  return agentClient.request<ChatMessage>("chat.approveAll", params);
+}
+
+export function rejectAllChatActions(
+  params: RejectAllChatActionsParams,
+): Promise<ChatMessage> {
+  return agentClient.request<ChatMessage>("chat.rejectAll", params);
+}
+
+export function listChatMessages(
+  params: ListChatMessagesParams,
+): Promise<ChatMessage[]> {
+  return agentClient.request<ChatMessage[]>("chat.listMessages", params);
+}
+
+export function clearChat(params: ClearChatParams): Promise<{ cleared: boolean }> {
+  return agentClient.request<{ cleared: boolean }>("chat.clear", params);
 }

@@ -10,7 +10,7 @@ export function registerGoalHandlers() {
   registerHandler("goals.create", (params) => {
     const p = params as CreateGoalParams;
     if (!p?.projectId) throw new Error("projectId is required");
-    if (!p?.description) throw new Error("description is required");
+    if (!p?.name) throw new Error("name is required");
     return goalQueries.createGoal(p);
   });
 
@@ -32,6 +32,12 @@ export function registerGoalHandlers() {
     const p = params as UpdateGoalParams;
     if (!p?.id) throw new Error("id is required");
     return goalQueries.updateGoal(p);
+  });
+
+  registerHandler("goals.archive", (params) => {
+    const { id } = params as { id: string };
+    if (!id) throw new Error("id is required");
+    return goalQueries.updateGoal({ id, status: "archived" });
   });
 
   registerHandler("goals.delete", (params) => {

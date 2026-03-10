@@ -81,7 +81,7 @@ export function RunDetailPanel({ run, jobName, onClose }: RunDetailPanelProps) {
 
       {/* Log Viewer */}
       <div className="flex-1 overflow-hidden">
-        <LogViewer logs={logs} loading={logsLoading} isLive={isRunning} />
+        <LogViewer key={run.id} logs={logs} loading={logsLoading} isLive={isRunning} />
       </div>
     </div>
   );

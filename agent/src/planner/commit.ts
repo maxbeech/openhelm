@@ -37,6 +37,7 @@ export function commitPlan(
     // Create the goal
     const goal = createGoal({
       projectId,
+      name: goalDescription,
       description: goalDescription,
     });
 
