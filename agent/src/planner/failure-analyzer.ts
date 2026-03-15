@@ -7,7 +7,7 @@
  * Returns null if analysis fails for any reason.
  */
 
-import { collectRunLogs, truncateLogs } from "./summarize.js";
+import { collectRunLogs, truncateLogsForAnalysis } from "./summarize.js";
 import { callLlmViaCli } from "./llm-via-cli.js";
 import { extractJson } from "./extract-json.js";
 import { FAILURE_ANALYSIS_SCHEMA } from "./schemas.js";
@@ -27,7 +27,9 @@ Given the original task prompt and the run's log output, determine:
 3. A brief reason explaining your classification
 
 FIXABLE examples: code logic errors, wrong file paths, missing imports, wrong approach that can be guided, incorrect assumptions about the codebase.
-NOT FIXABLE examples: missing credentials/permissions, infrastructure issues (network, disk), fundamentally impossible tasks, timeouts, missing dependencies that require manual installation.
+NOT FIXABLE examples: missing credentials/permissions, infrastructure issues (network, disk), fundamentally impossible tasks, missing dependencies that require manual installation.
+POTENTIALLY FIXABLE — timeouts: If the run timed out (was forcibly terminated after its time limit), the task was likely partially completed. Analyze the logs to determine what was already done, then provide correction guidance that: (1) tells the next run what was already completed so it can skip those steps, (2) suggests a more efficient approach for the remaining work (e.g., "Search by name instead of scrolling to position 34", "Use the API instead of browser automation"). Be specific based on the actual logs.
+POTENTIALLY FIXABLE — silence timeouts: If the run was killed due to no output for an extended period, this often means Claude got stuck on one approach (e.g., browser login flow, unresponsive service). Provide correction guidance steering toward an alternative approach (e.g., use API calls instead of browser automation, skip authentication flows that require human input).
 
 When fixable, the correction should be specific, actionable guidance that addresses the root cause. Do NOT repeat the original prompt — only describe what went wrong and how to fix it.`;
 
@@ -38,6 +40,7 @@ When fixable, the correction should be specific, actionable guidance that addres
 export async function analyzeFailure(
   runId: string,
   originalPrompt: string,
+  failureContext?: string,
 ): Promise<FailureAnalysis | null> {
   try {
     const fullText = collectRunLogs(runId);
@@ -45,8 +48,9 @@ export async function analyzeFailure(
       return { fixable: false, correction: null, reason: "No output captured from the failed run." };
     }
 
-    const truncated = truncateLogs(fullText);
-    const userMessage = `Original task prompt:\n${originalPrompt}\n\nRun output (failed):\n${truncated}`;
+    const truncated = truncateLogsForAnalysis(fullText);
+    const contextSection = failureContext ? `\n\nFailure context:\n${failureContext}` : "";
+    const userMessage = `Original task prompt:\n${originalPrompt}${contextSection}\n\nRun output (failed):\n${truncated}`;
 
     const text = await callLlmViaCli({
       model: "classification",

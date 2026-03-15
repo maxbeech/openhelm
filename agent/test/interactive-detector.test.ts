@@ -15,47 +15,6 @@ describe("InteractiveDetector", () => {
     vi.useRealTimers();
   });
 
-  it("detects (y/n) prompt patterns", () => {
-    detector = new InteractiveDetector({ onDetected });
-    detector.start();
-
-    detector.processLine("Do you want to continue? (y/n)");
-    expect(onDetected).toHaveBeenCalledOnce();
-    expect(onDetected.mock.calls[0][0]).toContain("Interactive prompt detected");
-  });
-
-  it("detects (yes/no) prompt patterns", () => {
-    detector = new InteractiveDetector({ onDetected });
-    detector.start();
-
-    detector.processLine("Are you sure? (yes/no)");
-    expect(onDetected).toHaveBeenCalledOnce();
-  });
-
-  it("detects press enter prompts", () => {
-    detector = new InteractiveDetector({ onDetected });
-    detector.start();
-
-    detector.processLine("Press enter to continue...");
-    expect(onDetected).toHaveBeenCalledOnce();
-  });
-
-  it("detects password prompts", () => {
-    detector = new InteractiveDetector({ onDetected });
-    detector.start();
-
-    detector.processLine("Enter password:");
-    expect(onDetected).toHaveBeenCalledOnce();
-  });
-
-  it("detects [Y/n] bracket patterns", () => {
-    detector = new InteractiveDetector({ onDetected });
-    detector.start();
-
-    detector.processLine("Install dependencies? [Y/n]");
-    expect(onDetected).toHaveBeenCalledOnce();
-  });
-
   it("does not trigger on normal output", () => {
     detector = new InteractiveDetector({ onDetected });
     detector.start();
@@ -64,15 +23,6 @@ describe("InteractiveDetector", () => {
     detector.processLine("Build successful in 2.3s");
     detector.processLine("All tests passed");
     expect(onDetected).not.toHaveBeenCalled();
-  });
-
-  it("only triggers once for multiple interactive patterns", () => {
-    detector = new InteractiveDetector({ onDetected });
-    detector.start();
-
-    detector.processLine("Continue? (y/n)");
-    detector.processLine("Really? (yes/no)");
-    expect(onDetected).toHaveBeenCalledOnce();
   });
 
   it("triggers on silence timeout", () => {
@@ -90,6 +40,7 @@ describe("InteractiveDetector", () => {
     expect(onDetected).toHaveBeenCalledOnce();
     expect(onDetected.mock.calls[0][0]).toContain("No output for 5s");
     expect(onDetected.mock.calls[0][0]).toContain("Starting process...");
+    expect(onDetected.mock.calls[0][1]).toBe("silence_timeout");
   });
 
   it("resets silence timer on new output", () => {
@@ -112,19 +63,20 @@ describe("InteractiveDetector", () => {
     expect(onDetected).not.toHaveBeenCalled();
   });
 
-  it("uses default 60s silence timeout", () => {
+  it("uses default 600s silence timeout", () => {
     detector = new InteractiveDetector({ onDetected });
     detector.start();
 
     detector.processLine("Starting...");
 
-    // 59 seconds — should not trigger
-    vi.advanceTimersByTime(59_000);
+    // 599 seconds — should not trigger
+    vi.advanceTimersByTime(599_000);
     expect(onDetected).not.toHaveBeenCalled();
 
-    // 61 seconds total — should trigger
+    // 601 seconds total — should trigger
     vi.advanceTimersByTime(2000);
     expect(onDetected).toHaveBeenCalledOnce();
+    expect(onDetected.mock.calls[0][0]).toContain("600s");
   });
 
   it("reports last output line in silence message", () => {
@@ -153,6 +105,56 @@ describe("InteractiveDetector", () => {
     detector.stop();
     vi.advanceTimersByTime(10_000);
 
+    expect(onDetected).not.toHaveBeenCalled();
+  });
+
+  it("bump() resets silence timer without recording lines", () => {
+    detector = new InteractiveDetector({
+      silenceTimeoutMs: 5000,
+      onDetected,
+    });
+    detector.start();
+
+    detector.bump();
+    vi.advanceTimersByTime(3000);
+    detector.bump();
+    vi.advanceTimersByTime(3000);
+
+    expect(onDetected).not.toHaveBeenCalled();
+  });
+
+  it("bump() resets silence timer so timeout counts from last bump", () => {
+    detector = new InteractiveDetector({
+      silenceTimeoutMs: 5000,
+      onDetected,
+    });
+    detector.start();
+
+    vi.advanceTimersByTime(4000);
+    detector.bump(); // reset timer
+    vi.advanceTimersByTime(4000); // 4s after bump — should not trigger
+
+    expect(onDetected).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(2000); // 6s after bump — should trigger
+
+    expect(onDetected).toHaveBeenCalledOnce();
+    expect(onDetected.mock.calls[0][1]).toBe("silence_timeout");
+  });
+
+  it("does not false-positive on text containing 'Password:' via processLine", () => {
+    // Pattern matching was removed — processLine only records context
+    detector = new InteractiveDetector({
+      silenceTimeoutMs: 5000,
+      onDetected,
+    });
+    detector.start();
+
+    detector.processLine("Enter your password:");
+    detector.processLine("Do you want to continue? (y/n)");
+    detector.processLine("Press enter to continue...");
+
+    // None of these should trigger — only silence timeout fires
     expect(onDetected).not.toHaveBeenCalled();
   });
 });

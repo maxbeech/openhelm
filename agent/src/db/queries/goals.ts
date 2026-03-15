@@ -39,17 +39,20 @@ export function getGoal(id: string): Goal | null {
 
 export function listGoals(params: ListGoalsParams): Goal[] {
   const db = getDb();
-  const conditions = [eq(goals.projectId, params.projectId)];
+  const conditions = [];
 
+  if (params.projectId) {
+    conditions.push(eq(goals.projectId, params.projectId));
+  }
   if (params.status) {
     conditions.push(eq(goals.status, params.status));
   }
 
-  return db
-    .select()
-    .from(goals)
-    .where(and(...conditions))
-    .all() as Goal[];
+  const query = conditions.length > 0
+    ? db.select().from(goals).where(and(...conditions))
+    : db.select().from(goals);
+
+  return query.all() as Goal[];
 }
 
 export function updateGoal(params: UpdateGoalParams): Goal {

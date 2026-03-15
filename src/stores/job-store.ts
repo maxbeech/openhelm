@@ -8,7 +8,7 @@ interface JobState {
   loading: boolean;
   error: string | null;
 
-  fetchJobs: (projectId: string) => Promise<void>;
+  fetchJobs: (projectId: string | null) => Promise<void>;
   createJob: (params: CreateJobParams) => Promise<Job>;
   updateJob: (params: UpdateJobParams) => Promise<Job>;
   toggleEnabled: (id: string, isEnabled: boolean) => Promise<void>;
@@ -36,7 +36,7 @@ export const useJobStore = create<JobState>((set) => ({
   fetchJobs: async (projectId) => {
     set({ loading: true, error: null });
     try {
-      const jobs = await api.listJobs({ projectId });
+      const jobs = await api.listJobs(projectId ? { projectId } : undefined);
       set({ jobs, loading: false });
     } catch (err) {
       set({

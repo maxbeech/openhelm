@@ -17,7 +17,7 @@
 import { spawn, type ChildProcess } from "child_process";
 import { createInterface } from "readline";
 import type { ClaudeCodeRunResult } from "@openorchestra/shared";
-import { InteractiveDetector } from "./interactive-detector.js";
+import { InteractiveDetector, type InteractiveDetectionType } from "./interactive-detector.js";
 import { parseStreamLine } from "./stream-parser.js";
 
 export interface RunnerConfig {
@@ -39,11 +39,14 @@ export interface RunnerConfig {
   modelEffort?: "low" | "medium" | "high";
   /** Called for each log chunk (stream, text) */
   onLogChunk: (stream: "stdout" | "stderr", text: string) => void;
+  /** Silence timeout in milliseconds (default: 180s) */
+  silenceTimeoutMs?: number;
   /** Called when interactive input is detected */
-  onInteractiveDetected?: (reason: string) => void;
+  onInteractiveDetected?: (reason: string, type: InteractiveDetectionType) => void;
 }
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const DEFAULT_SILENCE_TIMEOUT_MS = 600_000; // 10 minutes
 const SIGKILL_DELAY_MS = 5000; // 5 seconds after SIGTERM
 
 /**
@@ -83,6 +86,7 @@ export function runClaudeCode(
     let timedOut = false;
     let killed = false;
     let resolved = false;
+    let capturedSessionId: string | null = null;
 
     const cleanup = () => {
       clearTimeout(timeoutTimer);
@@ -94,15 +98,15 @@ export function runClaudeCode(
       if (resolved) return;
       resolved = true;
       cleanup();
-      resolve({ exitCode, timedOut, killed });
+      resolve({ exitCode, timedOut, killed, sessionId: capturedSessionId });
     };
 
     // -- Interactive Detector --
     const interactiveDetector = new InteractiveDetector({
-      silenceTimeoutMs: 60_000,
-      onDetected: (reason) => {
-        console.error(`[runner] interactive detected: ${reason}`);
-        config.onInteractiveDetected?.(reason);
+      silenceTimeoutMs: config.silenceTimeoutMs ?? DEFAULT_SILENCE_TIMEOUT_MS,
+      onDetected: (reason, type) => {
+        console.error(`[runner] interactive detected (${type}): ${reason}`);
+        config.onInteractiveDetected?.(reason, type);
       },
     });
     interactiveDetector.start();
@@ -110,17 +114,22 @@ export function runClaudeCode(
     // -- stdout streaming (stream-json lines) --
     const stdoutRl = createInterface({ input: child.stdout! });
     stdoutRl.on("line", (line) => {
-      interactiveDetector.processLine(line);
+      interactiveDetector.bump();
       const parsed = parseStreamLine(line);
       if (parsed) {
-        config.onLogChunk("stdout", parsed.text);
+        if (parsed.sessionId) capturedSessionId = parsed.sessionId;
+        if (parsed.text) {
+          config.onLogChunk("stdout", parsed.text);
+          // Record for silence timeout context (no pattern matching)
+          interactiveDetector.processLine(parsed.text);
+        }
       }
     });
 
     // -- stderr streaming (raw lines) --
     const stderrRl = createInterface({ input: child.stderr! });
     stderrRl.on("line", (line) => {
-      interactiveDetector.processLine(line);
+      interactiveDetector.bump();
       config.onLogChunk("stderr", line);
     });
 

@@ -34,6 +34,7 @@ export interface ParsedLogEntry {
   costUsd?: number;
   durationMs?: number;
   numTurns?: number;
+  sessionId?: string;
 }
 
 /**
@@ -51,6 +52,9 @@ export function parseStreamLine(line: string): ParsedLogEntry | null {
 
   const type = event.type as string;
 
+  // Capture session_id from any event that carries it (system init, result, etc.)
+  const eventSessionId = event.session_id as string | undefined;
+
   if (type === "result") {
     return {
       text: (event.result as string) ?? "",
@@ -58,7 +62,13 @@ export function parseStreamLine(line: string): ParsedLogEntry | null {
       costUsd: event.cost_usd as number | undefined,
       durationMs: event.duration_ms as number | undefined,
       numTurns: event.num_turns as number | undefined,
+      sessionId: eventSessionId,
     };
+  }
+
+  // system init event — no displayable text, but may carry session_id
+  if (type === "system" && eventSessionId) {
+    return { text: "", isResult: false, sessionId: eventSessionId };
   }
 
   if (type === "assistant" || type === "user") {

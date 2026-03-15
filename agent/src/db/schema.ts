@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 /** Key-value settings store. Used for user preferences, API keys, etc. */
 export const settings = sqliteTable("settings", {
@@ -96,13 +96,14 @@ export const runs = sqliteTable("runs", {
   triggerSource: text("trigger_source", {
     enum: ["scheduled", "manual", "corrective"],
   }).notNull(),
-  parentRunId: text("parent_run_id").references(() => runs.id, { onDelete: "set null" }),
+  parentRunId: text("parent_run_id").references((): AnySQLiteColumn => runs.id, { onDelete: "set null" }),
   correctionContext: text("correction_context"),
   scheduledFor: text("scheduled_for"),
   startedAt: text("started_at"),
   finishedAt: text("finished_at"),
   exitCode: integer("exit_code"),
   summary: text("summary"),
+  sessionId: text("session_id"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -142,6 +143,30 @@ export const messages = sqliteTable("messages", {
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
+});
+
+/** Actionable items surfaced to the user (permanent failures, HITL prompts) */
+export const inboxItems = sqliteTable("inbox_items", {
+  id: text("id").primaryKey(),
+  runId: text("run_id")
+    .notNull()
+    .references(() => runs.id, { onDelete: "cascade" }),
+  jobId: text("job_id")
+    .notNull()
+    .references(() => jobs.id, { onDelete: "cascade" }),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  type: text("type", { enum: ["permanent_failure", "human_in_loop"] }).notNull(),
+  status: text("status", { enum: ["open", "resolved", "dismissed"] })
+    .notNull()
+    .default("open"),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  resolvedAt: text("resolved_at"),
 });
 
 /** Real-time log chunks captured from Claude Code output */

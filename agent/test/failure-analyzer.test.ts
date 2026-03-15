@@ -115,6 +115,53 @@ describe("analyzeFailure", () => {
     expect(result).toBeNull();
   });
 
+  it("includes failureContext in LLM user message when provided", async () => {
+    const job = createJob({
+      projectId,
+      name: "Context Job",
+      prompt: "run the task",
+      scheduleType: "manual",
+      scheduleConfig: {},
+    });
+    const run = createRun({ jobId: job.id, triggerSource: "manual" });
+    createRunLog({ runId: run.id, stream: "stderr", text: "timed out waiting" });
+
+    mockLlm.mockResolvedValueOnce(JSON.stringify({
+      fixable: true,
+      correction: "Try a different approach",
+      reason: "Silence timeout — got stuck",
+    }));
+
+    await analyzeFailure(run.id, job.prompt, "The run was killed due to silence timeout.");
+
+    const lastCall = mockLlm.mock.calls[mockLlm.mock.calls.length - 1][0];
+    expect(lastCall.userMessage).toContain("Failure context:");
+    expect(lastCall.userMessage).toContain("silence timeout");
+  });
+
+  it("omits failureContext from user message when not provided", async () => {
+    const job = createJob({
+      projectId,
+      name: "No Context Job",
+      prompt: "run the task",
+      scheduleType: "manual",
+      scheduleConfig: {},
+    });
+    const run = createRun({ jobId: job.id, triggerSource: "manual" });
+    createRunLog({ runId: run.id, stream: "stderr", text: "some error" });
+
+    mockLlm.mockResolvedValueOnce(JSON.stringify({
+      fixable: false,
+      correction: null,
+      reason: "Unknown error",
+    }));
+
+    await analyzeFailure(run.id, job.prompt);
+
+    const lastCall = mockLlm.mock.calls[mockLlm.mock.calls.length - 1][0];
+    expect(lastCall.userMessage).not.toContain("Failure context:");
+  });
+
   it("returns not-fixable when run has no logs", async () => {
     const job = createJob({
       projectId,

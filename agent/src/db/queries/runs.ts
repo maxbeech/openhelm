@@ -14,6 +14,7 @@ function rowToRun(row: typeof runs.$inferSelect): Run {
     ...row,
     parentRunId: row.parentRunId ?? null,
     correctionContext: row.correctionContext ?? null,
+    sessionId: row.sessionId ?? null,
   } as Run;
 }
 
@@ -26,7 +27,7 @@ const VALID_TRANSITIONS: Record<RunStatus, RunStatus[]> = {
   queued: ["running", "cancelled", "permanent_failure"],
   running: ["succeeded", "failed", "permanent_failure", "cancelled"],
   succeeded: [],
-  failed: [],
+  failed: ["permanent_failure"],
   permanent_failure: [],
   cancelled: [],
 };
@@ -136,6 +137,7 @@ export function updateRun(params: UpdateRunParams): Run {
       }),
       ...(params.exitCode !== undefined && { exitCode: params.exitCode }),
       ...(params.summary !== undefined && { summary: params.summary }),
+      ...(params.sessionId !== undefined && { sessionId: params.sessionId }),
     })
     .where(eq(runs.id, params.id))
     .returning()

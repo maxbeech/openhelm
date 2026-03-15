@@ -102,7 +102,7 @@ describe("Executor run lifecycle", () => {
     expect(updated!.finishedAt).not.toBeNull();
   });
 
-  it("marks a run as failed when exit code is non-zero", async () => {
+  it("keeps a failed run as 'failed' (not permanent_failure) when analysis error occurs for non-timeout", async () => {
     const job = createJob({
       projectId,
       name: "Fail Job",
@@ -124,14 +124,17 @@ describe("Executor run lifecycle", () => {
     );
     executor.processNext();
 
-    await new Promise((r) => setTimeout(r, 100));
+    // Wait long enough for async self-correction attempt
+    await new Promise((r) => setTimeout(r, 200));
 
     const updated = getRun(run.id);
+    // analysisError no longer promotes to permanent_failure — stays as "failed"
+    // and creates an inbox item instead
     expect(updated!.status).toBe("failed");
     expect(updated!.exitCode).toBe(1);
   });
 
-  it("marks a timed-out run as failed", async () => {
+  it("creates corrective run for timed-out run using fallback correction (no LLM needed)", async () => {
     const job = createJob({
       projectId,
       name: "Timeout Job",
@@ -153,9 +156,11 @@ describe("Executor run lifecycle", () => {
     );
     executor.processNext();
 
-    await new Promise((r) => setTimeout(r, 100));
+    // Wait long enough for async self-correction attempt
+    await new Promise((r) => setTimeout(r, 200));
 
     const updated = getRun(run.id);
+    // Timeout is a signal-based retry — always creates corrective run
     expect(updated!.status).toBe("failed");
     // Should have a timeout log entry
     const logs = listRunLogs({ runId: run.id });

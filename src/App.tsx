@@ -11,17 +11,19 @@ import { useProjectStore } from "./stores/project-store";
 import { useGoalStore } from "./stores/goal-store";
 import { useJobStore } from "./stores/job-store";
 import { useRunStore } from "./stores/run-store";
+import { useInboxStore } from "./stores/inbox-store";
 import { useChatStore } from "./stores/chat-store";
 import { useAgentEvent } from "./hooks/use-agent-event";
-import type { RunStatus, ChatMessage } from "@openorchestra/shared";
+import type { RunStatus, ChatMessage, InboxItem } from "@openorchestra/shared";
+import { notifyInboxItem } from "./lib/notifications";
 import { OnboardingWizard } from "./components/onboarding/onboarding-wizard";
 import { AppShell } from "./components/layout/app-shell";
 import { WelcomeView } from "./components/content/welcome-view";
-import { HomeView } from "./components/content/home-view";
 import { GoalDetailView } from "./components/content/goal-detail-view";
 import { JobDetailView } from "./components/content/job-detail-view";
 import { RunDetailView } from "./components/content/run-detail-view";
 import { SettingsScreen } from "./components/settings/settings-screen";
+import { InboxView } from "./components/content/inbox-view";
 import { JobCreationSheet } from "./components/jobs/job-creation-sheet";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { NewProjectDialog } from "./components/shared/new-project-dialog";
@@ -38,6 +40,7 @@ export default function App() {
     setActiveProjectId,
     setOnboardingComplete,
     setAgentReady,
+    setContentView,
   } = useAppStore();
   const { projects, fetchProjects } = useProjectStore();
   const { goals, fetchGoals } = useGoalStore();
@@ -50,6 +53,12 @@ export default function App() {
     addMessageToStore,
     updateMessageInStore,
   } = useChatStore();
+  const {
+    fetchItems: fetchInboxItems,
+    fetchOpenCount: fetchInboxCount,
+    addItemToStore: addInboxItem,
+    updateItemInStore: updateInboxItem,
+  } = useInboxStore();
 
   const [showNewProject, setShowNewProject] = useState(false);
   const [showJobSheet, setShowJobSheet] = useState(false);
@@ -64,7 +73,7 @@ export default function App() {
 
   // Global run event handlers
   const handleRunCreated = useCallback(() => {
-    if (activeProjectId) fetchRuns(activeProjectId);
+    fetchRuns(activeProjectId);
   }, [activeProjectId, fetchRuns]);
 
   const handleRunStatusChanged = useCallback(
@@ -75,6 +84,7 @@ export default function App() {
       startedAt?: string;
       finishedAt?: string;
       exitCode?: number | null;
+      sessionId?: string | null;
     }) => {
       updateRunInStore({
         id: data.runId,
@@ -83,6 +93,7 @@ export default function App() {
         ...(data.startedAt != null && { startedAt: data.startedAt }),
         ...(data.finishedAt != null && { finishedAt: data.finishedAt }),
         ...(data.exitCode !== undefined && { exitCode: data.exitCode }),
+        ...(data.sessionId != null && { sessionId: data.sessionId }),
       });
     },
     [updateRunInStore],
@@ -120,8 +131,8 @@ export default function App() {
 
   // Job updated event (e.g. correction context changes)
   const handleJobUpdated = useCallback(
-    (data: { jobId: string }) => {
-      if (activeProjectId) fetchJobs(activeProjectId);
+    (_data: { jobId: string }) => {
+      fetchJobs(activeProjectId);
     },
     [activeProjectId, fetchJobs],
   );
@@ -167,16 +178,33 @@ export default function App() {
   );
 
   const handleChatActionResolved = useCallback(() => {
-    if (activeProjectId) {
-      fetchGoals(activeProjectId);
-      fetchJobs(activeProjectId);
-      fetchRuns(activeProjectId);
-    }
+    fetchGoals(activeProjectId);
+    fetchJobs(activeProjectId);
+    fetchRuns(activeProjectId);
   }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns]);
 
   useAgentEvent("chat.messageCreated", handleChatMessageCreated);
   useAgentEvent("chat.status", handleChatStatus);
   useAgentEvent("chat.actionResolved", handleChatActionResolved);
+
+  // Inbox event handlers — always cross-project
+  const handleInboxCreated = useCallback(
+    (item: InboxItem) => {
+      addInboxItem(item);
+      notifyInboxItem(item);
+    },
+    [addInboxItem],
+  );
+
+  const handleInboxResolved = useCallback(
+    (item: InboxItem) => {
+      updateInboxItem(item);
+    },
+    [updateInboxItem],
+  );
+
+  useAgentEvent("inbox.created", handleInboxCreated);
+  useAgentEvent("inbox.resolved", handleInboxResolved);
 
   // Start agent client
   useEffect(() => {
@@ -205,24 +233,28 @@ export default function App() {
         setOnboardingComplete(true);
         const saved = await api.getSetting("active_project");
         const savedId = saved?.value;
-        const activeProj =
-          projectsList.find((p) => p.id === savedId) ?? projectsList[0];
-        setActiveProjectId(activeProj.id);
+        const activeProj = projectsList.find((p) => p.id === savedId);
+        // null = All Projects (default); specific project if previously saved
+        setActiveProjectId(activeProj?.id ?? null);
       }
+      // Fetch cross-project inbox right away
+      fetchInboxItems();
+      fetchInboxCount();
       setInitialLoading(false);
     })();
-  }, [agentReady, fetchProjects, setOnboardingComplete, setActiveProjectId]);
+  }, [agentReady, fetchProjects, setOnboardingComplete, setActiveProjectId, fetchInboxItems, fetchInboxCount]);
 
-  // Centralized data fetching when project changes
+  // Fetch data when project filter changes (null = All Projects)
   useEffect(() => {
-    if (!activeProjectId) return;
     fetchGoals(activeProjectId);
     fetchJobs(activeProjectId);
     fetchRuns(activeProjectId);
-    fetchMessages(activeProjectId);
-    api
-      .setSetting({ key: "active_project", value: activeProjectId })
-      .catch(() => {});
+    if (activeProjectId) {
+      fetchMessages(activeProjectId);
+      api
+        .setSetting({ key: "active_project", value: activeProjectId })
+        .catch(() => {});
+    }
   }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns, fetchMessages]);
 
   // Notification permission
@@ -317,8 +349,13 @@ export default function App() {
   }
 
   const hasGoals = goals.length > 0;
-  // Hide welcome screen once the user has sent a message (or is sending one)
-  const showWelcome = !hasGoals && chatMessages.length === 0 && !chatSending;
+  // Show welcome only when on inbox view, no goals, no chat activity, and a specific project is selected
+  const showWelcome =
+    contentView === "inbox" &&
+    !hasGoals &&
+    chatMessages.length === 0 &&
+    !chatSending &&
+    !!activeProjectId;
 
   // Main app
   return (
@@ -330,12 +367,13 @@ export default function App() {
           selectedRunId ? <RunDetailView runId={selectedRunId} /> : undefined
         }
       >
-        {contentView === "home" &&
-          (showWelcome && activeProjectId ? (
-            <WelcomeView projectId={activeProjectId} />
+        {contentView === "inbox" &&
+          (showWelcome ? (
+            <WelcomeView projectId={activeProjectId!} />
           ) : (
-            <HomeView />
+            <InboxView />
           ))}
+        {contentView === "home" && <InboxView />}
         {contentView === "goal-detail" && selectedGoalId && (
           <GoalDetailView
             goalId={selectedGoalId}

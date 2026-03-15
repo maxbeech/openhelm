@@ -60,7 +60,7 @@ export function ChatPanel({ projectId }: ChatPanelProps) {
       />
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <h3 className="text-sm font-semibold">AI Assistant</h3>
+        <h3 className="text-sm font-semibold">Chat</h3>
         <div className="flex items-center gap-1">
           {messages.length > 0 && (
             <Button

@@ -21,13 +21,17 @@ import {
   updateJobCorrectionContext,
   disableJob,
 } from "../db/queries/jobs.js";
-import { attemptSelfCorrection } from "./self-correction.js";
+import { attemptSelfCorrection, type FailureSignal } from "./self-correction.js";
+import { triagePermanentFailure } from "./failure-triage.js";
+import { handleInteractiveDetected } from "./hitl-handler.js";
+import { createInboxItem } from "../db/queries/inbox-items.js";
 import { getProject } from "../db/queries/projects.js";
 import { createRunLog } from "../db/queries/run-logs.js";
 import { getSetting } from "../db/queries/settings.js";
 import { computeNextFireAt } from "../scheduler/schedule.js";
 import { emit } from "../ipc/emitter.js";
 import { generateRunSummary } from "../planner/summarize.js";
+import type { InteractiveDetectionType } from "../claude-code/interactive-detector.js";
 import type { RunStatus, ClaudeCodeRunResult, Job } from "@openorchestra/shared";
 
 const DEFAULT_MAX_CONCURRENCY = 1;
@@ -41,6 +45,7 @@ type RunnerFn = (
 
 export class Executor {
   private activeRuns = new Map<string, AbortController>();
+  private hitlKilledRuns = new Map<string, InteractiveDetectionType>();
   private runnerFn: RunnerFn;
 
   constructor(runnerFn?: RunnerFn) {
@@ -190,8 +195,10 @@ export class Executor {
           const log = createRunLog({ runId, stream, text });
           emit("run.log", { runId, sequence: log.sequence, stream, text });
         },
-        onInteractiveDetected: (reason) => {
-          emit("run.interactiveDetected", { runId, reason });
+        onInteractiveDetected: (reason, type) => {
+          emit("run.interactiveDetected", { runId, reason, type });
+          this.hitlKilledRuns.set(runId, type);
+          handleInteractiveDetected(runId, reason, controller);
         },
       },
       controller.signal,
@@ -201,7 +208,7 @@ export class Executor {
     this.activeRuns.delete(runId);
 
     // Handle completion (includes async summary generation)
-    await this.onRunCompleted(runId, job, result);
+    await this.onRunCompleted(runId, job, result, timeoutMs);
 
     // Try to process the next item in the queue
     this.processNext();
@@ -267,12 +274,20 @@ export class Executor {
     runId: string,
     job: Job,
     result: ClaudeCodeRunResult,
+    timeoutMs?: number,
   ): Promise<void> {
     const finishedAt = new Date().toISOString();
 
+    // Check if this was a HITL kill and what type
+    const hitlKillType = this.hitlKilledRuns.get(runId) ?? null;
+    this.hitlKilledRuns.delete(runId);
+    const isHitlKill = hitlKillType !== null;
+
     // Determine final status
     let finalStatus: RunStatus;
-    if (result.killed) {
+    if (result.killed && isHitlKill) {
+      finalStatus = "failed";
+    } else if (result.killed) {
       finalStatus = "cancelled";
     } else if (result.timedOut) {
       finalStatus = "failed";
@@ -291,13 +306,14 @@ export class Executor {
     // in the DB when the statusChanged event reaches the UI
     const summary = await generateRunSummary(runId, finalStatus);
 
-    // Update run status with summary
+    // Update run status with summary and session ID
     updateRun({
       id: runId,
       status: finalStatus,
       finishedAt,
       exitCode: result.exitCode ?? undefined,
       summary: summary ?? undefined,
+      sessionId: result.sessionId ?? undefined,
     });
 
     console.error(`[executor] run ${runId} finished: ${finalStatus} (exit=${result.exitCode ?? "n/a"})`);
@@ -308,6 +324,7 @@ export class Executor {
       summary,
       finishedAt,
       exitCode: result.exitCode,
+      sessionId: result.sessionId ?? null,
     });
     emit("run.completed", {
       runId,
@@ -315,16 +332,61 @@ export class Executor {
       timedOut: result.timedOut,
     });
 
-    // Self-correction: attempt auto-retry for failed runs
+    // Self-correction: attempt auto-retry for all failed runs
+    // (silence timeouts are the only HITL kill type now — all are retryable)
     if (finalStatus === "failed") {
+      // Build structured failure signal
+      const isTimeout = result.timedOut || result.exitCode === 143 || result.exitCode === 137;
+      const isSilenceTimeout = hitlKillType === "silence_timeout";
+      const mins = Math.round((timeoutMs ?? DEFAULT_TIMEOUT_MS) / 60_000);
+
+      let failureContext: string | undefined;
+      if (result.timedOut) {
+        failureContext = `The run timed out after ${mins} minutes and was forcibly terminated. The task was likely partially completed. Check what was already done, skip completed steps, and use a more efficient approach.`;
+      } else if (isSilenceTimeout) {
+        failureContext = "The run was killed because Claude produced no output for an extended period (silence timeout). Claude may have gotten stuck on an interactive flow or unresponsive service. The run was otherwise productive before the stall.";
+      } else if (result.exitCode === 143) {
+        failureContext = `Process received SIGTERM (exit 143) — likely timed out or terminated externally. The task was likely partially completed.`;
+      } else if (result.exitCode === 137) {
+        failureContext = `Process was SIGKILL'd (exit 137) — possibly OOM or external force-kill. The task may have been partially completed.`;
+      } else if (result.exitCode !== null && result.exitCode !== 0) {
+        failureContext = `The run exited with code ${result.exitCode}.`;
+      }
+
+      const failureSignal: FailureSignal = {
+        isTimeout,
+        isSilenceTimeout,
+        exitCode: result.exitCode,
+        timeoutMinutes: mins,
+        failureContext,
+      };
+
       attemptSelfCorrection(runId, job, (item) => {
         jobQueue.enqueue(item);
         this.processNext();
-      }).then((result) => {
-        if (result.attempted) {
-          console.error(`[executor] self-correction: corrective run ${result.correctiveRunId} created (${result.reason})`);
+      }, failureSignal).then((scResult) => {
+        if (scResult.attempted) {
+          console.error(`[executor] self-correction: corrective run ${scResult.correctiveRunId} created (${scResult.reason})`);
+        } else if (scResult.notFixable) {
+          // Only promote to permanent_failure when LLM confirms not fixable
+          triagePermanentFailure(runId, scResult.analysisReason ?? scResult.reason);
+        } else if (scResult.analysisError) {
+          // LLM failed but this is NOT "confirmed unfixable" — notify user, keep as "failed"
+          console.error(`[executor] self-correction: LLM analysis failed, creating inbox item`);
+          const failedJob = getJob(jobId);
+          if (failedJob) {
+            const item = createInboxItem({
+              runId,
+              jobId: failedJob.id,
+              projectId: failedJob.projectId,
+              type: "human_in_loop",
+              title: `"${failedJob.name}" failed — auto-retry unavailable`,
+              message: scResult.reason,
+            });
+            emit("inbox.created", item);
+          }
         } else {
-          console.error(`[executor] self-correction skipped: ${result.reason}`);
+          console.error(`[executor] self-correction skipped: ${scResult.reason}`);
         }
       }).catch((err) =>
         console.error(`[executor] self-correction error:`, err),
@@ -378,7 +440,7 @@ export class Executor {
     updateJobNextFireAt(job.id, nextFireAt);
   }
 
-  /** Mark a run as permanent_failure with a log message */
+  /** Mark a run as permanent_failure with a log message + inbox item */
   private failPermanently(
     runId: string,
     fromStatus: RunStatus,
@@ -392,6 +454,23 @@ export class Executor {
       status: "permanent_failure",
       previousStatus: fromStatus,
     });
+
+    // Create inbox item for pre-flight failures
+    const run = getRun(runId);
+    if (run) {
+      const job = getJob(run.jobId);
+      if (job) {
+        const item = createInboxItem({
+          runId,
+          jobId: job.id,
+          projectId: job.projectId,
+          type: "permanent_failure",
+          title: `"${job.name}" failed permanently`,
+          message,
+        });
+        emit("inbox.created", item);
+      }
+    }
   }
 }
 

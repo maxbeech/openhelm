@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Ban, X } from "lucide-react";
+import { Ban, TerminalSquare, X } from "lucide-react";
 import { useRunStore } from "@/stores/run-store";
 import { useJobStore } from "@/stores/job-store";
 import { useAppStore } from "@/stores/app-store";
 import { RunStatusBanner } from "@/components/runs/run-status-banner";
 import { LogViewer } from "@/components/runs/log-viewer";
 import { useRunLogs } from "@/hooks/use-run-logs";
+import { openRunInTerminal } from "@/lib/api";
 
 interface RunDetailViewProps {
   runId: string;
@@ -37,6 +38,15 @@ export function RunDetailView({ runId }: RunDetailViewProps) {
     "permanent_failure",
     "cancelled",
   ].includes(run.status);
+  const canOpenInTerminal = isTerminal && !!run.sessionId;
+
+  const handleOpenInTerminal = async () => {
+    try {
+      await openRunInTerminal(run.id);
+    } catch (err) {
+      console.error("Failed to open run in terminal:", err);
+    }
+  };
 
   const handleCancel = async () => {
     setCancelling(true);
@@ -57,13 +67,25 @@ export function RunDetailView({ runId }: RunDetailViewProps) {
             Run {run.id.slice(0, 8)}
           </p>
         </div>
-        <button
-          onClick={clearSelectedRun}
-          className="rounded p-1 text-muted-foreground hover:text-foreground"
-          title="Close run detail"
-        >
-          <X className="size-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          {canOpenInTerminal && (
+            <button
+              onClick={handleOpenInTerminal}
+              className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+              title="Open in Terminal"
+            >
+              <TerminalSquare className="size-3.5" />
+              Open
+            </button>
+          )}
+          <button
+            onClick={clearSelectedRun}
+            className="rounded p-1 text-muted-foreground hover:text-foreground"
+            title="Close run detail"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
       </div>
 
       {/* Status Banner */}

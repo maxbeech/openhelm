@@ -110,7 +110,7 @@ describe("runClaudeCode", () => {
     expect(stdoutCalls.length).toBeGreaterThan(0);
   });
 
-  it("calls onInteractiveDetected when patterns are found", async () => {
+  it("does not trigger onInteractiveDetected for pattern-like text (patterns removed)", async () => {
     const onInteractiveDetected = vi.fn();
     const onLogChunk = vi.fn();
     const config = mockConfig({
@@ -121,11 +121,8 @@ describe("runClaudeCode", () => {
     });
 
     await runClaudeCode(config);
-    // stdin-to-stdout.sh reads stdin and outputs it — "(y/n)" triggers detection
-    expect(onInteractiveDetected).toHaveBeenCalledOnce();
-    expect(onInteractiveDetected.mock.calls[0][0]).toContain(
-      "Interactive prompt detected",
-    );
+    // Pattern matching was removed — only silence timeout triggers detection
+    expect(onInteractiveDetected).not.toHaveBeenCalled();
   });
 
   it("respects maxBudgetUsd in arguments", async () => {

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Briefcase } from "lucide-react";
+import { NodeIcon } from "@/components/shared/node-icon";
 import type {
   Job,
   Run,
@@ -101,13 +101,7 @@ export function SidebarJobNode({
     >
       {/* Row 1: Name + Model badge */}
       <div className="flex items-center gap-1.5">
-        {job.icon ? (
-          <span className="flex size-4 shrink-0 items-center justify-center text-sm leading-none">
-            {job.icon}
-          </span>
-        ) : (
-          <Briefcase className="size-3.5 shrink-0" />
-        )}
+        <NodeIcon icon={job.icon} defaultIcon="briefcase" />
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-sm",

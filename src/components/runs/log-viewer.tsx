@@ -1,6 +1,6 @@
 import { Input } from "@/components/ui/input";
-import { Search, Code, FileText } from "lucide-react";
-import { useState, useMemo } from "react";
+import { Search, Code, FileText, Copy, Check } from "lucide-react";
+import { useState, useMemo, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { RunLog } from "@openorchestra/shared";
@@ -18,6 +18,7 @@ interface LogViewerProps {
 export function LogViewer({ logs, loading, isLive }: LogViewerProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [displayMode, setDisplayMode] = useState<DisplayMode>(
     isLive ? "raw" : "rendered",
   );
@@ -34,6 +35,12 @@ export function LogViewer({ logs, loading, isLive }: LogViewerProps) {
     () => logs.map((l) => l.text).join("\n"),
     [logs],
   );
+
+  const handleCopy = useCallback(async () => {
+    await navigator.clipboard.writeText(fullText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [fullText]);
 
   return (
     <div className="relative flex h-full flex-col">
@@ -78,6 +85,17 @@ export function LogViewer({ logs, loading, isLive }: LogViewerProps) {
               <><FileText className="size-3" /> Rendered</>
             ) : (
               <><Code className="size-3" /> Raw</>
+            )}
+          </button>
+          <button
+            onClick={handleCopy}
+            className="rounded p-1 text-muted-foreground hover:text-foreground"
+            title="Copy logs to clipboard"
+          >
+            {copied ? (
+              <Check className="size-3.5 text-green-500" />
+            ) : (
+              <Copy className="size-3.5" />
             )}
           </button>
           <button

@@ -158,6 +158,7 @@ export interface Run {
   finishedAt: string | null;
   exitCode: number | null;
   summary: string | null;
+  sessionId: string | null;
   createdAt: string;
 }
 
@@ -271,6 +272,7 @@ export interface UpdateRunParams {
   finishedAt?: string;
   exitCode?: number;
   summary?: string;
+  sessionId?: string;
 }
 
 // RunLogs
@@ -307,7 +309,7 @@ export interface ListJobsParams {
 }
 
 export interface ListGoalsParams {
-  projectId: string;
+  projectId?: string;
   status?: GoalStatus;
 }
 
@@ -436,6 +438,7 @@ export interface ClaudeCodeRunResult {
   exitCode: number | null;
   timedOut: boolean;
   killed: boolean;
+  sessionId: string | null;
 }
 
 // ─── Scheduler & Executor Types ───
@@ -542,6 +545,46 @@ export type AssessAndGenerateResult =
 export interface AssessAndGenerateParams {
   projectId: string;
   goalDescription: string;
+}
+
+// ─── Inbox Types ───
+
+export type InboxItemType = "permanent_failure" | "human_in_loop";
+export type InboxItemStatus = "open" | "resolved" | "dismissed";
+
+export interface InboxItem {
+  id: string;
+  runId: string;
+  jobId: string;
+  projectId: string;
+  type: InboxItemType;
+  status: InboxItemStatus;
+  title: string;
+  message: string;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+export interface CreateInboxItemParams {
+  runId: string;
+  jobId: string;
+  projectId: string;
+  type: InboxItemType;
+  title: string;
+  message: string;
+}
+
+export interface ListInboxItemsParams {
+  projectId?: string;
+  status?: InboxItemStatus;
+}
+
+export type InboxResolveAction = "dismiss" | "try_again" | "do_something_different";
+
+export interface ResolveInboxItemParams {
+  id: string;
+  action: InboxResolveAction;
+  guidance?: string;
 }
 
 /** Params for assessing a manual job prompt */

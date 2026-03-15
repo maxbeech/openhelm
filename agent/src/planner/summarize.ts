@@ -35,6 +35,26 @@ export function truncateLogs(fullText: string): string {
   );
 }
 
+const ANALYSIS_HEAD_CHARS = 4_000;
+const ANALYSIS_TAIL_CHARS = 20_000;
+const ANALYSIS_MAX_CHARS = ANALYSIS_HEAD_CHARS + ANALYSIS_TAIL_CHARS;
+
+/**
+ * Truncate logs for failure analysis using a head+tail strategy.
+ * Keeps the first 4K chars (what was accomplished early) + last 20K chars
+ * (where the failure occurred). Total budget: ~24K chars.
+ */
+export function truncateLogsForAnalysis(fullText: string): string {
+  if (fullText.length <= ANALYSIS_MAX_CHARS) return fullText;
+  const head = fullText.slice(0, ANALYSIS_HEAD_CHARS);
+  const tail = fullText.slice(-ANALYSIS_TAIL_CHARS);
+  return (
+    head +
+    "\n\n[… middle portion truncated — showing beginning and end of run output …]\n\n" +
+    tail
+  );
+}
+
 /** Collect all log chunks for a run into a single string */
 export function collectRunLogs(runId: string): string {
   const logs = listRunLogs({ runId });

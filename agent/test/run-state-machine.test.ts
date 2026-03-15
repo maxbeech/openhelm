@@ -72,6 +72,14 @@ describe("run status state machine", () => {
     expect(updated.status).toBe("permanent_failure");
   });
 
+  it("allows failed → permanent_failure", () => {
+    const run = createRun({ jobId, triggerSource: "manual" });
+    updateRun({ id: run.id, status: "running", startedAt: new Date().toISOString() });
+    updateRun({ id: run.id, status: "failed", exitCode: 1 });
+    const updated = updateRun({ id: run.id, status: "permanent_failure" });
+    expect(updated.status).toBe("permanent_failure");
+  });
+
   it("rejects succeeded → running (terminal state)", () => {
     const run = createRun({ jobId, triggerSource: "manual" });
     updateRun({ id: run.id, status: "running", startedAt: new Date().toISOString() });

@@ -15,14 +15,14 @@ describe("pickIcon", () => {
     vi.clearAllMocks();
   });
 
-  it("returns emoji from LLM response", async () => {
-    mockCallLlm.mockResolvedValue("🎯");
+  it("returns valid icon name from LLM response", async () => {
+    mockCallLlm.mockResolvedValue("target");
     const result = await pickIcon("Improve test coverage");
-    expect(result).toBe("🎯");
+    expect(result).toBe("target");
   });
 
   it("passes name and description to LLM", async () => {
-    mockCallLlm.mockResolvedValue("📊");
+    mockCallLlm.mockResolvedValue("chart");
     await pickIcon("Dashboard metrics", "Track key performance indicators");
     expect(mockCallLlm).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -33,7 +33,7 @@ describe("pickIcon", () => {
   });
 
   it("passes only name when no description", async () => {
-    mockCallLlm.mockResolvedValue("🔧");
+    mockCallLlm.mockResolvedValue("wrench");
     await pickIcon("Fix bugs");
     expect(mockCallLlm).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -43,9 +43,9 @@ describe("pickIcon", () => {
   });
 
   it("trims whitespace from response", async () => {
-    mockCallLlm.mockResolvedValue("  🚀  \n");
+    mockCallLlm.mockResolvedValue("  rocket  \n");
     const result = await pickIcon("Deploy");
-    expect(result).toBe("🚀");
+    expect(result).toBe("rocket");
   });
 
   it("returns null on empty response", async () => {
@@ -54,9 +54,15 @@ describe("pickIcon", () => {
     expect(result).toBeNull();
   });
 
-  it("returns null on excessively long response", async () => {
-    mockCallLlm.mockResolvedValue("This is not an emoji, it is a sentence");
+  it("returns null on invalid icon name", async () => {
+    mockCallLlm.mockResolvedValue("This is not an icon name");
     const result = await pickIcon("Bad response");
+    expect(result).toBeNull();
+  });
+
+  it("returns null on unknown icon name", async () => {
+    mockCallLlm.mockResolvedValue("🚀");
+    const result = await pickIcon("Emoji not allowed");
     expect(result).toBeNull();
   });
 
@@ -67,7 +73,7 @@ describe("pickIcon", () => {
   });
 
   it("uses classification tier with 30s timeout", async () => {
-    mockCallLlm.mockResolvedValue("📝");
+    mockCallLlm.mockResolvedValue("file");
     await pickIcon("Notes");
     expect(mockCallLlm).toHaveBeenCalledWith(
       expect.objectContaining({

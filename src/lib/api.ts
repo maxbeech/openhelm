@@ -7,6 +7,7 @@ import type {
   RunLog,
   Setting,
   SettingKey,
+  InboxItem,
   CreateProjectParams,
   UpdateProjectParams,
   CreateGoalParams,
@@ -28,6 +29,8 @@ import type {
   CancelRunParams,
   ClearRunsByJobParams,
   SchedulerStatus,
+  ListInboxItemsParams,
+  ResolveInboxItemParams,
   ChatMessage,
   SendChatMessageParams,
   ApproveChatActionParams,
@@ -204,6 +207,10 @@ export function clearRunsByJob(params: ClearRunsByJobParams): Promise<{ cleared:
   return agentClient.request<{ cleared: number }>("runs.clearByJob", params);
 }
 
+export function openRunInTerminal(runId: string): Promise<{ opened: boolean }> {
+  return agentClient.request<{ opened: boolean }>("runs.openInTerminal", { id: runId });
+}
+
 export function getSchedulerStatus(): Promise<SchedulerStatus> {
   return agentClient.request<SchedulerStatus>("scheduler.status");
 }
@@ -248,4 +255,22 @@ export function listChatMessages(
 
 export function clearChat(params: ClearChatParams): Promise<{ cleared: boolean }> {
   return agentClient.request<{ cleared: boolean }>("chat.clear", params);
+}
+
+// ─── Inbox ───
+
+export function listInboxItems(params?: ListInboxItemsParams): Promise<InboxItem[]> {
+  return agentClient.request<InboxItem[]>("inbox.list", params);
+}
+
+export function getInboxItem(id: string): Promise<InboxItem> {
+  return agentClient.request<InboxItem>("inbox.get", { id });
+}
+
+export function countInboxItems(projectId?: string): Promise<{ count: number }> {
+  return agentClient.request<{ count: number }>("inbox.count", { projectId });
+}
+
+export function resolveInboxItem(params: ResolveInboxItemParams): Promise<InboxItem> {
+  return agentClient.request<InboxItem>("inbox.resolve", params);
 }

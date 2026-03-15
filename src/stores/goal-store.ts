@@ -8,7 +8,7 @@ interface GoalState {
   loading: boolean;
   error: string | null;
 
-  fetchGoals: (projectId: string) => Promise<void>;
+  fetchGoals: (projectId: string | null) => Promise<void>;
   createGoal: (params: CreateGoalParams) => Promise<Goal>;
   updateGoal: (params: UpdateGoalParams) => Promise<Goal>;
   updateGoalStatus: (id: string, status: GoalStatus) => Promise<void>;
@@ -35,7 +35,7 @@ export const useGoalStore = create<GoalState>((set) => ({
   fetchGoals: async (projectId) => {
     set({ loading: true, error: null });
     try {
-      const goals = await api.listGoals({ projectId });
+      const goals = await api.listGoals(projectId ? { projectId } : {});
       set({ goals, loading: false });
     } catch (err) {
       set({

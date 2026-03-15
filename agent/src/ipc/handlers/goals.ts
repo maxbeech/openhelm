@@ -35,8 +35,7 @@ export function registerGoalHandlers() {
   });
 
   registerHandler("goals.list", (params) => {
-    const p = params as ListGoalsParams;
-    if (!p?.projectId) throw new Error("projectId is required");
+    const p = (params ?? {}) as ListGoalsParams;
     return goalQueries.listGoals(p);
   });
 

@@ -50,9 +50,9 @@ describe("ChatPanel", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("renders the AI Assistant header when open", () => {
+  it("renders the Chat header when open", () => {
     render(<ChatPanel projectId="p1" />);
-    expect(screen.getByText("AI Assistant")).toBeInTheDocument();
+    expect(screen.getByText("Chat")).toBeInTheDocument();
   });
 
   it("shows the empty state when no messages", () => {

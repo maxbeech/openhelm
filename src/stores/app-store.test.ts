@@ -4,7 +4,7 @@ import { useAppStore } from "./app-store";
 describe("AppStore", () => {
   beforeEach(() => {
     useAppStore.setState({
-      contentView: "home",
+      contentView: "inbox",
       selectedGoalId: null,
       selectedJobId: null,
       selectedRunId: null,
@@ -75,6 +75,16 @@ describe("AppStore", () => {
     expect(useAppStore.getState().contentView).toBe("settings");
   });
 
+  it("setContentView to inbox clears selections", () => {
+    useAppStore.getState().selectGoal("g1");
+    useAppStore.getState().setContentView("inbox");
+    const s = useAppStore.getState();
+    expect(s.contentView).toBe("inbox");
+    expect(s.selectedGoalId).toBeNull();
+    expect(s.selectedJobId).toBeNull();
+    expect(s.selectedRunId).toBeNull();
+  });
+
   it("setContentView to home clears selections", () => {
     useAppStore.getState().selectGoal("g1");
     useAppStore.getState().setContentView("home");
@@ -105,14 +115,21 @@ describe("AppStore", () => {
     expect(useAppStore.getState().contentView).toBe("settings");
   });
 
-  // Existing behavior
-  it("sets active project ID and resets to home", () => {
+  // Project switching
+  it("sets active project ID and clears selections but preserves contentView", () => {
     useAppStore.getState().selectGoal("g1");
     useAppStore.getState().setActiveProjectId("p1");
     const s = useAppStore.getState();
     expect(s.activeProjectId).toBe("p1");
-    expect(s.contentView).toBe("home");
     expect(s.selectedGoalId).toBeNull();
+    expect(s.selectedJobId).toBeNull();
+    expect(s.selectedRunId).toBeNull();
+  });
+
+  it("sets activeProjectId to null for All Projects", () => {
+    useAppStore.getState().setActiveProjectId("p1");
+    useAppStore.getState().setActiveProjectId(null);
+    expect(useAppStore.getState().activeProjectId).toBeNull();
   });
 
   it("sets onboarding complete", () => {
@@ -125,7 +142,7 @@ describe("AppStore", () => {
     expect(useAppStore.getState().agentReady).toBe(true);
   });
 
-  it("defaults to home content view", () => {
-    expect(useAppStore.getState().contentView).toBe("home");
+  it("defaults to inbox content view", () => {
+    expect(useAppStore.getState().contentView).toBe("inbox");
   });
 });

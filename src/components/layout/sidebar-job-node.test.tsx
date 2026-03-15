@@ -173,16 +173,17 @@ describe("SidebarJobNode", () => {
     expect(button.className).toContain("bg-sidebar-accent");
   });
 
-  it("renders emoji icon when set", () => {
-    render(
+  it("renders svg icon when a valid icon name is set", () => {
+    const { container } = render(
       <SidebarJobNode
-        job={makeJob({ icon: "🚀" })}
+        job={makeJob({ icon: "rocket" })}
         recentRuns={[]}
         isSelected={false}
         onSelect={vi.fn()}
       />,
     );
-    expect(screen.getByText("🚀")).toBeInTheDocument();
+    // Valid icon names render as SVG Lucide icons
+    expect(container.querySelector("svg")).toBeInTheDocument();
   });
 
   it("renders default Briefcase icon when icon is null", () => {

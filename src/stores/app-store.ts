@@ -5,6 +5,7 @@ export type ContentView =
   | "home"
   | "goal-detail"
   | "job-detail"
+  | "inbox"
   | "settings";
 
 // Backward-compat alias
@@ -28,7 +29,7 @@ interface AppState {
   page: Page;
   filter: NavigationFilter;
 
-  // Existing
+  // Existing — null means "All Projects"
   activeProjectId: string | null;
   onboardingComplete: boolean;
   agentReady: boolean;
@@ -51,7 +52,7 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set) => ({
-  contentView: "home",
+  contentView: "inbox",
   selectedGoalId: null,
   selectedJobId: null,
   selectedRunId: null,
@@ -96,13 +97,15 @@ export const useAppStore = create<AppState>((set) => ({
         : [...s.collapsedGoalIds, goalId],
     })),
 
-  setContentView: (view) =>
+  setContentView: (view) => {
+    const clearSelections = view === "home" || view === "settings" || view === "inbox";
     set({
       contentView: view,
-      selectedGoalId: view === "home" || view === "settings" ? null : undefined,
-      selectedJobId: view === "home" || view === "settings" ? null : undefined,
-      selectedRunId: view === "home" || view === "settings" ? null : undefined,
-    } as Partial<AppState>),
+      selectedGoalId: clearSelections ? null : undefined,
+      selectedJobId: clearSelections ? null : undefined,
+      selectedRunId: clearSelections ? null : undefined,
+    } as Partial<AppState>);
+  },
 
   // Backward-compat: maps old page names to new navigation
   setPage: (page, filter = {}) => {
@@ -156,10 +159,10 @@ export const useAppStore = create<AppState>((set) => ({
     }
   },
 
+  // When switching project filter, don't change contentView — stay on inbox
   setActiveProjectId: (id) =>
     set({
       activeProjectId: id,
-      contentView: "home",
       selectedGoalId: null,
       selectedJobId: null,
       selectedRunId: null,

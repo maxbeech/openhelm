@@ -71,6 +71,20 @@
       "when": 1773811200000,
       "tag": "0009_add_self_correction",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1773897600000,
+      "tag": "0010_add_inbox_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1773984000000,
+      "tag": "0011_add_session_id",
+      "breakpoints": true
     }
   ]
 }

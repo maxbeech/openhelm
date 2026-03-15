@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { X, Ban } from "lucide-react";
+import { X, Ban, TerminalSquare } from "lucide-react";
 import { useRunStore } from "@/stores/run-store";
 import { RunStatusBanner } from "./run-status-banner";
 import { LogViewer } from "./log-viewer";
 import { useRunLogs } from "@/hooks/use-run-logs";
+import { openRunInTerminal } from "@/lib/api";
 import type { Run } from "@openorchestra/shared";
 
 interface RunDetailPanelProps {
@@ -21,6 +22,7 @@ export function RunDetailPanel({ run, jobName, onClose }: RunDetailPanelProps) {
   const isRunning = run.status === "running";
   const isCancellable = run.status === "running" || run.status === "queued";
   const isTerminal = ["succeeded", "failed", "permanent_failure", "cancelled"].includes(run.status);
+  const canOpenInTerminal = isTerminal && !!run.sessionId;
 
   const handleCancel = async () => {
     setCancelling(true);
@@ -28,6 +30,14 @@ export function RunDetailPanel({ run, jobName, onClose }: RunDetailPanelProps) {
       await cancelRun(run.id);
     } finally {
       setCancelling(false);
+    }
+  };
+
+  const handleOpenInTerminal = async () => {
+    try {
+      await openRunInTerminal(run.id);
+    } catch (err) {
+      console.error("Failed to open run in terminal:", err);
     }
   };
 
@@ -39,12 +49,24 @@ export function RunDetailPanel({ run, jobName, onClose }: RunDetailPanelProps) {
           <h3 className="font-semibold">{jobName}</h3>
           <p className="text-xs text-muted-foreground">Run {run.id.slice(0, 8)}</p>
         </div>
-        <button
-          onClick={onClose}
-          className="rounded p-1 text-muted-foreground hover:text-foreground"
-        >
-          <X className="size-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          {canOpenInTerminal && (
+            <button
+              onClick={handleOpenInTerminal}
+              className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+              title="Open in Terminal"
+            >
+              <TerminalSquare className="size-3.5" />
+              Open
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="rounded p-1 text-muted-foreground hover:text-foreground"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
       </div>
 
       {/* Status Banner */}

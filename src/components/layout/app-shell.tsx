@@ -25,19 +25,21 @@ export function AppShell({
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar onNewProject={onNewProject} onNewJobForGoal={onNewJobForGoal} />
       <div className="relative flex min-w-0 flex-1 flex-col">
-        {/* Chat toggle button */}
-        <div className="absolute top-3 right-3 z-10">
-          <Button
-            variant={panelOpen ? "secondary" : "outline"}
-            size="sm"
-            onClick={togglePanel}
-            className="gap-1.5 text-xs"
-            title="Toggle AI chat"
-          >
-            <MessageSquare className="size-3.5" />
-            AI Chat
-          </Button>
-        </div>
+        {/* Chat toggle button — hidden when panel is already open */}
+        {!panelOpen && (
+          <div className="absolute top-3 right-3 z-10">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={togglePanel}
+              className="gap-1.5 text-xs"
+              title="Open chat"
+            >
+              <MessageSquare className="size-3.5" />
+              Chat
+            </Button>
+          </div>
+        )}
         <main className="flex-1 overflow-auto">{children}</main>
       </div>
       {rightPanel && (

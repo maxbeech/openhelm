@@ -8,7 +8,7 @@ interface RunState {
   loading: boolean;
   error: string | null;
 
-  fetchRuns: (projectId: string) => Promise<void>;
+  fetchRuns: (projectId: string | null) => Promise<void>;
   fetchRunsByJob: (jobId: string) => Promise<Run[]>;
   triggerRun: (jobId: string) => Promise<Run>;
   triggerDeferredRun: (jobId: string, fireAt: string) => Promise<Run>;
@@ -27,7 +27,7 @@ export const useRunStore = create<RunState>((set) => ({
   fetchRuns: async (projectId) => {
     set({ loading: true, error: null });
     try {
-      const runs = await api.listRuns({ projectId, limit: 100 });
+      const runs = await api.listRuns(projectId ? { projectId, limit: 100 } : { limit: 100 });
       set({ runs, loading: false });
     } catch (err) {
       set({
