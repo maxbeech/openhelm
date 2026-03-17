@@ -2,6 +2,7 @@ import { registerHandler } from "../handler.js";
 import { emit } from "../emitter.js";
 import * as goalQueries from "../../db/queries/goals.js";
 import { pickIcon } from "../../planner/icon-picker.js";
+import { extractMemoriesFromGoal } from "../../memory/goal-extractor.js";
 import type {
   CreateGoalParams,
   UpdateGoalParams,
@@ -22,6 +23,11 @@ export function registerGoalHandlers() {
         emit("goal.iconUpdated", { id: goal.id, icon });
       }
     });
+
+    // Fire-and-forget: extract memories from goal description
+    extractMemoriesFromGoal(p.projectId, goal.id, p.name, p.description).catch((err) =>
+      console.error("[goals] memory extraction error:", err),
+    );
 
     return goal;
   });

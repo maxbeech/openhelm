@@ -20,6 +20,7 @@ const mockItem: InboxItem = {
 
 describe("InboxStore", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     useInboxStore.setState({
       items: [],
       openCount: 0,
@@ -95,11 +96,34 @@ describe("InboxStore", () => {
     expect(useInboxStore.getState().loading).toBe(false);
   });
 
+  it("fetchItems filters by projectId when provided", async () => {
+    vi.mocked(api.listInboxItems).mockResolvedValueOnce([mockItem]);
+
+    await useInboxStore.getState().fetchItems("p1");
+
+    expect(api.listInboxItems).toHaveBeenCalledWith({ status: "open", projectId: "p1" });
+    expect(useInboxStore.getState().items).toHaveLength(1);
+  });
+
   it("fetchOpenCount updates count", async () => {
     vi.mocked(api.countInboxItems).mockResolvedValueOnce({ count: 5 });
 
     await useInboxStore.getState().fetchOpenCount();
 
     expect(useInboxStore.getState().openCount).toBe(5);
+  });
+
+  it("dismissAll calls resolveInboxItem for each item and clears store", async () => {
+    const item2: InboxItem = { ...mockItem, id: "inbox-2" };
+    useInboxStore.setState({ items: [mockItem, item2], openCount: 2 });
+    vi.mocked(api.resolveInboxItem).mockResolvedValue({ ...mockItem, status: "dismissed" });
+
+    await useInboxStore.getState().dismissAll();
+
+    expect(api.resolveInboxItem).toHaveBeenCalledTimes(2);
+    expect(api.resolveInboxItem).toHaveBeenCalledWith({ id: "inbox-1", action: "dismiss" });
+    expect(api.resolveInboxItem).toHaveBeenCalledWith({ id: "inbox-2", action: "dismiss" });
+    expect(useInboxStore.getState().items).toHaveLength(0);
+    expect(useInboxStore.getState().openCount).toBe(0);
   });
 });

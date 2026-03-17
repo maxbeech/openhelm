@@ -28,6 +28,14 @@ export function initDatabase(dbPath?: string) {
     sqlite.pragma("journal_mode = WAL");
     // Enforce foreign key constraints
     sqlite.pragma("foreign_keys = ON");
+    // Performance: write durability trade-off (safe with WAL)
+    sqlite.pragma("synchronous = NORMAL");
+    // 64 MB page cache
+    sqlite.pragma("cache_size = -64000");
+    // Keep temp tables in memory
+    sqlite.pragma("temp_store = MEMORY");
+    // Wait up to 5 s on locked DB before failing
+    sqlite.pragma("busy_timeout = 5000");
 
     const db = drizzle(sqlite, { schema });
 

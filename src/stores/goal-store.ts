@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import type { Goal, GoalStatus, CreateGoalParams, UpdateGoalParams } from "@openorchestra/shared";
 import * as api from "@/lib/api";
 import { friendlyError } from "@/lib/utils";
@@ -92,3 +93,18 @@ export const useGoalStore = create<GoalState>((set) => ({
     }
   },
 }));
+
+/* ── Granular selector hooks ── */
+export const useGoals = () => useGoalStore((s) => s.goals);
+export const useGoalsLoading = () => useGoalStore((s) => s.loading);
+export const useGoalActions = () =>
+  useGoalStore(
+    useShallow((s) => ({
+      fetchGoals: s.fetchGoals,
+      createGoal: s.createGoal,
+      updateGoal: s.updateGoal,
+      updateGoalStatus: s.updateGoalStatus,
+      archiveGoal: s.archiveGoal,
+      deleteGoal: s.deleteGoal,
+    })),
+  );

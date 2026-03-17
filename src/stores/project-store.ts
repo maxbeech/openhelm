@@ -13,6 +13,13 @@ interface ProjectState {
     description?: string;
     directoryPath: string;
   }) => Promise<Project>;
+  updateProject: (params: {
+    id: string;
+    name?: string;
+    description?: string;
+    directoryPath?: string;
+  }) => Promise<Project>;
+  deleteProject: (id: string) => Promise<void>;
 }
 
 export const useProjectStore = create<ProjectState>((set) => ({
@@ -37,5 +44,18 @@ export const useProjectStore = create<ProjectState>((set) => ({
     const project = await api.createProject(params);
     set((s) => ({ projects: [...s.projects, project] }));
     return project;
+  },
+
+  updateProject: async (params) => {
+    const project = await api.updateProject(params);
+    set((s) => ({
+      projects: s.projects.map((p) => (p.id === project.id ? project : p)),
+    }));
+    return project;
+  },
+
+  deleteProject: async (id) => {
+    await api.deleteProject(id);
+    set((s) => ({ projects: s.projects.filter((p) => p.id !== id) }));
   },
 }));

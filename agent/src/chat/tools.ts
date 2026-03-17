@@ -140,6 +140,45 @@ export const TOOLS: ToolDefinition[] = [
       fire_at: { type: "string", description: "ISO 8601 datetime to fire at (optional; fires immediately if omitted)" },
     },
   },
+  // ─── Memory tools ───
+  {
+    name: "list_memories",
+    description: "List project memories, optionally filtered by type or tag.",
+    isWrite: false,
+    parameters: {
+      type: { type: "string", description: "Filter by type", enum: ["semantic", "episodic", "procedural", "source"] },
+      tag: { type: "string", description: "Filter by tag" },
+    },
+  },
+  {
+    name: "save_memory",
+    description: "Save a new memory for this project (e.g. user-shared info worth remembering).",
+    isWrite: true,
+    parameters: {
+      content: { type: "string", description: "The memory content (1-2 sentences)", required: true },
+      type: { type: "string", description: "Memory type", required: true, enum: ["semantic", "episodic", "procedural", "source"] },
+      importance: { type: "number", description: "Importance 1-10 (default 5)" },
+      tags: { type: "string", description: "Comma-separated tags" },
+    },
+  },
+  {
+    name: "update_memory",
+    description: "Update an existing memory's content.",
+    isWrite: true,
+    parameters: {
+      memoryId: { type: "string", description: "Memory ID", required: true },
+      content: { type: "string", description: "New content" },
+      importance: { type: "number", description: "New importance 1-10" },
+    },
+  },
+  {
+    name: "forget_memory",
+    description: "Delete a memory that is no longer relevant.",
+    isWrite: true,
+    parameters: {
+      memoryId: { type: "string", description: "Memory ID", required: true },
+    },
+  },
 ];
 
 export function getToolDef(name: string): ToolDefinition | undefined {
@@ -163,6 +202,9 @@ export function describeAction(tool: string, args: Record<string, unknown>): str
       return args.fire_at
         ? `Trigger run for job ${args.jobId} at ${args.fire_at}`
         : `Trigger run for job ${args.jobId}`;
+    case "save_memory": return `Save memory: "${(args.content as string)?.slice(0, 50)}..."`;
+    case "update_memory": return `Update memory ${args.memoryId}`;
+    case "forget_memory": return `Delete memory ${args.memoryId}`;
     default: return tool;
   }
 }

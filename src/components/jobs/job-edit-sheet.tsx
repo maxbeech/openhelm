@@ -30,8 +30,9 @@ function getScheduleConfig(form: JobFormState): ScheduleConfig {
     return {
       frequency: form.calendarFrequency,
       time: form.calendarTime,
-      dayOfWeek: form.calendarDayOfWeek,
-      dayOfMonth: form.calendarDayOfMonth,
+      ...(form.calendarFrequency === "weekly"
+        ? { daysOfWeek: form.calendarDaysOfWeek }
+        : { dayOfMonth: form.calendarDayOfMonth }),
     };
   }
   if (form.scheduleType === "manual") return {};
@@ -45,6 +46,7 @@ function jobToFormState(job: Job): JobFormState {
   let calendarFrequency: "daily" | "weekly" | "monthly" = "daily";
   let calendarTime = "09:00";
   let calendarDayOfWeek = 1;
+  let calendarDaysOfWeek: number[] = [1];
   let calendarDayOfMonth = 1;
 
   if (job.scheduleType === "interval") {
@@ -63,7 +65,13 @@ function jobToFormState(job: Job): JobFormState {
     const cfg = job.scheduleConfig as ScheduleConfigCalendar;
     calendarFrequency = cfg.frequency ?? "daily";
     calendarTime = cfg.time ?? "09:00";
-    calendarDayOfWeek = cfg.dayOfWeek ?? 1;
+    calendarDaysOfWeek =
+      cfg.daysOfWeek && cfg.daysOfWeek.length > 0
+        ? cfg.daysOfWeek
+        : cfg.dayOfWeek != null
+          ? [cfg.dayOfWeek]
+          : [1];
+    calendarDayOfWeek = calendarDaysOfWeek[0];
     calendarDayOfMonth = cfg.dayOfMonth ?? 1;
   }
 
@@ -77,12 +85,13 @@ function jobToFormState(job: Job): JobFormState {
     calendarFrequency,
     calendarTime,
     calendarDayOfWeek,
+    calendarDaysOfWeek,
     calendarDayOfMonth,
     model: job.model ?? "sonnet",
     modelEffort: job.modelEffort ?? "medium",
     permissionMode: job.permissionMode ?? "bypassPermissions",
     workingDirectory: job.workingDirectory ?? "",
-    postPrompt: job.postPrompt ?? "",
+    correctionNote: job.correctionNote ?? "",
   };
 }
 
@@ -166,7 +175,7 @@ export function JobEditSheet({
         model: form.model,
         modelEffort: form.modelEffort,
         permissionMode: form.permissionMode,
-        postPrompt: form.postPrompt.trim() || null,
+        correctionNote: form.correctionNote.trim() || null,
         ...(icon !== job.icon && { icon: icon ?? undefined }),
       });
       handleOpenChange(false);
@@ -205,6 +214,7 @@ export function JobEditSheet({
           onFieldChange={(field, value) => setForm((f) => ({ ...f, [field]: value }))}
           onFieldBlur={(f) => setTouched((t) => ({ ...t, [f]: true }))}
           error={error}
+          isEditing
         />
 
         <div className="flex gap-2 border-t border-border p-4">

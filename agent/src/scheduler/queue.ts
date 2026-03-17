@@ -18,36 +18,54 @@ export interface QueueItem {
   enqueuedAt: number; // Date.now() timestamp
 }
 
+/** Compare two items: lower priority first, then earlier enqueuedAt */
+function compare(a: QueueItem, b: QueueItem): number {
+  if (a.priority !== b.priority) return a.priority - b.priority;
+  return a.enqueuedAt - b.enqueuedAt;
+}
+
 export class JobQueue {
   private items: QueueItem[] = [];
+  private runIdSet = new Set<string>();
 
-  /** Add an item to the queue, maintaining priority + FIFO order */
+  /** Add an item using binary search insertion (O(log n)) */
   enqueue(item: QueueItem): void {
-    this.items.push(item);
-    this.items.sort((a, b) => {
-      if (a.priority !== b.priority) return a.priority - b.priority;
-      return a.enqueuedAt - b.enqueuedAt;
-    });
+    let lo = 0;
+    let hi = this.items.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (compare(this.items[mid], item) <= 0) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    this.items.splice(lo, 0, item);
+    this.runIdSet.add(item.runId);
   }
 
   /** Remove and return the highest-priority item, or null if empty */
   dequeue(): QueueItem | null {
-    return this.items.shift() ?? null;
+    const item = this.items.shift() ?? null;
+    if (item) this.runIdSet.delete(item.runId);
+    return item;
   }
 
   /** Remove a specific run from the queue. Returns true if found. */
   remove(runId: string): boolean {
+    if (!this.runIdSet.has(runId)) return false;
     const idx = this.items.findIndex((i) => i.runId === runId);
     if (idx >= 0) {
       this.items.splice(idx, 1);
+      this.runIdSet.delete(runId);
       return true;
     }
     return false;
   }
 
-  /** Check if a run is already in the queue */
+  /** Check if a run is already in the queue — O(1) */
   has(runId: string): boolean {
-    return this.items.some((i) => i.runId === runId);
+    return this.runIdSet.has(runId);
   }
 
   /** Number of items in the queue */
@@ -68,6 +86,7 @@ export class JobQueue {
   /** Clear all items from the queue */
   clear(): void {
     this.items = [];
+    this.runIdSet.clear();
   }
 }
 

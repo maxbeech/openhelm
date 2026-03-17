@@ -32,12 +32,13 @@ const INITIAL_FORM: JobFormState = {
   calendarFrequency: "daily",
   calendarTime: "09:00",
   calendarDayOfWeek: 1,
+  calendarDaysOfWeek: [1],
   calendarDayOfMonth: 1,
   model: "sonnet",
   modelEffort: "medium",
   permissionMode: "bypassPermissions",
   workingDirectory: "",
-  postPrompt: "",
+  correctionNote: "",
 };
 
 function getScheduleConfig(form: JobFormState): ScheduleConfig {
@@ -48,8 +49,9 @@ function getScheduleConfig(form: JobFormState): ScheduleConfig {
     return {
       frequency: form.calendarFrequency,
       time: form.calendarTime,
-      dayOfWeek: form.calendarDayOfWeek,
-      dayOfMonth: form.calendarDayOfMonth,
+      ...(form.calendarFrequency === "weekly"
+        ? { daysOfWeek: form.calendarDaysOfWeek }
+        : { dayOfMonth: form.calendarDayOfMonth }),
     };
   }
   if (form.scheduleType === "manual") {
@@ -140,7 +142,6 @@ export function JobCreationSheet({
         model: form.model,
         modelEffort: form.modelEffort,
         permissionMode: form.permissionMode,
-        postPrompt: form.postPrompt.trim() || undefined,
       });
       handleOpenChange(false);
       onComplete();

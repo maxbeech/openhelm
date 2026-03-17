@@ -1,4 +1,4 @@
-import { eq, and, gt, asc } from "drizzle-orm";
+import { eq, and, gt, asc, sql } from "drizzle-orm";
 import { getDb } from "../init.js";
 import { runLogs } from "../schema.js";
 import type {
@@ -7,26 +7,15 @@ import type {
   ListRunLogsParams,
 } from "@openorchestra/shared";
 
-/** Get the next sequence number for a given run */
+/** Get the next sequence number for a given run via MAX aggregate (O(1) with index) */
 function nextSequence(runId: string): number {
   const db = getDb();
-  const last = db
-    .select({ sequence: runLogs.sequence })
+  const row = db
+    .select({ maxSeq: sql<number>`COALESCE(MAX(${runLogs.sequence}), 0)` })
     .from(runLogs)
     .where(eq(runLogs.runId, runId))
-    .orderBy(asc(runLogs.sequence))
-    .limit(1)
-    .all();
-
-  // Query all and find the max (SQLite doesn't have a clean max aggregate via Drizzle)
-  const all = db
-    .select({ sequence: runLogs.sequence })
-    .from(runLogs)
-    .where(eq(runLogs.runId, runId))
-    .all();
-
-  if (all.length === 0) return 1;
-  return Math.max(...all.map((r) => r.sequence)) + 1;
+    .get();
+  return (row?.maxSeq ?? 0) + 1;
 }
 
 export function createRunLog(params: CreateRunLogParams): RunLog {

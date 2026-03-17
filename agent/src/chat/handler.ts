@@ -15,7 +15,7 @@ import {
   updateMessagePendingActions,
   listMessagesForProject,
 } from "../db/queries/conversations.js";
-import { buildChatSystemPrompt } from "./system-prompt.js";
+import { buildChatSystemPromptAsync } from "./system-prompt.js";
 import { parseLlmResponse, buildTextResponse } from "./response-parser.js";
 import { isWriteTool, describeAction } from "./tools.js";
 import { executeReadTool, executeWriteTool } from "./tool-executor.js";
@@ -78,7 +78,7 @@ export async function handleChatMessage(
   const userMsg = createMessage({ conversationId: conv.id, role: "user", content });
   emit("chat.messageCreated", userMsg);
 
-  const systemPrompt = buildChatSystemPrompt({ project, viewingGoal, viewingJob, viewingRun });
+  const systemPrompt = await buildChatSystemPromptAsync({ project, viewingGoal, viewingJob, viewingRun });
 
   // Tool loop
   const allToolCalls: ChatToolCall[] = [];
@@ -181,7 +181,7 @@ export async function handleActionApproval(
 
   // Execute the write tool
   const call: ChatToolCall = { id: callId, tool: action.tool, args: action.args };
-  const result = executeWriteTool(call, projectId);
+  const result = await executeWriteTool(call, projectId);
 
   // Mark approved
   let updated = pending.map((a) => a.callId === callId ? { ...a, status: "approved" as const } : a);

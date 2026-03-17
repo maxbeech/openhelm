@@ -101,6 +101,7 @@ export function NewProjectDialog({
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Brief description of the project"
               rows={2}
+              className="max-h-32 overflow-y-auto"
             />
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}

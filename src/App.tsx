@@ -2,6 +2,11 @@ import { useEffect, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { agentClient } from "./lib/agent-client";
 import * as api from "./lib/api";
+import { initFrontendSentry, setAnalyticsEnabled } from "./lib/sentry";
+import { AppErrorBoundary } from "./components/shared/error-boundary";
+
+// Initialize Sentry before first render — idempotent, safe to call at module level
+initFrontendSentry();
 import {
   isPermissionGranted,
   requestPermission,
@@ -12,9 +17,10 @@ import { useGoalStore } from "./stores/goal-store";
 import { useJobStore } from "./stores/job-store";
 import { useRunStore } from "./stores/run-store";
 import { useInboxStore } from "./stores/inbox-store";
+import { useMemoryStore } from "./stores/memory-store";
 import { useChatStore } from "./stores/chat-store";
 import { useAgentEvent } from "./hooks/use-agent-event";
-import type { RunStatus, ChatMessage, InboxItem } from "@openorchestra/shared";
+import type { RunStatus, ChatMessage, InboxItem, Memory } from "@openorchestra/shared";
 import { notifyInboxItem } from "./lib/notifications";
 import { OnboardingWizard } from "./components/onboarding/onboarding-wizard";
 import { AppShell } from "./components/layout/app-shell";
@@ -24,9 +30,11 @@ import { JobDetailView } from "./components/content/job-detail-view";
 import { RunDetailView } from "./components/content/run-detail-view";
 import { SettingsScreen } from "./components/settings/settings-screen";
 import { InboxView } from "./components/content/inbox-view";
+import { MemoryView } from "./components/memory/memory-view";
 import { JobCreationSheet } from "./components/jobs/job-creation-sheet";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { NewProjectDialog } from "./components/shared/new-project-dialog";
+import { EditProjectDialog } from "./components/shared/edit-project-dialog";
 
 export default function App() {
   const {
@@ -59,13 +67,23 @@ export default function App() {
     addItemToStore: addInboxItem,
     updateItemInStore: updateInboxItem,
   } = useInboxStore();
+  const {
+    fetchMemories,
+    fetchCount: fetchMemoryCount,
+    addMemoryToStore,
+    updateMemoryInStore,
+    removeMemoryFromStore,
+  } = useMemoryStore();
 
   const [showNewProject, setShowNewProject] = useState(false);
+  const [editProjectId, setEditProjectId] = useState<string | null>(null);
   const [showJobSheet, setShowJobSheet] = useState(false);
   const [jobSheetInitialName, setJobSheetInitialName] = useState("");
   const [jobSheetInitialGoalId, setJobSheetInitialGoalId] = useState<
     string | undefined
   >(undefined);
+  // Project to use for job creation — derived from goal when in All Projects mode
+  const [jobSheetProjectId, setJobSheetProjectId] = useState<string | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [agentTimeout, setAgentTimeout] = useState(false);
 
@@ -187,13 +205,16 @@ export default function App() {
   useAgentEvent("chat.status", handleChatStatus);
   useAgentEvent("chat.actionResolved", handleChatActionResolved);
 
-  // Inbox event handlers — always cross-project
+  // Inbox event handlers — respect active project filter
   const handleInboxCreated = useCallback(
     (item: InboxItem) => {
-      addInboxItem(item);
+      // Only add to store if it matches the current project filter
+      if (!activeProjectId || item.projectId === activeProjectId) {
+        addInboxItem(item);
+      }
       notifyInboxItem(item);
     },
-    [addInboxItem],
+    [activeProjectId, addInboxItem],
   );
 
   const handleInboxResolved = useCallback(
@@ -205,6 +226,30 @@ export default function App() {
 
   useAgentEvent("inbox.created", handleInboxCreated);
   useAgentEvent("inbox.resolved", handleInboxResolved);
+
+  // Memory event handlers
+  const handleMemoryCreated = useCallback(
+    (memory: Memory) => {
+      addMemoryToStore(memory);
+    },
+    [addMemoryToStore],
+  );
+  const handleMemoryUpdated = useCallback(
+    (memory: Memory) => {
+      updateMemoryInStore(memory);
+    },
+    [updateMemoryInStore],
+  );
+  const handleMemoryDeleted = useCallback(
+    (data: { id: string }) => {
+      removeMemoryFromStore(data.id);
+    },
+    [removeMemoryFromStore],
+  );
+
+  useAgentEvent("memory.created", handleMemoryCreated);
+  useAgentEvent("memory.updated", handleMemoryUpdated);
+  useAgentEvent("memory.deleted", handleMemoryDeleted);
 
   // Start agent client
   useEffect(() => {
@@ -240,6 +285,13 @@ export default function App() {
       // Fetch cross-project inbox right away
       fetchInboxItems();
       fetchInboxCount();
+      // Configure Sentry analytics opt-out (read after projects load)
+      try {
+        const s = await api.getSetting("analytics_enabled");
+        setAnalyticsEnabled(s?.value !== "false");
+      } catch {
+        // Keep optimistic default (enabled)
+      }
       setInitialLoading(false);
     })();
   }, [agentReady, fetchProjects, setOnboardingComplete, setActiveProjectId, fetchInboxItems, fetchInboxCount]);
@@ -249,13 +301,17 @@ export default function App() {
     fetchGoals(activeProjectId);
     fetchJobs(activeProjectId);
     fetchRuns(activeProjectId);
+    fetchMemories(activeProjectId);
+    fetchMemoryCount(activeProjectId);
+    fetchInboxItems(activeProjectId ?? undefined);
+    fetchInboxCount(activeProjectId ?? undefined);
     if (activeProjectId) {
       fetchMessages(activeProjectId);
       api
         .setSetting({ key: "active_project", value: activeProjectId })
         .catch(() => {});
     }
-  }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns, fetchMessages]);
+  }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns, fetchMessages, fetchMemories, fetchMemoryCount, fetchInboxItems, fetchInboxCount]);
 
   // Notification permission
   useEffect(() => {
@@ -299,13 +355,34 @@ export default function App() {
     [fetchProjects, setActiveProjectId],
   );
 
+  const handleEditProject = useCallback((projectId: string) => {
+    setEditProjectId(projectId);
+  }, []);
+
+  const handleProjectSaved = useCallback(() => {
+    setEditProjectId(null);
+  }, []);
+
+  const handleProjectDeleted = useCallback(
+    (projectId: string) => {
+      setEditProjectId(null);
+      if (activeProjectId === projectId) {
+        setActiveProjectId(null);
+      }
+    },
+    [activeProjectId, setActiveProjectId],
+  );
+
   const handleNewJobForGoal = useCallback(
     (goalId: string, initialName: string) => {
+      const { goals: allGoals } = useGoalStore.getState();
+      const goal = allGoals.find((g) => g.id === goalId);
       setJobSheetInitialName(initialName);
       setJobSheetInitialGoalId(goalId);
+      setJobSheetProjectId(goal?.projectId ?? activeProjectId);
       setShowJobSheet(true);
     },
-    [],
+    [activeProjectId],
   );
 
   // Loading state
@@ -359,9 +436,11 @@ export default function App() {
 
   // Main app
   return (
+    <AppErrorBoundary>
     <TooltipProvider>
       <AppShell
         onNewProject={() => setShowNewProject(true)}
+        onEditProject={handleEditProject}
         onNewJobForGoal={handleNewJobForGoal}
         rightPanel={
           selectedRunId ? <RunDetailView runId={selectedRunId} /> : undefined
@@ -378,8 +457,11 @@ export default function App() {
           <GoalDetailView
             goalId={selectedGoalId}
             onNewJob={() => {
+              const { goals: allGoals } = useGoalStore.getState();
+              const goal = allGoals.find((g) => g.id === selectedGoalId);
               setJobSheetInitialName("");
               setJobSheetInitialGoalId(selectedGoalId);
+              setJobSheetProjectId(goal?.projectId ?? activeProjectId);
               setShowJobSheet(true);
             }}
           />
@@ -387,6 +469,7 @@ export default function App() {
         {contentView === "job-detail" && selectedJobId && (
           <JobDetailView jobId={selectedJobId} />
         )}
+        {contentView === "memory" && <MemoryView />}
         {contentView === "settings" && <SettingsScreen />}
       </AppShell>
 
@@ -396,21 +479,47 @@ export default function App() {
         onCreated={handleNewProject}
       />
 
-      {/* Job Creation Sheet */}
-      {activeProject && activeProjectId && (
-        <JobCreationSheet
-          open={showJobSheet}
-          onOpenChange={setShowJobSheet}
-          projectId={activeProjectId}
-          projectDirectory={activeProject.directoryPath}
-          initialName={jobSheetInitialName}
-          initialGoalId={jobSheetInitialGoalId}
-          onComplete={() => {
-            fetchGoals(activeProjectId);
-            fetchJobs(activeProjectId);
-          }}
-        />
-      )}
+      {editProjectId && (() => {
+        const editProject = projects.find((p) => p.id === editProjectId);
+        return editProject ? (
+          <EditProjectDialog
+            open={true}
+            onOpenChange={(open) => { if (!open) setEditProjectId(null); }}
+            project={editProject}
+            onSaved={handleProjectSaved}
+            onDeleted={handleProjectDeleted}
+          />
+        ) : null;
+      })()}
+
+      {/* Job Creation Sheet — use jobSheetProjectId so it works in All Projects mode */}
+      {(() => {
+        const sheetProject = jobSheetProjectId
+          ? projects.find((p) => p.id === jobSheetProjectId)
+          : activeProject;
+        const sheetProjectId = jobSheetProjectId ?? activeProjectId;
+        if (!sheetProject || !sheetProjectId) return null;
+        return (
+          <JobCreationSheet
+            open={showJobSheet}
+            onOpenChange={setShowJobSheet}
+            projectId={sheetProjectId}
+            projectDirectory={sheetProject.directoryPath}
+            initialName={jobSheetInitialName}
+            initialGoalId={jobSheetInitialGoalId}
+            onComplete={() => {
+              fetchGoals(sheetProjectId);
+              fetchJobs(sheetProjectId);
+              // Also refresh the active project view if different
+              if (activeProjectId && activeProjectId !== sheetProjectId) {
+                fetchGoals(activeProjectId);
+                fetchJobs(activeProjectId);
+              }
+            }}
+          />
+        );
+      })()}
     </TooltipProvider>
+    </AppErrorBoundary>
   );
 }

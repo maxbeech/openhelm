@@ -16,8 +16,8 @@ describe("useNow", () => {
     expect(result.current).toBeInstanceOf(Date);
   });
 
-  it("updates after the interval elapses", () => {
-    const { result } = renderHook(() => useNow(60_000));
+  it("updates after the 60 s interval elapses", () => {
+    const { result } = renderHook(() => useNow());
     const first = result.current;
 
     act(() => {
@@ -28,7 +28,7 @@ describe("useNow", () => {
   });
 
   it("does not update before the interval elapses", () => {
-    const { result } = renderHook(() => useNow(60_000));
+    const { result } = renderHook(() => useNow());
     const first = result.current;
 
     act(() => {

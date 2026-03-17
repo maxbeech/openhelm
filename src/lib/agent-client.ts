@@ -4,6 +4,7 @@ import type {
   IpcEvent,
 } from "@openorchestra/shared";
 import { isIpcResponse, isIpcEvent } from "@openorchestra/shared";
+import { captureFrontendError } from "./sentry";
 
 /**
  * Detect whether we are running inside the Tauri WebView.
@@ -67,7 +68,12 @@ class AgentClient {
   /** Send an IPC request and wait for the response */
   async request<T = unknown>(method: string, params?: unknown): Promise<T> {
     await this.readyPromise;
-    return this.sendRaw<T>(method, params);
+    try {
+      return await this.sendRaw<T>(method, params);
+    } catch (err) {
+      captureFrontendError(err, { ipcMethod: method }); // no params (could contain user data)
+      throw err;
+    }
   }
 
   isReady() { return this.ready; }

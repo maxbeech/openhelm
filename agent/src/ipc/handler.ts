@@ -1,5 +1,6 @@
 import type { IpcRequest, IpcResponse, IpcError } from "@openorchestra/shared";
 import { PrintError } from "../claude-code/print.js";
+import { captureAgentError } from "../sentry.js";
 
 type HandlerFn = (params?: unknown) => unknown | Promise<unknown>;
 
@@ -44,6 +45,8 @@ export async function handleRequest(req: IpcRequest): Promise<IpcResponse> {
       return { id: req.id, error };
     }
 
+    // Unexpected handler error — capture in Sentry (no params, only method name)
+    captureAgentError(err, { method: req.method });
     const error: IpcError = {
       code: -32603,
       message: err instanceof Error ? err.message : String(err),

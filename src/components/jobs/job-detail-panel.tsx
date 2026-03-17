@@ -127,14 +127,14 @@ export function JobDetailPanel({ job, runs, onClose }: JobDetailPanelProps) {
           </div>
         </div>
 
-        {/* Post Prompt */}
-        {job.postPrompt && (
+        {/* Correction Note */}
+        {job.correctionNote && (
           <div className="mb-4">
             <h4 className="mb-1 text-xs font-medium text-amber-400">
-              Post Prompt
+              Correction Note
             </h4>
             <div className="max-h-32 overflow-auto rounded bg-background p-2 font-mono text-xs">
-              {job.postPrompt}
+              {job.correctionNote}
             </div>
           </div>
         )}

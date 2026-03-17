@@ -1,13 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Ban, TerminalSquare, X } from "lucide-react";
 import { useRunStore } from "@/stores/run-store";
 import { useJobStore } from "@/stores/job-store";
 import { useAppStore } from "@/stores/app-store";
 import { RunStatusBanner } from "@/components/runs/run-status-banner";
+import { RunChainBreadcrumb } from "@/components/runs/run-chain-breadcrumb";
 import { LogViewer } from "@/components/runs/log-viewer";
 import { useRunLogs } from "@/hooks/use-run-logs";
-import { openRunInTerminal } from "@/lib/api";
+import { openRunInTerminal, getRun } from "@/lib/api";
+import type { Run } from "@openorchestra/shared";
 
 interface RunDetailViewProps {
   runId: string;
@@ -16,20 +18,34 @@ interface RunDetailViewProps {
 export function RunDetailView({ runId }: RunDetailViewProps) {
   const { runs, cancelRun } = useRunStore();
   const { jobs } = useJobStore();
-  const { clearSelectedRun } = useAppStore();
-  const run = runs.find((r) => r.id === runId);
+  const { clearSelectedRun, selectJob, selectRunPreserveView } = useAppStore();
   const { logs, loading: logsLoading } = useRunLogs(runId);
   const [cancelling, setCancelling] = useState(false);
+  const [fetchedRun, setFetchedRun] = useState<Run | null>(null);
+  const [fetchError, setFetchError] = useState(false);
+
+  const storeRun = runs.find((r) => r.id === runId);
+  const run = storeRun ?? fetchedRun;
+
+  useEffect(() => {
+    if (storeRun) return;
+    setFetchedRun(null);
+    setFetchError(false);
+    getRun(runId)
+      .then(setFetchedRun)
+      .catch(() => setFetchError(true));
+  }, [runId, storeRun]);
 
   if (!run) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
-        Run not found
+        {fetchError ? "Run not found" : "Loading\u2026"}
       </div>
     );
   }
 
-  const jobName = jobs.find((j) => j.id === run.jobId)?.name ?? "Unknown job";
+  const job = jobs.find((j) => j.id === run.jobId);
+  const jobName = job?.name ?? "Unknown job";
   const isRunning = run.status === "running";
   const isCancellable = run.status === "running" || run.status === "queued";
   const isTerminal = [
@@ -91,6 +107,13 @@ export function RunDetailView({ runId }: RunDetailViewProps) {
       {/* Status Banner */}
       <RunStatusBanner run={run} />
 
+      {/* Run Chain Breadcrumb */}
+      <RunChainBreadcrumb
+        run={run}
+        onSelectJob={selectJob}
+        onSelectRun={selectRunPreserveView}
+      />
+
       {/* Cancel Button */}
       {isCancellable && (
         <div className="border-b border-border px-4 py-2">
@@ -121,22 +144,15 @@ export function RunDetailView({ runId }: RunDetailViewProps) {
         </div>
       )}
 
-      {/* Correction Context */}
-      {run.correctionContext && (
+      {/* Correction Note */}
+      {run.correctionNote && (
         <div className="border-b border-border px-4 py-3">
           <h4 className="mb-1 text-xs font-medium text-amber-400">
-            Correction Context
+            Correction Note
           </h4>
           <p className="font-mono text-xs text-muted-foreground">
-            {run.correctionContext}
+            {run.correctionNote}
           </p>
-        </div>
-      )}
-
-      {/* Parent Run Link */}
-      {run.parentRunId && (
-        <div className="border-b border-border px-4 py-2 text-xs text-muted-foreground">
-          Triggered by run {run.parentRunId.slice(0, 8)}
         </div>
       )}
 

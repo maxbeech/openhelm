@@ -43,6 +43,8 @@ export interface RunnerConfig {
   silenceTimeoutMs?: number;
   /** Called when interactive input is detected */
   onInteractiveDetected?: (reason: string, type: InteractiveDetectionType) => void;
+  /** Resume a previous session instead of starting fresh */
+  resumeSessionId?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 0; // No limit (silence timeout catches stuck processes)
@@ -198,6 +200,11 @@ function buildArgs(config: RunnerConfig): string[] {
   // Effort level
   if (config.modelEffort) {
     args.push("--effort", config.modelEffort);
+  }
+
+  // Resume a previous session
+  if (config.resumeSessionId) {
+    args.push("--resume", config.resumeSessionId);
   }
 
   // Prompt is written to stdin (not as a positional arg) to avoid

@@ -125,24 +125,24 @@ export function JobDetailView({ jobId }: JobDetailViewProps) {
         </div>
       </div>
 
-      {/* Post Prompt — persistent instructions appended to every run */}
-      {job.postPrompt && (
+      {/* Correction Note — AI-managed guidance from a previous failure */}
+      {job.correctionNote && (
         <div className="mb-6">
           <h4 className="mb-1 text-xs font-medium text-amber-400">
-            Post Prompt
+            Correction Note
           </h4>
           <p className="mb-1 text-xs text-muted-foreground">
-            Appended to the prompt on every run. May be auto-generated from a failed run.
+            AI-generated from a previous failure. May be overridden by the AI after future runs.
           </p>
           <div className="max-h-32 overflow-auto rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 font-mono text-xs">
-            {job.postPrompt}
+            {job.correctionNote}
           </div>
           <div className="mt-1.5 flex gap-2">
             <Button
               variant="ghost"
               size="sm"
               onClick={() =>
-                updateJob({ id: job.id, postPrompt: null })
+                updateJob({ id: job.id, correctionNote: null })
               }
             >
               Clear

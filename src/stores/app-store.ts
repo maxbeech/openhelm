@@ -6,6 +6,7 @@ export type ContentView =
   | "goal-detail"
   | "job-detail"
   | "inbox"
+  | "memory"
   | "settings";
 
 // Backward-compat alias
@@ -38,6 +39,8 @@ interface AppState {
   selectGoal: (goalId: string) => void;
   selectJob: (jobId: string) => void;
   selectRun: (runId: string, jobId?: string) => void;
+  // Select a run without changing the current content view (used from Inbox)
+  selectRunPreserveView: (runId: string) => void;
   clearSelectedRun: () => void;
   toggleGoalCollapsed: (goalId: string) => void;
   setContentView: (view: ContentView) => void;
@@ -88,6 +91,9 @@ export const useAppStore = create<AppState>((set) => ({
       contentView: (jobId ?? s.selectedJobId) ? "job-detail" : s.contentView,
     })),
 
+  // Select a run without switching away from the current view (e.g. from Inbox)
+  selectRunPreserveView: (runId) => set({ selectedRunId: runId }),
+
   clearSelectedRun: () => set({ selectedRunId: null }),
 
   toggleGoalCollapsed: (goalId) =>
@@ -98,7 +104,7 @@ export const useAppStore = create<AppState>((set) => ({
     })),
 
   setContentView: (view) => {
-    const clearSelections = view === "home" || view === "settings" || view === "inbox";
+    const clearSelections = view === "home" || view === "settings" || view === "inbox" || view === "memory";
     set({
       contentView: view,
       selectedGoalId: clearSelections ? null : undefined,

@@ -33,6 +33,12 @@ export function useResizePanel(config: ResizePanelConfig): ResizePanelResult {
   });
 
   const dragging = useRef(false);
+  const widthRef = useRef(width);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    widthRef.current = width;
+  }, [width]);
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -53,8 +59,8 @@ export function useResizePanel(config: ResizePanelConfig): ResizePanelResult {
       dragging.current = false;
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
-      // Persist on release
-      try { localStorage.setItem(storageKey, String(width)); } catch { /* ignore */ }
+      // Persist on release — read from ref to avoid stale closure
+      try { localStorage.setItem(storageKey, String(widthRef.current)); } catch { /* ignore */ }
     };
 
     document.addEventListener("mousemove", onMouseMove);
@@ -63,7 +69,7 @@ export function useResizePanel(config: ResizePanelConfig): ResizePanelResult {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
     };
-  }, [minWidth, maxWidth, storageKey, width]);
+  }, [minWidth, maxWidth, storageKey]);
 
   return { width, dragHandleProps: { onMouseDown } };
 }

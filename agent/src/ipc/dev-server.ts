@@ -43,14 +43,26 @@ function handleSse(req: IncomingMessage, res: ServerResponse): void {
   // Initial heartbeat so the client sees the connection is alive
   res.write(": ping\n\n");
   clients.add(res);
+  res.on("error", () => clients.delete(res));
   req.on("close", () => clients.delete(res));
 }
+
+const MAX_BODY_BYTES = 1_048_576; // 1 MB
 
 async function handleIpcPost(req: IncomingMessage, res: ServerResponse): Promise<void> {
   setCorsHeaders(res);
   let body = "";
-  await new Promise<void>((resolve) => {
-    req.on("data", (chunk: Buffer) => { body += chunk.toString(); });
+  let bytes = 0;
+  await new Promise<void>((resolve, reject) => {
+    req.on("data", (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(new Error("Request body too large"));
+        return;
+      }
+      body += chunk.toString();
+    });
     req.on("end", resolve);
   });
   try {

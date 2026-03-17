@@ -14,11 +14,11 @@ import {
   runClaudeCode,
   type RunnerConfig,
 } from "../claude-code/runner.js";
-import { updateRun, getRun, listRuns } from "../db/queries/runs.js";
+import { updateRun, getRun, listRuns, snapshotRunCorrectionNote } from "../db/queries/runs.js";
 import {
   getJob,
   updateJobNextFireAt,
-  updateJobPostPrompt,
+  updateJobCorrectionNote,
   disableJob,
 } from "../db/queries/jobs.js";
 import { attemptSelfCorrection, type FailureSignal } from "./self-correction.js";
@@ -31,10 +31,16 @@ import { getSetting } from "../db/queries/settings.js";
 import { computeNextFireAt } from "../scheduler/schedule.js";
 import { emit } from "../ipc/emitter.js";
 import { generateRunSummary } from "../planner/summarize.js";
+import { evaluateCorrectionNote } from "../planner/correction-evaluator.js";
+import { extractMemoriesFromRun } from "../memory/run-extractor.js";
+import { retrieveMemories } from "../memory/retriever.js";
+import { buildMemorySection } from "../memory/prompt-builder.js";
+import { saveRunMemories } from "../db/queries/memories.js";
 import type { InteractiveDetectionType } from "../claude-code/interactive-detector.js";
 import type { RunStatus, ClaudeCodeRunResult, Job } from "@openorchestra/shared";
+import { captureAgentError, addAgentBreadcrumb } from "../sentry.js";
 
-const DEFAULT_MAX_CONCURRENCY = 1;
+const DEFAULT_MAX_CONCURRENCY = 2;
 const DEFAULT_TIMEOUT_MS = 0; // No limit (silence timeout catches stuck processes)
 
 /** Function signature matching runClaudeCode (for dependency injection in tests) */
@@ -59,7 +65,7 @@ export class Executor {
   get maxConcurrency(): number {
     const setting = getSetting("max_concurrent_runs");
     const value = setting ? parseInt(setting.value, 10) : DEFAULT_MAX_CONCURRENCY;
-    return Math.max(1, Math.min(3, isNaN(value) ? DEFAULT_MAX_CONCURRENCY : value));
+    return Math.max(1, Math.min(5, isNaN(value) ? DEFAULT_MAX_CONCURRENCY : value));
   }
 
   /** Try to dequeue and execute the next run if under concurrency limit */
@@ -72,6 +78,7 @@ export class Executor {
     // Fire and forget — the async execution manages its own lifecycle
     this.executeRun(item).catch((err) => {
       console.error(`[executor] unexpected error in executeRun:`, err);
+      captureAgentError(err, { runId: item.runId, jobId: item.jobId });
     });
   }
 
@@ -175,14 +182,51 @@ export class Executor {
     const controller = new AbortController();
     this.activeRuns.set(runId, controller);
 
-    // Build effective prompt: append postPrompt (persistent) + correctionContext (per-run)
+    // Determine if this is a resumable corrective run
     const run = getRun(runId);
-    let effectivePrompt = job.prompt;
-    if (job.postPrompt) {
-      effectivePrompt += `\n\n---\n\n${job.postPrompt}`;
+    let parentSessionId: string | null = null;
+    if (run?.triggerSource === "corrective" && run.parentRunId) {
+      const parentRun = getRun(run.parentRunId);
+      parentSessionId = parentRun?.sessionId ?? null;
     }
-    if (run?.correctionContext) {
-      effectivePrompt += `\n\n---\n\nIMPORTANT — Correction Context (from a previous failed attempt):\n${run.correctionContext}\n\nPlease address the issues described above while completing the original task.`;
+    const isResumable = parentSessionId !== null;
+
+    // Build effective prompt based on execution path
+    let effectivePrompt: string;
+    let resumeSessionId: string | undefined;
+
+    if (isResumable) {
+      // Resume path: use the run's correctionNote (continuation prompt) as the message,
+      // and resume the parent's session. Skip memory injection (session has context).
+      effectivePrompt = run!.correctionNote ?? job.prompt;
+      resumeSessionId = parentSessionId!;
+      console.error(`[executor] resume path: resuming session ${resumeSessionId} for corrective run ${runId}`);
+    } else {
+      // Fresh path: build full prompt with job.prompt + correctionNote + memories
+      if (job.correctionNote) {
+        snapshotRunCorrectionNote(runId, job.correctionNote);
+      }
+      effectivePrompt = job.prompt;
+      if (job.correctionNote) {
+        effectivePrompt += `\n\n---\n\nCorrection Note (from a previous run failure — may no longer apply):\n${job.correctionNote}\n\nAddress these issues if still relevant.`;
+      }
+
+      // Inject relevant memories into prompt
+      try {
+        const scored = await retrieveMemories({
+          projectId: job.projectId,
+          goalId: job.goalId ?? undefined,
+          jobId: job.id,
+          query: effectivePrompt.slice(0, 500), // Use start of prompt as query
+        });
+        if (scored.length > 0) {
+          effectivePrompt += buildMemorySection(scored);
+          saveRunMemories(runId, scored.map((s) => s.memory.id));
+          console.error(`[executor] injected ${scored.length} memories into run ${runId}`);
+        }
+      } catch (err) {
+        console.error("[executor] memory retrieval error (non-fatal):", err);
+      }
     }
 
     // Execute via ClaudeCodeRunner
@@ -195,6 +239,7 @@ export class Executor {
         model: job.model ?? undefined,
         modelEffort: (job.modelEffort as "low" | "medium" | "high") ?? undefined,
         permissionMode: (job.permissionMode as "default" | "acceptEdits" | "dontAsk" | "bypassPermissions") ?? undefined,
+        resumeSessionId,
         onLogChunk: (stream, text) => {
           // DB insert BEFORE IPC emit (ordering invariant)
           const log = createRunLog({ runId, stream, text });
@@ -340,6 +385,11 @@ export class Executor {
     // Self-correction: attempt auto-retry for all failed runs
     // (silence timeouts are the only HITL kill type now — all are retryable)
     if (finalStatus === "failed") {
+      addAgentBreadcrumb("run.failed", {
+        runId,
+        jobId: job.id,
+        exitCode: result.exitCode ?? null,
+      });
       // Build structured failure signal
       const isTimeout = result.timedOut || result.exitCode === 143 || result.exitCode === 137;
       const isSilenceTimeout = hitlKillType === "silence_timeout";
@@ -390,22 +440,40 @@ export class Executor {
             });
             emit("inbox.created", item);
           }
+        } else if (scResult.shouldTriage) {
+          // Corrective run itself failed — escalate to permanent failure
+          triagePermanentFailure(runId, scResult.reason);
         } else {
           console.error(`[executor] self-correction skipped: ${scResult.reason}`);
         }
-      }).catch((err) =>
-        console.error(`[executor] self-correction error:`, err),
-      );
+      }).catch((err) => {
+        console.error(`[executor] self-correction error:`, err);
+        captureAgentError(err, { runId });
+      });
     }
 
-    // Clear correction context when a corrective run succeeds
-    if (finalStatus === "succeeded") {
-      const completedRun = getRun(runId);
-      if (completedRun?.triggerSource === "corrective" && job.postPrompt) {
-        updateJobPostPrompt(job.id, null);
-        emit("job.updated", { jobId: job.id });
-      }
+    // Evaluate correction note when any run succeeds with a note active
+    if (finalStatus === "succeeded" && job.correctionNote) {
+      evaluateCorrectionNote(runId, job.prompt, job.correctionNote)
+        .then((evaluation) => {
+          if (!evaluation) return; // LLM failed, keep note
+          if (evaluation.action === "remove") {
+            updateJobCorrectionNote(job.id, null);
+          } else if (evaluation.action === "modify" && evaluation.modifiedNote) {
+            updateJobCorrectionNote(job.id, evaluation.modifiedNote);
+          }
+          // "keep" = no-op
+          if (evaluation.action !== "keep") {
+            emit("job.updated", { jobId: job.id });
+          }
+        })
+        .catch((err) => console.error(`[executor] correction evaluation error:`, err));
     }
+
+    // Memory extraction: learn from completed runs (success or failure)
+    extractMemoriesFromRun(runId, job).catch((err) =>
+      console.error(`[executor] memory extraction error:`, err),
+    );
 
     // Update job's nextFireAt (regardless of outcome)
     this.updateNextFireTime(job, finishedAt);
@@ -452,6 +520,7 @@ export class Executor {
     message: string,
   ): void {
     console.error(`[executor] permanent failure for run ${runId}: ${message}`);
+    captureAgentError(new Error(message), { runId });
     updateRun({ id: runId, status: "permanent_failure" });
     createRunLog({ runId, stream: "stderr", text: message });
     emit("run.statusChanged", {

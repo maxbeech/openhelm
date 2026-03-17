@@ -7,6 +7,8 @@ import { getGoal, listGoals, updateGoal, createGoal } from "../db/queries/goals.
 import { getJob, listJobs, createJob, updateJob, archiveJob } from "../db/queries/jobs.js";
 import { listRuns, createRun } from "../db/queries/runs.js";
 import { listRunLogs } from "../db/queries/run-logs.js";
+import { listMemories, createMemory, updateMemory, deleteMemory } from "../db/queries/memories.js";
+import { generateEmbedding } from "../memory/embeddings.js";
 import { jobQueue } from "../scheduler/queue.js";
 import { executor } from "../executor/index.js";
 import { emit } from "../ipc/emitter.js";
@@ -63,6 +65,14 @@ export function executeReadTool(call: ChatToolCall, projectId: string): ToolExec
         return job ? ok(call, job) : fail(call, `Job not found: ${a.jobId}`);
       }
 
+      case "list_memories":
+        return ok(call, listMemories({
+          projectId,
+          type: a.type as any,
+          tag: a.tag as string | undefined,
+          isArchived: false,
+        }));
+
       default:
         return fail(call, `Unknown read tool: ${call.tool}`);
     }
@@ -72,7 +82,7 @@ export function executeReadTool(call: ChatToolCall, projectId: string): ToolExec
 }
 
 /** Execute a write (mutating) tool after user confirmation. */
-export function executeWriteTool(call: ChatToolCall, projectId: string): ToolExecutionResult {
+export async function executeWriteTool(call: ChatToolCall, projectId: string): Promise<ToolExecutionResult> {
   const a = call.args;
   try {
     switch (call.tool) {
@@ -125,6 +135,45 @@ export function executeWriteTool(call: ChatToolCall, projectId: string): ToolExe
 
       case "archive_job":
         return ok(call, archiveJob(a.jobId as string));
+
+      case "save_memory": {
+        if (!a.content) return fail(call, "content is required");
+        const tags = a.tags ? (a.tags as string).split(",").map((t: string) => t.trim()) : [];
+        let embedding: number[] | undefined;
+        try { embedding = await generateEmbedding(a.content as string); } catch { /* skip */ }
+        const mem = createMemory({
+          projectId,
+          type: (a.type as any) ?? "semantic",
+          content: a.content as string,
+          sourceType: "chat",
+          importance: (a.importance as number) ?? 5,
+          tags,
+        }, embedding);
+        emit("memory.created", mem);
+        return ok(call, mem);
+      }
+
+      case "update_memory": {
+        if (!a.memoryId) return fail(call, "memoryId is required");
+        let embedding: number[] | undefined;
+        if (a.content) {
+          try { embedding = await generateEmbedding(a.content as string); } catch { /* skip */ }
+        }
+        const mem = updateMemory({
+          id: a.memoryId as string,
+          content: a.content as string | undefined,
+          importance: a.importance as number | undefined,
+        }, embedding);
+        emit("memory.updated", mem);
+        return ok(call, mem);
+      }
+
+      case "forget_memory": {
+        if (!a.memoryId) return fail(call, "memoryId is required");
+        const deleted = deleteMemory(a.memoryId as string);
+        if (deleted) emit("memory.deleted", { id: a.memoryId });
+        return ok(call, { deleted });
+      }
 
       case "trigger_run": {
         const jobId = a.jobId as string;

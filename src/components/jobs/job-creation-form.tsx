@@ -30,6 +30,7 @@ export interface JobFormState {
   calendarFrequency: "daily" | "weekly" | "monthly";
   calendarTime: string;
   calendarDayOfWeek: number;
+  calendarDaysOfWeek: number[];
   calendarDayOfMonth: number;
   // Model
   model: string;
@@ -37,8 +38,8 @@ export interface JobFormState {
   // Permissions
   permissionMode: PermissionMode;
   workingDirectory: string;
-  // Post prompt (appended to every run)
-  postPrompt: string;
+  // Correction note (AI-managed, only shown in edit mode)
+  correctionNote: string;
   // Legacy cron (kept for existing jobs)
   cronExpression?: string;
 }
@@ -55,9 +56,10 @@ interface JobCreationFormProps {
   errors: JobFormErrors;
   goals: Goal[];
   projectDirectory: string;
-  onFieldChange: (field: keyof JobFormState, value: string | number) => void;
+  onFieldChange: (field: keyof JobFormState, value: string | number | number[]) => void;
   onFieldBlur: (field: string) => void;
   error: string | null;
+  isEditing?: boolean;
 }
 
 export function JobCreationForm({
@@ -68,6 +70,7 @@ export function JobCreationForm({
   onFieldChange,
   onFieldBlur,
   error,
+  isEditing,
 }: JobCreationFormProps) {
   return (
     <div className="flex-1 space-y-4 overflow-auto p-4">
@@ -111,19 +114,6 @@ export function JobCreationForm({
         {errors.prompt && (
           <p className="text-xs text-destructive">{errors.prompt}</p>
         )}
-      </div>
-
-      {/* Post Prompt */}
-      <div className="space-y-1.5">
-        <Label htmlFor="job-post-prompt">Post Prompt (optional)</Label>
-        <Textarea
-          id="job-post-prompt"
-          value={form.postPrompt}
-          onChange={(e) => onFieldChange("postPrompt", e.target.value)}
-          placeholder="Appended to every run. Use for persistent instructions or context."
-          rows={3}
-          className="text-sm"
-        />
       </div>
 
       {/* Goal association */}
@@ -268,6 +258,23 @@ export function JobCreationForm({
           </SelectContent>
         </Select>
       </div>
+
+      {/* Correction Note — only in edit mode when a note exists */}
+      {isEditing && form.correctionNote && (
+        <div className="space-y-1.5">
+          <Label htmlFor="job-correction-note">Correction Note</Label>
+          <Textarea
+            id="job-correction-note"
+            value={form.correctionNote}
+            onChange={(e) => onFieldChange("correctionNote", e.target.value)}
+            rows={3}
+            className="text-sm border-amber-500/30"
+          />
+          <p className="text-xs text-muted-foreground">
+            AI-generated from a previous failure. May be overridden by the AI after future runs.
+          </p>
+        </div>
+      )}
 
       {/* Error */}
       {error && <p className="text-sm text-destructive">{error}</p>}

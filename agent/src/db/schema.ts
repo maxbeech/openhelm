@@ -65,7 +65,7 @@ export const jobs = sqliteTable("jobs", {
   modelEffort: text("model_effort").notNull().default("medium"),
   permissionMode: text("permission_mode").notNull().default("bypassPermissions"),
   icon: text("icon"),
-  postPrompt: text("post_prompt"),
+  correctionNote: text("correction_note"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -97,7 +97,7 @@ export const runs = sqliteTable("runs", {
     enum: ["scheduled", "manual", "corrective"],
   }).notNull(),
   parentRunId: text("parent_run_id").references((): AnySQLiteColumn => runs.id, { onDelete: "set null" }),
-  correctionContext: text("correction_context"),
+  correctionNote: text("correction_note"),
   scheduledFor: text("scheduled_for"),
   startedAt: text("started_at"),
   finishedAt: text("finished_at"),
@@ -167,6 +167,44 @@ export const inboxItems = sqliteTable("inbox_items", {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
   resolvedAt: text("resolved_at"),
+});
+
+/** Project memories — atomic knowledge extracted from runs, goals, jobs, or user input */
+export const memories = sqliteTable("memories", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  goalId: text("goal_id").references(() => goals.id, { onDelete: "set null" }),
+  jobId: text("job_id").references(() => jobs.id, { onDelete: "set null" }),
+  type: text("type", { enum: ["semantic", "episodic", "procedural", "source"] }).notNull(),
+  content: text("content").notNull(),
+  sourceType: text("source_type", {
+    enum: ["run", "goal", "job", "chat", "user", "system"],
+  }).notNull(),
+  sourceId: text("source_id"),
+  importance: integer("importance", { mode: "number" }).notNull().default(5),
+  accessCount: integer("access_count").notNull().default(0),
+  lastAccessedAt: text("last_accessed_at"),
+  tags: text("tags").notNull().default("[]"), // JSON array of strings
+  embedding: text("embedding"), // JSON array of 384 floats
+  isArchived: integer("is_archived", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+/** Tracks which memories were injected into each run's prompt (transparency) */
+export const runMemories = sqliteTable("run_memories", {
+  runId: text("run_id")
+    .notNull()
+    .references(() => runs.id, { onDelete: "cascade" }),
+  memoryId: text("memory_id")
+    .notNull()
+    .references(() => memories.id, { onDelete: "cascade" }),
 });
 
 /** Real-time log chunks captured from Claude Code output */

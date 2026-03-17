@@ -6,6 +6,9 @@ import { createJob } from "../src/db/queries/jobs.js";
 
 vi.mock("../src/ipc/emitter.js", () => ({ emit: vi.fn() }));
 vi.mock("../src/executor/index.js", () => ({ executor: { processNext: vi.fn() } }));
+vi.mock("../src/memory/embeddings.js", () => ({
+  generateEmbedding: vi.fn().mockResolvedValue(Array(384).fill(0)),
+}));
 
 import { executeReadTool, executeWriteTool } from "../src/chat/tool-executor.js";
 import type { ChatToolCall } from "@openorchestra/shared";
@@ -118,8 +121,8 @@ describe("executeReadTool — unknown tool", () => {
 });
 
 describe("executeWriteTool — create_goal", () => {
-  it("creates a goal and returns it", () => {
-    const result = executeWriteTool(
+  it("creates a goal and returns it", async () => {
+    const result = await executeWriteTool(
       makeCall("create_goal", { name: "AI Created Goal", description: "Via chat" }),
       projectId,
     );
@@ -131,8 +134,8 @@ describe("executeWriteTool — create_goal", () => {
 });
 
 describe("executeWriteTool — create_job", () => {
-  it("creates an interval job", () => {
-    const result = executeWriteTool(
+  it("creates an interval job", async () => {
+    const result = await executeWriteTool(
       makeCall("create_job", {
         name: "AI Job",
         prompt: "Run daily analysis",
@@ -147,8 +150,8 @@ describe("executeWriteTool — create_job", () => {
     expect(job.scheduleType).toBe("interval");
   });
 
-  it("creates a once job with future fireAt", () => {
-    const result = executeWriteTool(
+  it("creates a once job with future fireAt", async () => {
+    const result = await executeWriteTool(
       makeCall("create_job", {
         name: "Once Job",
         prompt: "Run once",
@@ -165,8 +168,8 @@ describe("executeWriteTool — create_job", () => {
 });
 
 describe("executeWriteTool — update_goal", () => {
-  it("updates a goal's name", () => {
-    const result = executeWriteTool(
+  it("updates a goal's name", async () => {
+    const result = await executeWriteTool(
       makeCall("update_goal", { goalId, name: "Updated Name" }),
       projectId,
     );
@@ -176,9 +179,9 @@ describe("executeWriteTool — update_goal", () => {
 });
 
 describe("executeWriteTool — archive_goal", () => {
-  it("archives a goal", () => {
+  it("archives a goal", async () => {
     const newGoal = createGoal({ projectId, name: "To Archive" });
-    const result = executeWriteTool(
+    const result = await executeWriteTool(
       makeCall("archive_goal", { goalId: newGoal.id }),
       projectId,
     );
@@ -188,7 +191,7 @@ describe("executeWriteTool — archive_goal", () => {
 });
 
 describe("executeWriteTool — archive_job", () => {
-  it("archives a job", () => {
+  it("archives a job", async () => {
     const newJob = createJob({
       projectId,
       name: "To Archive",
@@ -196,7 +199,7 @@ describe("executeWriteTool — archive_job", () => {
       scheduleType: "interval",
       scheduleConfig: { minutes: 60 },
     });
-    const result = executeWriteTool(
+    const result = await executeWriteTool(
       makeCall("archive_job", { jobId: newJob.id }),
       projectId,
     );
@@ -206,8 +209,8 @@ describe("executeWriteTool — archive_job", () => {
 });
 
 describe("executeWriteTool — unknown tool", () => {
-  it("returns error for unknown tool name", () => {
-    const result = executeWriteTool(makeCall("unknown_write"), projectId);
+  it("returns error for unknown tool name", async () => {
+    const result = await executeWriteTool(makeCall("unknown_write"), projectId);
     expect(result.error).toContain("Unknown write tool");
   });
 });

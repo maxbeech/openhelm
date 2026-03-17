@@ -10,7 +10,7 @@ const options = {
   target: "node20",
   format: "esm",
   outfile: "dist/agent.mjs",
-  external: ["better-sqlite3"],
+  external: ["better-sqlite3", "@xenova/transformers", "onnxruntime-node", "sharp"],
   banner: {
     js: [
       '// ESM ↔ CJS bridge for native modules',
@@ -28,4 +28,29 @@ if (isWatch) {
   console.error("[agent] watching for changes...");
 } else {
   await build(options);
+
+  // Upload source maps to Sentry (only in CI/release with auth token present)
+  if (process.env.SENTRY_AUTH_TOKEN) {
+    const { execFileSync } = await import("child_process");
+    try {
+      execFileSync(
+        "sentry-cli",
+        [
+          "sourcemaps",
+          "upload",
+          "--org",
+          "openorchestra",
+          "--project",
+          "openorchestra-agent",
+          "dist/",
+        ],
+        { stdio: "inherit", env: process.env },
+      );
+    } catch (e) {
+      console.error(
+        "[agent] source map upload failed (non-fatal):",
+        e.message,
+      );
+    }
+  }
 }

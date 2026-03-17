@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { X, Ban, TerminalSquare } from "lucide-react";
+import { X, Ban, TerminalSquare, Brain, ChevronDown, ChevronRight } from "lucide-react";
 import { useRunStore } from "@/stores/run-store";
+import { useAppStore } from "@/stores/app-store";
 import { RunStatusBanner } from "./run-status-banner";
+import { RunChainBreadcrumb } from "./run-chain-breadcrumb";
 import { LogViewer } from "./log-viewer";
 import { useRunLogs } from "@/hooks/use-run-logs";
-import { openRunInTerminal } from "@/lib/api";
-import type { Run } from "@openorchestra/shared";
+import { openRunInTerminal, listMemoriesForRun } from "@/lib/api";
+import { MemoryTypeBadge } from "@/components/memory/memory-type-badge";
+import type { Run, Memory } from "@openorchestra/shared";
 
 interface RunDetailPanelProps {
   run: Run;
@@ -16,8 +19,17 @@ interface RunDetailPanelProps {
 
 export function RunDetailPanel({ run, jobName, onClose }: RunDetailPanelProps) {
   const { cancelRun } = useRunStore();
+  const { selectJob, selectRunPreserveView } = useAppStore();
   const { logs, loading: logsLoading } = useRunLogs(run.id);
   const [cancelling, setCancelling] = useState(false);
+  const [runMemories, setRunMemories] = useState<Memory[]>([]);
+  const [memoriesExpanded, setMemoriesExpanded] = useState(false);
+
+  useEffect(() => {
+    listMemoriesForRun(run.id)
+      .then((mems) => setRunMemories(mems))
+      .catch(() => setRunMemories([]));
+  }, [run.id]);
 
   const isRunning = run.status === "running";
   const isCancellable = run.status === "running" || run.status === "queued";
@@ -72,6 +84,13 @@ export function RunDetailPanel({ run, jobName, onClose }: RunDetailPanelProps) {
       {/* Status Banner */}
       <RunStatusBanner run={run} />
 
+      {/* Run Chain Breadcrumb */}
+      <RunChainBreadcrumb
+        run={run}
+        onSelectJob={selectJob}
+        onSelectRun={selectRunPreserveView}
+      />
+
       {/* Cancel Button */}
       {isCancellable && (
         <div className="border-b border-border px-4 py-2">
@@ -102,22 +121,39 @@ export function RunDetailPanel({ run, jobName, onClose }: RunDetailPanelProps) {
         </div>
       )}
 
-      {/* Correction Context */}
-      {run.correctionContext && (
+      {/* Correction Note */}
+      {run.correctionNote && (
         <div className="border-b border-border px-4 py-3">
           <h4 className="mb-1 text-xs font-medium text-amber-400">
-            Correction Context
+            Correction Note
           </h4>
           <p className="font-mono text-xs text-muted-foreground">
-            {run.correctionContext}
+            {run.correctionNote}
           </p>
         </div>
       )}
 
-      {/* Parent Run Link */}
-      {run.parentRunId && (
-        <div className="border-b border-border px-4 py-2 text-xs text-muted-foreground">
-          Triggered by run {run.parentRunId.slice(0, 8)}
+      {/* Memories Used */}
+      {runMemories.length > 0 && (
+        <div className="border-b border-border px-4 py-2">
+          <button
+            onClick={() => setMemoriesExpanded(!memoriesExpanded)}
+            className="flex w-full items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            {memoriesExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+            <Brain className="size-3" />
+            Memories Used ({runMemories.length})
+          </button>
+          {memoriesExpanded && (
+            <div className="mt-2 space-y-1.5">
+              {runMemories.map((mem) => (
+                <div key={mem.id} className="flex items-start gap-1.5 text-xs">
+                  <MemoryTypeBadge type={mem.type} className="mt-0.5 shrink-0" />
+                  <span className="text-muted-foreground">{mem.content}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

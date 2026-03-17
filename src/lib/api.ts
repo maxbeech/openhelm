@@ -8,6 +8,7 @@ import type {
   Setting,
   SettingKey,
   InboxItem,
+  Memory,
   CreateProjectParams,
   UpdateProjectParams,
   CreateGoalParams,
@@ -22,6 +23,9 @@ import type {
   CreateRunLogParams,
   ListRunLogsParams,
   SetSettingParams,
+  CreateMemoryParams,
+  UpdateMemoryParams,
+  ListMemoriesParams,
   ClaudeCodeDetectionResult,
   DetectClaudeCodeParams,
   VerifyClaudeCodeParams,
@@ -273,4 +277,63 @@ export function countInboxItems(projectId?: string): Promise<{ count: number }> 
 
 export function resolveInboxItem(params: ResolveInboxItemParams): Promise<InboxItem> {
   return agentClient.request<InboxItem>("inbox.resolve", params);
+}
+
+// ─── Memories ───
+
+export function listMemories(params: ListMemoriesParams): Promise<Memory[]> {
+  return agentClient.request<Memory[]>("memories.list", params);
+}
+
+export function getMemory(id: string): Promise<Memory> {
+  return agentClient.request<Memory>("memories.get", { id });
+}
+
+export function createMemory(params: CreateMemoryParams): Promise<Memory> {
+  return agentClient.request<Memory>("memories.create", params);
+}
+
+export function updateMemory(params: UpdateMemoryParams): Promise<Memory> {
+  return agentClient.request<Memory>("memories.update", params);
+}
+
+export function deleteMemory(id: string): Promise<{ deleted: boolean }> {
+  return agentClient.request<{ deleted: boolean }>("memories.delete", { id });
+}
+
+export function archiveMemory(id: string): Promise<Memory> {
+  return agentClient.request<Memory>("memories.archive", { id });
+}
+
+export function searchMemories(projectId: string, query: string): Promise<Memory[]> {
+  return agentClient.request<Memory[]>("memories.search", { projectId, query });
+}
+
+export function listMemoryTags(projectId: string): Promise<string[]> {
+  return agentClient.request<string[]>("memories.listTags", { projectId });
+}
+
+export function pruneMemories(projectId: string): Promise<{ pruned: number }> {
+  return agentClient.request<{ pruned: number }>("memories.prune", { projectId });
+}
+
+export function countMemories(projectId: string): Promise<{ count: number }> {
+  return agentClient.request<{ count: number }>("memories.count", { projectId });
+}
+
+export function listMemoriesForRun(runId: string): Promise<Memory[]> {
+  return agentClient.request<Memory[]>("memories.listForRun", { runId });
+}
+
+/** Cross-project memory queries (All Projects mode) */
+export function listAllMemories(params?: Omit<ListMemoriesParams, "projectId">): Promise<Memory[]> {
+  return agentClient.request<Memory[]>("memories.listAll", params);
+}
+
+export function listAllMemoryTags(): Promise<string[]> {
+  return agentClient.request<string[]>("memories.listAllTags");
+}
+
+export function countAllMemories(): Promise<{ count: number }> {
+  return agentClient.request<{ count: number }>("memories.countAll");
 }

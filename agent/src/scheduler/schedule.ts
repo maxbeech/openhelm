@@ -119,13 +119,26 @@ function computeCalendar(config: ScheduleConfigCalendar, from: Date): string {
       break;
 
     case "weekly": {
-      const targetDay = config.dayOfWeek ?? 1; // default Monday
-      const currentDay = candidate.getDay();
-      let daysToAdd = (targetDay - currentDay + 7) % 7;
-      if (daysToAdd === 0 && candidate <= from) {
-        daysToAdd = 7;
+      const days =
+        config.daysOfWeek && config.daysOfWeek.length > 0
+          ? config.daysOfWeek
+          : [config.dayOfWeek ?? 1]; // default Monday
+
+      // Compute the next occurrence for each selected day, pick the earliest
+      let earliest: Date | null = null;
+      for (const targetDay of days) {
+        const c = new Date(candidate);
+        const currentDay = c.getDay();
+        let daysToAdd = (targetDay - currentDay + 7) % 7;
+        if (daysToAdd === 0 && c <= from) {
+          daysToAdd = 7;
+        }
+        c.setDate(c.getDate() + daysToAdd);
+        if (earliest === null || c < earliest) {
+          earliest = c;
+        }
       }
-      candidate.setDate(candidate.getDate() + daysToAdd);
+      candidate.setTime(earliest!.getTime());
       break;
     }
 

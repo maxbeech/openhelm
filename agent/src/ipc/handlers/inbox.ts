@@ -6,7 +6,7 @@ import {
   countOpenInboxItems,
 } from "../../db/queries/inbox-items.js";
 import { createRun } from "../../db/queries/runs.js";
-import { getJob, updateJobPostPrompt } from "../../db/queries/jobs.js";
+import { getJob, updateJobCorrectionNote } from "../../db/queries/jobs.js";
 import { jobQueue } from "../../scheduler/queue.js";
 import { executor } from "../../executor/index.js";
 import { emit } from "../emitter.js";
@@ -82,7 +82,7 @@ export function registerInboxHandlers() {
       // Update job correction context with user guidance
       const job = getJob(item.jobId);
       if (!job) throw new Error(`Job not found: ${item.jobId}`);
-      updateJobPostPrompt(job.id, p.guidance);
+      updateJobCorrectionNote(job.id, p.guidance);
       emit("job.updated", { jobId: job.id });
 
       // Create corrective run with user guidance
@@ -90,7 +90,7 @@ export function registerInboxHandlers() {
         jobId: item.jobId,
         triggerSource: "corrective",
         parentRunId: item.runId,
-        correctionContext: p.guidance,
+        correctionNote: p.guidance,
       });
       jobQueue.enqueue({
         runId: run.id,

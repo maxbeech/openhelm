@@ -5,6 +5,8 @@
 
 import { TOOLS } from "./tools.js";
 import { getConfiguredMcpServers } from "../claude-code/mcp-config.js";
+import { retrieveMemories } from "../memory/retriever.js";
+import { buildChatMemorySection } from "../memory/prompt-builder.js";
 import type { Project, Goal, Job, Run } from "@openorchestra/shared";
 
 export interface ChatSystemContext {
@@ -82,7 +84,50 @@ ${servers.map((s) => `- ${s}`).join("\n")}
 Jobs run as Claude Code sessions and will have access to these MCP servers. Keep this in mind when writing job prompts — leverage existing MCP capabilities rather than suggesting separate tool installations.`;
 }
 
+/**
+ * Build a memory section asynchronously by retrieving relevant memories.
+ * Returns empty string if no memories are relevant.
+ */
+async function buildMemoryContextSection(ctx: ChatSystemContext): Promise<string> {
+  try {
+    const query = [
+      ctx.viewingGoal?.name,
+      ctx.viewingJob?.name,
+      ctx.viewingRun?.summary,
+      ctx.project.name,
+    ].filter(Boolean).join(" ");
+
+    if (!query.trim()) return "";
+
+    const scored = await retrieveMemories({
+      projectId: ctx.project.id,
+      goalId: ctx.viewingGoal?.id,
+      jobId: ctx.viewingJob?.id,
+      query,
+      maxResults: 8,
+    });
+
+    return buildChatMemorySection(scored);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Async version that includes memory context.
+ * Falls back to sync version if memory retrieval fails.
+ */
+export async function buildChatSystemPromptAsync(ctx: ChatSystemContext): Promise<string> {
+  const memorySection = await buildMemoryContextSection(ctx);
+  return buildChatSystemPromptSync(ctx, memorySection);
+}
+
+/** Sync version (used when memory is already resolved or not needed) */
 export function buildChatSystemPrompt(ctx: ChatSystemContext): string {
+  return buildChatSystemPromptSync(ctx, "");
+}
+
+function buildChatSystemPromptSync(ctx: ChatSystemContext, memorySection: string): string {
   const sections = [
     `## You are the OpenOrchestra AI Assistant
 
@@ -100,6 +145,7 @@ Name: ${ctx.project.name}
 Directory: ${ctx.project.directoryPath}${ctx.project.description ? `\nDescription: ${ctx.project.description}` : ""}`,
 
     buildCurrentViewSection(ctx),
+    memorySection,
     buildMcpSection(),
     buildToolsSection(),
 

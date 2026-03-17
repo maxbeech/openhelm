@@ -1,4 +1,5 @@
-import { Target, Briefcase, Play, AlertTriangle, Inbox } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Target, Briefcase, Play, AlertTriangle, Inbox, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useInboxStore } from "@/stores/inbox-store";
 import { useGoalStore } from "@/stores/goal-store";
@@ -7,59 +8,56 @@ import { useRunStore } from "@/stores/run-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useAppStore } from "@/stores/app-store";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { RunStatusBadge } from "@/components/shared/status-badge";
 import { InboxCard } from "./inbox-card";
 import type { Run } from "@openorchestra/shared";
 
+const DEFAULT_VISIBLE_ALERTS = 3;
+
 export function InboxView() {
-  const { items, loading } = useInboxStore();
+  const { items, loading, dismissAll } = useInboxStore();
   const { goals } = useGoalStore();
   const { jobs } = useJobStore();
   const { runs } = useRunStore();
   const { projects } = useProjectStore();
   const { selectRun } = useAppStore();
+  const [showAllAlerts, setShowAllAlerts] = useState(false);
+  const [dismissingAll, setDismissingAll] = useState(false);
 
-  const activeGoalCount = goals.filter((g) => g.status === "active").length;
-  const enabledJobCount = jobs.filter((j) => j.isEnabled).length;
-  const runningCount = runs.filter((r) => r.status === "running").length;
-  const recentSuccessCount = runs
-    .slice(0, 10)
-    .filter((r) => r.status === "succeeded").length;
+  const activeGoalCount = useMemo(
+    () => goals.filter((g) => g.status === "active").length,
+    [goals],
+  );
+  const enabledJobCount = useMemo(
+    () => jobs.filter((j) => j.isEnabled).length,
+    [jobs],
+  );
+  const { runningCount, recentSuccessCount } = useMemo(() => {
+    const running = runs.filter((r) => r.status === "running").length;
+    const recentSuccess = runs
+      .slice(0, 10)
+      .filter((r) => r.status === "succeeded").length;
+    return { runningCount: running, recentSuccessCount: recentSuccess };
+  }, [runs]);
 
   // Recent runs: last 15, across all projects
-  const recentRuns = runs.slice(0, 15);
+  const recentRuns = useMemo(() => runs.slice(0, 15), [runs]);
+
+  const visibleItems = showAllAlerts ? items : items.slice(0, DEFAULT_VISIBLE_ALERTS);
+  const hiddenCount = items.length - DEFAULT_VISIBLE_ALERTS;
+
+  const handleDismissAll = async () => {
+    setDismissingAll(true);
+    try {
+      await dismissAll();
+    } finally {
+      setDismissingAll(false);
+    }
+  };
 
   return (
-    <div className="space-y-8 px-6 py-8">
-      {/* Alerts section — always visible, cross-project */}
-      <section>
-        <div className="mb-3 flex items-center gap-2">
-          <AlertTriangle
-            className={cn(
-              "size-4",
-              items.length > 0 ? "text-destructive" : "text-muted-foreground/50",
-            )}
-          />
-          <h3 className="text-sm font-semibold text-muted-foreground">Needs Attention</h3>
-          {items.length > 0 && (
-            <Badge variant="destructive" className="ml-1 text-[10px]">
-              {items.length}
-            </Badge>
-          )}
-        </div>
-        {items.length > 0 ? (
-          <div className="space-y-3">
-            {items.map((item) => (
-              <InboxCard key={item.id} item={item} />
-            ))}
-          </div>
-        ) : (
-          <p className="rounded-lg border border-dashed border-border px-4 py-5 text-center text-sm text-muted-foreground">
-            No alerts — everything looks good.
-          </p>
-        )}
-      </section>
-
+    <div className="space-y-8 px-6 pt-14 pb-8">
       {/* Overview stats */}
       <section>
         <h3 className="mb-3 text-sm font-semibold text-muted-foreground">
@@ -83,6 +81,64 @@ export function InboxView() {
             highlight={runningCount > 0}
           />
         </div>
+      </section>
+
+      {/* Alerts section — always visible, cross-project */}
+      <section>
+        <div className="mb-3 flex items-center gap-2">
+          <AlertTriangle
+            className={cn(
+              "size-4",
+              items.length > 0 ? "text-destructive" : "text-muted-foreground/50",
+            )}
+          />
+          <h3 className="text-sm font-semibold text-muted-foreground">Needs Attention</h3>
+          {items.length > 0 && (
+            <Badge variant="destructive" className="ml-1 text-[10px]">
+              {items.length}
+            </Badge>
+          )}
+          {items.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+              disabled={dismissingAll || loading}
+              onClick={handleDismissAll}
+            >
+              Dismiss all
+            </Button>
+          )}
+        </div>
+        {items.length > 0 ? (
+          <div className="space-y-3">
+            {visibleItems.map((item) => (
+              <InboxCard key={item.id} item={item} />
+            ))}
+            {items.length > DEFAULT_VISIBLE_ALERTS && (
+              <button
+                className="flex w-full items-center justify-center gap-1.5 rounded-md py-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => setShowAllAlerts((v) => !v)}
+              >
+                {showAllAlerts ? (
+                  <>
+                    <ChevronUp className="size-3.5" />
+                    Show less
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="size-3.5" />
+                    {hiddenCount} more alert{hiddenCount !== 1 ? "s" : ""}
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        ) : (
+          <p className="rounded-lg border border-dashed border-border px-4 py-5 text-center text-sm text-muted-foreground">
+            No alerts — everything looks good.
+          </p>
+        )}
       </section>
 
       {/* Recent runs */}

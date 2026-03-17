@@ -9,6 +9,7 @@ interface AppShellProps {
   children: React.ReactNode;
   rightPanel?: React.ReactNode;
   onNewProject?: () => void;
+  onEditProject?: (projectId: string) => void;
   onNewJobForGoal: (goalId: string, initialName: string) => void;
 }
 
@@ -16,6 +17,7 @@ export function AppShell({
   children,
   rightPanel,
   onNewProject,
+  onEditProject,
   onNewJobForGoal,
 }: AppShellProps) {
   const { panelOpen, togglePanel } = useChatStore();
@@ -23,7 +25,7 @@ export function AppShell({
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar onNewProject={onNewProject} onNewJobForGoal={onNewJobForGoal} />
+      <Sidebar onNewProject={onNewProject} onEditProject={onEditProject} onNewJobForGoal={onNewJobForGoal} />
       <div className="relative flex min-w-0 flex-1 flex-col">
         {/* Chat toggle button — hidden when panel is already open */}
         {!panelOpen && (

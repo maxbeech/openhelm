@@ -161,6 +161,61 @@ describe("computeNextFireAt", () => {
       expect(next.getMonth()).toBe(1); // February
     });
 
+    it("should pick the earliest of multiple weekly days", () => {
+      // Thursday 2026-01-15, asking for Mon(1) and Wed(3)
+      // Next Wed is Jan 21, next Mon is Jan 19 → should return Jan 19
+      const from = new Date("2026-01-15T10:00:00Z"); // Thursday
+      const result = computeNextFireAt(
+        "calendar",
+        { frequency: "weekly", time: "09:00", daysOfWeek: [1, 3] },
+        from,
+      );
+      const next = new Date(result!);
+      expect(next.getDay()).toBe(1); // Monday
+    });
+
+    it("should include today if the time is still ahead", () => {
+      // Thursday 2026-01-15 at 08:00, asking for Thu(4) and Fri(5) at 09:00
+      // Thursday 09:00 is still in the future → should return today
+      const from = new Date("2026-01-15T08:00:00Z");
+      const result = computeNextFireAt(
+        "calendar",
+        { frequency: "weekly", time: "09:00", daysOfWeek: [4, 5] },
+        from,
+      );
+      const next = new Date(result!);
+      expect(next.getDay()).toBe(4); // Thursday
+    });
+
+    it("should wrap to next week if all selected days have passed", () => {
+      // Thursday 2026-01-15 at 10:00, asking for Mon(1) and Wed(3) at 09:00
+      // Both are already past this week → Mon Jan 19 is next
+      const from = new Date("2026-01-15T10:00:00Z");
+      const result = computeNextFireAt(
+        "calendar",
+        { frequency: "weekly", time: "09:00", daysOfWeek: [1, 3] },
+        from,
+      );
+      const next = new Date(result!);
+      expect(next.getDay()).toBe(1); // Monday
+      expect(next.getTime()).toBeGreaterThan(from.getTime());
+    });
+
+    it("single-element daysOfWeek behaves same as dayOfWeek", () => {
+      const from = new Date("2026-01-15T10:00:00Z");
+      const withArray = computeNextFireAt(
+        "calendar",
+        { frequency: "weekly", time: "09:00", daysOfWeek: [1] },
+        from,
+      );
+      const withSingle = computeNextFireAt(
+        "calendar",
+        { frequency: "weekly", time: "09:00", dayOfWeek: 1 },
+        from,
+      );
+      expect(withArray).toBe(withSingle);
+    });
+
     it("should never return null (always has a next occurrence)", () => {
       const from = new Date("2026-01-15T23:59:59Z");
       const result = computeNextFireAt(

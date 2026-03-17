@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import type { Run, RunStatus } from "@openorchestra/shared";
 import * as api from "@/lib/api";
 import { friendlyError } from "@/lib/utils";
@@ -111,3 +112,21 @@ export const useRunStore = create<RunState>((set) => ({
     }));
   },
 }));
+
+/* ── Granular selector hooks ── */
+export const useRuns = () => useRunStore((s) => s.runs);
+export const useRunsLoading = () => useRunStore((s) => s.loading);
+export const useRunActions = () =>
+  useRunStore(
+    useShallow((s) => ({
+      fetchRuns: s.fetchRuns,
+      fetchRunsByJob: s.fetchRunsByJob,
+      triggerRun: s.triggerRun,
+      triggerDeferredRun: s.triggerDeferredRun,
+      cancelRun: s.cancelRun,
+      deleteRun: s.deleteRun,
+      clearRunsByJob: s.clearRunsByJob,
+      updateRunStatus: s.updateRunStatus,
+      updateRunInStore: s.updateRunInStore,
+    })),
+  );

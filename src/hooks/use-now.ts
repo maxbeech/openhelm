@@ -1,19 +1,39 @@
-import { useState, useEffect } from "react";
+import { useSyncExternalStore } from "react";
 
 /**
- * Returns the current Date and re-renders the component on a regular interval.
- * Use this whenever relative timestamps (e.g. "in 4h", "3m ago") must stay
- * up-to-date while the view remains open.
- *
- * @param intervalMs - How often to tick (default: 60 000 ms = 1 minute)
+ * Shared singleton timer: one setInterval serves all mounted useNow consumers.
+ * Listeners are notified every 60 s; the first subscriber starts the timer,
+ * the last unsubscriber stops it.
  */
-export function useNow(intervalMs = 60_000): Date {
-  const [now, setNow] = useState(() => new Date());
+let listeners = new Set<() => void>();
+let current = new Date();
+let timer: ReturnType<typeof setInterval> | null = null;
 
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
+function subscribe(cb: () => void): () => void {
+  listeners.add(cb);
+  if (listeners.size === 1) {
+    timer = setInterval(() => {
+      current = new Date();
+      for (const fn of listeners) fn();
+    }, 60_000);
+  }
+  return () => {
+    listeners.delete(cb);
+    if (listeners.size === 0 && timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+  };
+}
 
-  return now;
+function getSnapshot(): Date {
+  return current;
+}
+
+/**
+ * Returns the current Date, updating every 60 s via a shared timer.
+ * Multiple components calling useNow() share a single setInterval.
+ */
+export function useNow(): Date {
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }

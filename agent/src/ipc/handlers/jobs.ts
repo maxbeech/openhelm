@@ -2,6 +2,7 @@ import { registerHandler } from "../handler.js";
 import { emit } from "../emitter.js";
 import * as jobQueries from "../../db/queries/jobs.js";
 import { pickIcon } from "../../planner/icon-picker.js";
+import { extractMemoriesFromJob } from "../../memory/job-extractor.js";
 import type {
   CreateJobParams,
   UpdateJobParams,
@@ -25,6 +26,11 @@ export function registerJobHandlers() {
         emit("job.iconUpdated", { id: job.id, icon });
       }
     });
+
+    // Fire-and-forget: extract memories from job prompt
+    extractMemoriesFromJob(p.projectId, job.id, p.name, p.prompt, p.goalId, p.description).catch((err) =>
+      console.error("[jobs] memory extraction error:", err),
+    );
 
     return job;
   });

@@ -90,8 +90,10 @@ export interface ScheduleConfigCalendar {
   frequency: "daily" | "weekly" | "monthly";
   /** Local time as "HH:MM" */
   time: string;
-  /** 0=Sun … 6=Sat (weekly only; default 1=Mon) */
+  /** 0=Sun … 6=Sat (weekly only; default 1=Mon) — legacy single-day */
   dayOfWeek?: number;
+  /** Multi-day weekly selection (takes precedence over dayOfWeek when set) */
+  daysOfWeek?: number[];
   /** 1–31 (monthly only; default 1) */
   dayOfMonth?: number;
 }
@@ -130,7 +132,7 @@ export interface Job {
   modelEffort: "low" | "medium" | "high";
   permissionMode: PermissionMode;
   icon: string | null;
-  postPrompt: string | null;
+  correctionNote: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -152,7 +154,7 @@ export interface Run {
   status: RunStatus;
   triggerSource: TriggerSource;
   parentRunId: string | null;
-  correctionContext: string | null;
+  correctionNote: string | null;
   scheduledFor: string | null;
   startedAt: string | null;
   finishedAt: string | null;
@@ -182,7 +184,9 @@ export type SettingKey =
   | "notification_permission_requested"
   | "active_project"
   | "theme"
-  | "auto_correction_enabled";
+  | "auto_correction_enabled"
+  | "max_correction_retries"
+  | "analytics_enabled";
 
 export interface Setting {
   key: SettingKey;
@@ -235,7 +239,6 @@ export interface CreateJobParams {
   model?: string;
   modelEffort?: "low" | "medium" | "high";
   permissionMode?: PermissionMode;
-  postPrompt?: string;
 }
 
 export interface UpdateJobParams {
@@ -253,7 +256,7 @@ export interface UpdateJobParams {
   modelEffort?: "low" | "medium" | "high";
   permissionMode?: PermissionMode;
   icon?: string;
-  postPrompt?: string | null;
+  correctionNote?: string | null;
 }
 
 // Runs
@@ -263,7 +266,7 @@ export interface CreateRunParams {
   status?: RunStatus;
   scheduledFor?: string;
   parentRunId?: string;
-  correctionContext?: string;
+  correctionNote?: string;
 }
 
 export interface UpdateRunParams {
@@ -586,6 +589,77 @@ export interface ResolveInboxItemParams {
   id: string;
   action: InboxResolveAction;
   guidance?: string;
+}
+
+// ─── Memory Types ───
+
+export type MemoryType = "semantic" | "episodic" | "procedural" | "source";
+export type MemorySourceType = "run" | "goal" | "job" | "chat" | "user" | "system";
+
+export const DEFAULT_MEMORY_TAGS = [
+  "goal",
+  "data-source",
+  "preference",
+  "workflow",
+  "error-pattern",
+  "tool-usage",
+  "architecture",
+  "convention",
+] as const;
+
+export interface Memory {
+  id: string;
+  projectId: string;
+  goalId: string | null;
+  jobId: string | null;
+  type: MemoryType;
+  content: string;
+  sourceType: MemorySourceType;
+  sourceId: string | null;
+  importance: number; // 0-10 (stored as integer, display as 0.0-1.0)
+  accessCount: number;
+  lastAccessedAt: string | null;
+  tags: string[];
+  isArchived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateMemoryParams {
+  projectId: string;
+  goalId?: string;
+  jobId?: string;
+  type: MemoryType;
+  content: string;
+  sourceType: MemorySourceType;
+  sourceId?: string;
+  importance?: number;
+  tags?: string[];
+}
+
+export interface UpdateMemoryParams {
+  id: string;
+  content?: string;
+  type?: MemoryType;
+  importance?: number;
+  tags?: string[];
+  isArchived?: boolean;
+}
+
+export interface ListMemoriesParams {
+  projectId: string;
+  type?: MemoryType;
+  tag?: string;
+  isArchived?: boolean;
+  search?: string;
+}
+
+export interface MemoryRetrievalContext {
+  projectId: string;
+  goalId?: string;
+  jobId?: string;
+  query: string;
+  maxResults?: number;
 }
 
 /** Params for assessing a manual job prompt */

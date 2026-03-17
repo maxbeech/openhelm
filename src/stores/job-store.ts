@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import type { Job, CreateJobParams, UpdateJobParams } from "@openorchestra/shared";
 import * as api from "@/lib/api";
 import { friendlyError } from "@/lib/utils";
@@ -99,3 +100,19 @@ export const useJobStore = create<JobState>((set) => ({
     }));
   },
 }));
+
+/* ── Granular selector hooks ── */
+export const useJobs = () => useJobStore((s) => s.jobs);
+export const useJobsLoading = () => useJobStore((s) => s.loading);
+export const useJobActions = () =>
+  useJobStore(
+    useShallow((s) => ({
+      fetchJobs: s.fetchJobs,
+      createJob: s.createJob,
+      updateJob: s.updateJob,
+      toggleEnabled: s.toggleEnabled,
+      archiveJob: s.archiveJob,
+      deleteJob: s.deleteJob,
+      updateJobInStore: s.updateJobInStore,
+    })),
+  );

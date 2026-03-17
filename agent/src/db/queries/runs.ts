@@ -13,7 +13,7 @@ function rowToRun(row: typeof runs.$inferSelect): Run {
   return {
     ...row,
     parentRunId: row.parentRunId ?? null,
-    correctionContext: row.correctionContext ?? null,
+    correctionNote: row.correctionNote ?? null,
     sessionId: row.sessionId ?? null,
   } as Run;
 }
@@ -45,7 +45,7 @@ export function createRun(params: CreateRunParams): Run {
       status: params.status ?? "queued",
       triggerSource: params.triggerSource,
       parentRunId: params.parentRunId ?? null,
-      correctionContext: params.correctionContext ?? null,
+      correctionNote: params.correctionNote ?? null,
       scheduledFor: params.scheduledFor ?? null,
       createdAt: now,
     })
@@ -106,6 +106,7 @@ export function listDeferredDueRuns(): Run[] {
     .select()
     .from(runs)
     .where(and(eq(runs.status, "deferred"), lte(runs.scheduledFor, now)))
+    .limit(100)
     .all()
     .map(rowToRun);
 }
@@ -161,6 +162,36 @@ export function hasCorrectiveRun(parentRunId: string): boolean {
     .where(eq(runs.parentRunId, parentRunId))
     .get();
   return !!row;
+}
+
+/** Snapshot a correction note onto a run (for archival after execution starts) */
+export function snapshotRunCorrectionNote(runId: string, note: string): void {
+  const db = getDb();
+  db.update(runs)
+    .set({ correctionNote: note })
+    .where(eq(runs.id, runId))
+    .run();
+}
+
+/**
+ * Walk the parentRunId chain counting corrective runs.
+ * Returns the number of corrective ancestors (0 if the run is an original).
+ * Bounded by maxWalk to prevent runaway in corrupted data.
+ */
+export function getCorrectionChainDepth(runId: string, maxWalk = 10): number {
+  let depth = 0;
+  let currentId: string | null = runId;
+  while (currentId && depth < maxWalk) {
+    const run = getRun(currentId);
+    if (!run) break;
+    if (run.triggerSource === "corrective") {
+      depth++;
+      currentId = run.parentRunId;
+    } else {
+      break;
+    }
+  }
+  return depth;
 }
 
 export function clearRunsByJob(jobId: string): number {

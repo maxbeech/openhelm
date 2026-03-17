@@ -15,7 +15,8 @@ import { PrintError } from "../claude-code/print.js";
 
 export interface FailureAnalysis {
   fixable: boolean;
-  correction: string | null; // null when not fixable
+  correction: string | null; // persistent job-level guidance for future fresh runs
+  continuationPrompt: string | null; // follow-up message for resuming the failed session
   reason: string; // human-readable explanation
 }
 
@@ -23,7 +24,9 @@ const FAILURE_ANALYSIS_SYSTEM_PROMPT = `You analyze failed automated coding runs
 
 Given the original task prompt and the run's log output, determine:
 1. Whether the failure is fixable with additional guidance
-2. If fixable, provide concise correction instructions (2-5 sentences)
+2. If fixable, provide TWO separate outputs:
+   a. "correction": persistent job-level guidance for future fresh runs (2-5 sentences). Describes what went wrong and how to avoid it.
+   b. "continuationPrompt": a follow-up message for RESUMING the failed session (2-5 sentences). This will be sent as a new message in the same conversation. Reference what was already done, acknowledge the failure, and direct the next steps. Do NOT repeat the original task — the session already has that context.
 3. A brief reason explaining your classification
 
 FIXABLE examples: code logic errors, wrong file paths, missing imports, wrong approach that can be guided, incorrect assumptions about the codebase.
@@ -37,20 +40,27 @@ When fixable, the correction should be specific, actionable guidance that addres
  * Analyze a failed run and determine if it's fixable.
  * Returns null if analysis fails for any reason.
  */
+export interface PreviousAttemptInfo {
+  correctionNote: string | null;
+  summary: string | null;
+}
+
 export async function analyzeFailure(
   runId: string,
   originalPrompt: string,
   failureContext?: string,
+  previousAttempts?: PreviousAttemptInfo[],
 ): Promise<FailureAnalysis | null> {
   try {
     const fullText = collectRunLogs(runId);
     if (!fullText.trim()) {
-      return { fixable: false, correction: null, reason: "No output captured from the failed run." };
+      return { fixable: false, correction: null, continuationPrompt: null, reason: "No output captured from the failed run." };
     }
 
     const truncated = truncateLogsForAnalysis(fullText);
     const contextSection = failureContext ? `\n\nFailure context:\n${failureContext}` : "";
-    const userMessage = `Original task prompt:\n${originalPrompt}${contextSection}\n\nRun output (failed):\n${truncated}`;
+    const previousSection = buildPreviousAttemptsSection(previousAttempts);
+    const userMessage = `Original task prompt:\n${originalPrompt}${contextSection}${previousSection}\n\nRun output (failed):\n${truncated}`;
 
     const text = await callLlmViaCli({
       model: "classification",
@@ -72,6 +82,7 @@ export async function analyzeFailure(
     return {
       fixable: parsed.fixable,
       correction: parsed.fixable ? (parsed.correction ?? null) : null,
+      continuationPrompt: parsed.fixable ? (parsed.continuationPrompt ?? null) : null,
       reason: parsed.reason,
     };
   } catch (err) {
@@ -79,4 +90,15 @@ export async function analyzeFailure(
     console.error(`[failure-analyzer] failed for run ${runId}: ${message}`);
     return null;
   }
+}
+
+function buildPreviousAttemptsSection(attempts?: PreviousAttemptInfo[]): string {
+  if (!attempts || attempts.length === 0) return "";
+  const lines = attempts.map((a, i) => {
+    const parts: string[] = [];
+    if (a.correctionNote) parts.push(`Correction: ${a.correctionNote}`);
+    if (a.summary) parts.push(`Result: ${a.summary}`);
+    return `Attempt ${i + 1}: ${parts.join(" | ") || "(no details)"}`;
+  });
+  return `\n\nPrevious correction attempts that also failed (build on these — do NOT repeat the same corrections):\n${lines.join("\n")}`;
 }

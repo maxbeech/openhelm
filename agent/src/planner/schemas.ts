@@ -76,9 +76,42 @@ export const FAILURE_ANALYSIS_SCHEMA = {
   properties: {
     fixable: { type: "boolean" },
     correction: { type: ["string", "null"] },
+    continuationPrompt: { type: ["string", "null"] },
     reason: { type: "string" },
   },
   required: ["fixable", "reason"],
+} as const;
+
+export const CORRECTION_EVALUATION_SCHEMA = {
+  type: "object",
+  properties: {
+    action: { type: "string", enum: ["keep", "modify", "remove"] },
+    modifiedNote: { type: ["string", "null"] },
+    reason: { type: "string" },
+  },
+  required: ["action", "reason"],
+} as const;
+
+export const MEMORY_EXTRACTION_SCHEMA = {
+  type: "object",
+  properties: {
+    memories: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["semantic", "episodic", "procedural", "source"] },
+          content: { type: "string" },
+          importance: { type: "number" },
+          tags: { type: "array", items: { type: "string" } },
+          action: { type: "string", enum: ["create", "update", "merge"] },
+          mergeTargetId: { type: ["string", "null"] },
+        },
+        required: ["type", "content", "importance", "tags", "action"],
+      },
+    },
+  },
+  required: ["memories"],
 } as const;
 
 export const PROMPT_ASSESSMENT_SCHEMA = {

@@ -8,9 +8,10 @@ interface InboxState {
   loading: boolean;
   error: string | null;
 
-  fetchItems: () => Promise<void>;
+  fetchItems: (projectId?: string) => Promise<void>;
   fetchOpenCount: (projectId?: string) => Promise<void>;
   resolveItem: (id: string, action: InboxResolveAction, guidance?: string) => Promise<void>;
+  dismissAll: () => Promise<void>;
   addItemToStore: (item: InboxItem) => void;
   updateItemInStore: (item: InboxItem) => void;
 }
@@ -21,10 +22,13 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   loading: false,
   error: null,
 
-  fetchItems: async () => {
+  fetchItems: async (projectId?: string) => {
     set({ loading: true, error: null });
     try {
-      const items = await api.listInboxItems({ status: "open" });
+      const items = await api.listInboxItems({
+        status: "open",
+        ...(projectId && { projectId }),
+      });
       set({ items, loading: false });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err), loading: false });
@@ -51,6 +55,14 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
     }
+  },
+
+  dismissAll: async () => {
+    const { items } = get();
+    await Promise.allSettled(
+      items.map((item) => api.resolveInboxItem({ id: item.id, action: "dismiss" })),
+    );
+    set({ items: [], openCount: 0 });
   },
 
   addItemToStore: (item) => {

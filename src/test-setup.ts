@@ -23,3 +23,11 @@ vi.mock("@/lib/agent-client", () => ({
     isConnected: vi.fn().mockReturnValue(true),
   },
 }));
+
+// Mock Sentry frontend module — prevents real Sentry init in all frontend tests
+vi.mock("@/lib/sentry", () => ({
+  initFrontendSentry: vi.fn(),
+  setAnalyticsEnabled: vi.fn(),
+  captureFrontendError: vi.fn(),
+  addUserBreadcrumb: vi.fn(),
+}));

@@ -91,7 +91,7 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
   return (
     <div className="flex-1 overflow-auto">
       {/* GOALS section header — always sticky at top */}
-      <div className="sticky top-0 z-20 flex items-center gap-1 bg-sidebar px-3 pt-2 pb-1">
+      <div className="sticky top-0 z-20 flex h-[30px] items-center gap-1 bg-sidebar px-3">
         <span className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           Goals
         </span>

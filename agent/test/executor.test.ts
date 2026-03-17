@@ -45,6 +45,13 @@ vi.mock("../src/planner/summarize.js", () => ({
   generateRunSummary: vi.fn().mockResolvedValue(null),
 }));
 
+// Mock Sentry — keep analytics disabled in tests
+vi.mock("../src/sentry.js", () => ({
+  captureAgentError: vi.fn(),
+  addAgentBreadcrumb: vi.fn(),
+  isAnalyticsEnabled: vi.fn(() => false),
+}));
+
 beforeAll(() => {
   cleanup = setupTestDb();
   const project = createProject({
@@ -203,6 +210,54 @@ describe("Executor run lifecycle", () => {
 
     const updated = getRun(run.id);
     expect(updated!.status).toBe("cancelled");
+  });
+
+  it("escalates corrective run failure to permanent_failure with inbox item", async () => {
+    const { emit } = await import("../src/ipc/emitter.js");
+    const mockEmit = vi.mocked(emit);
+    mockEmit.mockClear();
+
+    const job = createJob({
+      projectId,
+      name: "Corrective Fail Job",
+      prompt: "do something",
+      scheduleType: "interval",
+      scheduleConfig: { minutes: 10 },
+    });
+    const parentRun = createRun({ jobId: job.id, triggerSource: "scheduled" });
+    // Simulate: chain of 2 corrective runs (depth=2 hits default max_correction_retries=2)
+    const corrective1 = createRun({
+      jobId: job.id,
+      triggerSource: "corrective",
+      parentRunId: parentRun.id,
+    });
+    const correctiveRun = createRun({
+      jobId: job.id,
+      triggerSource: "corrective",
+      parentRunId: corrective1.id,
+    });
+
+    queue.enqueue({
+      runId: correctiveRun.id,
+      jobId: job.id,
+      priority: 2,
+      enqueuedAt: Date.now(),
+    });
+
+    const executor = new Executor(
+      mockRunner({ exitCode: 1, timedOut: false, killed: false }),
+    );
+    executor.processNext();
+
+    // Wait long enough for async self-correction + triage
+    await new Promise((r) => setTimeout(r, 300));
+
+    const updated = getRun(correctiveRun.id);
+    expect(updated!.status).toBe("permanent_failure");
+
+    // Verify inbox.created was emitted
+    const inboxEmits = mockEmit.mock.calls.filter((c) => c[0] === "inbox.created");
+    expect(inboxEmits).toHaveLength(1);
   });
 
   it("writes log chunks to database during execution", async () => {
@@ -569,8 +624,8 @@ describe("Executor timeout default", () => {
   });
 });
 
-describe("Executor postPrompt + correctionContext prompt building", () => {
-  it("appends postPrompt to effective prompt", async () => {
+describe("Executor correctionNote prompt building", () => {
+  it("appends correctionNote to effective prompt", async () => {
     let capturedPrompt = "";
     const captureRunner = async (config: RunnerConfig) => {
       capturedPrompt = config.prompt;
@@ -580,12 +635,14 @@ describe("Executor postPrompt + correctionContext prompt building", () => {
 
     const job = createJob({
       projectId,
-      name: "PostPrompt Job",
+      name: "CorrectionNote Job",
       prompt: "do the thing",
       scheduleType: "once",
       scheduleConfig: { fireAt: new Date().toISOString() },
-      postPrompt: "Always run tests after changes",
     });
+    // Set correction note directly (not settable at creation)
+    const { updateJobCorrectionNote } = await import("../src/db/queries/jobs.js");
+    updateJobCorrectionNote(job.id, "Always run tests after changes");
     const run = createRun({ jobId: job.id, triggerSource: "manual" });
 
     queue.enqueue({
@@ -603,7 +660,7 @@ describe("Executor postPrompt + correctionContext prompt building", () => {
     expect(capturedPrompt).toContain("Always run tests after changes");
   });
 
-  it("appends both postPrompt and correctionContext", async () => {
+  it("snapshots correctionNote onto the run", async () => {
     let capturedPrompt = "";
     const captureRunner = async (config: RunnerConfig) => {
       capturedPrompt = config.prompt;
@@ -613,24 +670,20 @@ describe("Executor postPrompt + correctionContext prompt building", () => {
 
     const job = createJob({
       projectId,
-      name: "Both Prompts Job",
+      name: "Snapshot Job",
       prompt: "do the thing",
       scheduleType: "once",
       scheduleConfig: { fireAt: new Date().toISOString() },
-      postPrompt: "Always lint",
     });
-    const parentRun = createRun({ jobId: job.id, triggerSource: "scheduled" });
-    const run = createRun({
-      jobId: job.id,
-      triggerSource: "corrective",
-      parentRunId: parentRun.id,
-      correctionContext: "Fix the path to /src/bar.ts",
-    });
+    // Set correction note directly
+    const { updateJobCorrectionNote } = await import("../src/db/queries/jobs.js");
+    updateJobCorrectionNote(job.id, "Check the imports");
+    const run = createRun({ jobId: job.id, triggerSource: "manual" });
 
     queue.enqueue({
       runId: run.id,
       jobId: job.id,
-      priority: 2,
+      priority: 0,
       enqueuedAt: Date.now(),
     });
 
@@ -638,20 +691,160 @@ describe("Executor postPrompt + correctionContext prompt building", () => {
     executor.processNext();
     await new Promise((r) => setTimeout(r, 100));
 
+    // Prompt should contain the correction note
     expect(capturedPrompt).toContain("do the thing");
-    expect(capturedPrompt).toContain("Always lint");
-    expect(capturedPrompt).toContain("Fix the path to /src/bar.ts");
-    // postPrompt should come before correctionContext
-    const postPromptIdx = capturedPrompt.indexOf("Always lint");
-    const correctionIdx = capturedPrompt.indexOf("Fix the path");
-    expect(postPromptIdx).toBeLessThan(correctionIdx);
+    expect(capturedPrompt).toContain("Check the imports");
+    expect(capturedPrompt).toContain("Correction Note");
+
+    // Run should have the snapshot
+    const updated = getRun(run.id);
+    expect(updated!.correctionNote).toBe("Check the imports");
+  });
+});
+
+describe("Executor session resumption", () => {
+  it("passes resumeSessionId to runner for corrective runs with parent sessionId", async () => {
+    let capturedResumeSessionId: string | undefined;
+    let capturedPrompt = "";
+    const captureRunner = async (config: RunnerConfig) => {
+      capturedResumeSessionId = config.resumeSessionId;
+      capturedPrompt = config.prompt;
+      config.onLogChunk("stdout", "done");
+      return { exitCode: 0, timedOut: false, killed: false, sessionId: "new-session" };
+    };
+
+    const job = createJob({
+      projectId,
+      name: "Resume Session Job",
+      prompt: "do the thing",
+      scheduleType: "interval",
+      scheduleConfig: { minutes: 10 },
+    });
+    // Create parent run with a sessionId (must transition queued → running → failed)
+    const parentRun = createRun({ jobId: job.id, triggerSource: "scheduled" });
+    updateRun({ id: parentRun.id, status: "running" });
+    updateRun({ id: parentRun.id, status: "failed", sessionId: "parent-session-abc" });
+
+    // Create corrective run with a continuation prompt as correctionNote
+    const correctiveRun = createRun({
+      jobId: job.id,
+      triggerSource: "corrective",
+      parentRunId: parentRun.id,
+      correctionNote: "The previous attempt failed. Try a different approach.",
+    });
+
+    queue.enqueue({
+      runId: correctiveRun.id,
+      jobId: job.id,
+      priority: 2,
+      enqueuedAt: Date.now(),
+    });
+
+    const executor = new Executor(captureRunner);
+    executor.processNext();
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(capturedResumeSessionId).toBe("parent-session-abc");
+    // Prompt should be the continuation prompt, not the full job prompt
+    expect(capturedPrompt).toBe("The previous attempt failed. Try a different approach.");
+  });
+
+  it("uses fresh path when corrective run's parent has no sessionId", async () => {
+    let capturedResumeSessionId: string | undefined;
+    let capturedPrompt = "";
+    const captureRunner = async (config: RunnerConfig) => {
+      capturedResumeSessionId = config.resumeSessionId;
+      capturedPrompt = config.prompt;
+      config.onLogChunk("stdout", "done");
+      return { exitCode: 0, timedOut: false, killed: false, sessionId: null };
+    };
+
+    const job = createJob({
+      projectId,
+      name: "No Session Parent Job",
+      prompt: "do the thing",
+      scheduleType: "interval",
+      scheduleConfig: { minutes: 10 },
+    });
+    // Parent run WITHOUT sessionId (must transition queued → running → failed)
+    const parentRun = createRun({ jobId: job.id, triggerSource: "scheduled" });
+    updateRun({ id: parentRun.id, status: "running" });
+    updateRun({ id: parentRun.id, status: "failed" }); // No sessionId
+
+    const correctiveRun = createRun({
+      jobId: job.id,
+      triggerSource: "corrective",
+      parentRunId: parentRun.id,
+      correctionNote: "Use /src/bar.ts instead",
+    });
+
+    queue.enqueue({
+      runId: correctiveRun.id,
+      jobId: job.id,
+      priority: 2,
+      enqueuedAt: Date.now(),
+    });
+
+    const executor = new Executor(captureRunner);
+    executor.processNext();
+    await new Promise((r) => setTimeout(r, 150));
+
+    // Should NOT pass resumeSessionId
+    expect(capturedResumeSessionId).toBeUndefined();
+    // Should use full job prompt (fresh path)
+    expect(capturedPrompt).toContain("do the thing");
+  });
+
+  it("skips memory injection for resumed runs", async () => {
+    // This test verifies that the resume path does NOT call retrieveMemories.
+    // The mock runner will capture whether memories were injected via the prompt.
+    let capturedPrompt = "";
+    const captureRunner = async (config: RunnerConfig) => {
+      capturedPrompt = config.prompt;
+      config.onLogChunk("stdout", "done");
+      return { exitCode: 0, timedOut: false, killed: false, sessionId: "sess" };
+    };
+
+    const job = createJob({
+      projectId,
+      name: "No Memory Inject Job",
+      prompt: "do the thing",
+      scheduleType: "interval",
+      scheduleConfig: { minutes: 10 },
+    });
+    const parentRun = createRun({ jobId: job.id, triggerSource: "scheduled" });
+    updateRun({ id: parentRun.id, status: "running" });
+    updateRun({ id: parentRun.id, status: "failed", sessionId: "parent-sess-456" });
+
+    const correctiveRun = createRun({
+      jobId: job.id,
+      triggerSource: "corrective",
+      parentRunId: parentRun.id,
+      correctionNote: "Resume and fix it",
+    });
+
+    queue.enqueue({
+      runId: correctiveRun.id,
+      jobId: job.id,
+      priority: 2,
+      enqueuedAt: Date.now(),
+    });
+
+    const executor = new Executor(captureRunner);
+    executor.processNext();
+    await new Promise((r) => setTimeout(r, 150));
+
+    // Resume path should use only the continuation prompt, no memory section
+    expect(capturedPrompt).toBe("Resume and fix it");
+    expect(capturedPrompt).not.toContain("Relevant Memories");
+    expect(capturedPrompt).not.toContain("Correction Note");
   });
 });
 
 describe("Executor concurrency", () => {
-  it("defaults to max concurrency of 1", () => {
+  it("defaults to max concurrency of 2", () => {
     const executor = new Executor(mockRunner());
-    expect(executor.maxConcurrency).toBe(1);
+    expect(executor.maxConcurrency).toBe(2);
   });
 
   it("respects max_concurrent_runs setting", () => {
@@ -662,10 +855,10 @@ describe("Executor concurrency", () => {
     setSetting("max_concurrent_runs", "1");
   });
 
-  it("clamps concurrency to range [1, 3]", () => {
+  it("clamps concurrency to range [1, 5]", () => {
     setSetting("max_concurrent_runs", "10");
     const executor = new Executor(mockRunner());
-    expect(executor.maxConcurrency).toBe(3);
+    expect(executor.maxConcurrency).toBe(5);
 
     setSetting("max_concurrent_runs", "0");
     expect(executor.maxConcurrency).toBe(1);

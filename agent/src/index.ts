@@ -9,6 +9,7 @@ import { startDevServer } from "./ipc/dev-server.js";
 import { detectClaudeCode } from "./claude-code/detector.js";
 import { scheduler } from "./scheduler/index.js";
 import { executor } from "./executor/index.js";
+import { initAgentSentry, captureAgentError } from "./sentry.js";
 
 // -- Bootstrap --
 
@@ -27,6 +28,13 @@ try {
   deleteSetting("anthropic_api_key" as any);
 } catch {
   // Ignore — key may not exist
+}
+
+// 1c. Initialize Sentry (non-fatal — reads analytics_enabled setting from DB)
+try {
+  initAgentSentry();
+} catch (err) {
+  console.error("[agent] sentry init failed (non-fatal):", err);
 }
 
 // 2. Register all IPC handlers
@@ -94,9 +102,10 @@ scheduler.start();
 // Process any re-enqueued runs from crash recovery
 executor.processNext();
 
-// 8. Fatal error handlers — log and notify frontend before exiting
+// 8. Fatal error handlers — log, report to Sentry, and notify frontend before exiting
 process.on("uncaughtException", (err) => {
   console.error("[agent] uncaught exception:", err);
+  captureAgentError(err, { errorCode: "uncaughtException" });
   try {
     emit("agent.error", {
       type: "uncaughtException",
@@ -111,6 +120,7 @@ process.on("uncaughtException", (err) => {
 
 process.on("unhandledRejection", (reason) => {
   console.error("[agent] unhandled rejection:", reason);
+  captureAgentError(reason, { errorCode: "unhandledRejection" });
   try {
     emit("agent.error", {
       type: "unhandledRejection",
