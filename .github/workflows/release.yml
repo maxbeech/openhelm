@@ -15,6 +15,7 @@ jobs:
     # Both targets build on macos-latest (arm64); x86_64 cross-compiles via Rust.
     # macos-13 (Intel) runners are retired by GitHub.
     strategy:
+      fail-fast: false
       matrix:
         target: [aarch64-apple-darwin, x86_64-apple-darwin]
     runs-on: macos-latest

@@ -37,5 +37,8 @@ Thumbs.db
 element_clones/
 
 
+# TypeScript incremental build info (stale on CI, always rebuild)
+*.tsbuildinfo
+
 # Local Claude config
 CLAUDE.local.md
