@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.3] - 2026-03-18
+
+### Added
+- Chat handler passes working directory to Claude Code so native tools (file read/edit/write) operate in the correct project directory
+- `permissionMode` option added to `PrintConfig` / `buildPrintArgs` for controlling Claude Code permission mode per call
+- Newsletter email setting now syncs to Resend on save via `subscribeToNewsletter`
+- Chat system prompt documents native Claude Code tools (WebSearch, WebFetch, file tools, MCP)
+- `disableTools` and `workingDirectory` options exposed on `LlmCallConfig` for per-call control
+
+### Fixed
+- Chat LLM timeout increased from 2 minutes to 5 minutes to accommodate native tool use (web search, file reads)
+- `disableTools` now defaults to `true` globally but can be overridden per call (chat disables it to allow native tool use)
+
 ## [0.1.2] - 2026-03-18
 
 ### Added
