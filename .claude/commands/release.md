@@ -4,12 +4,23 @@ Automates the full release flow: bump version → commit → tag → CI → upda
 
 ## Usage
 ```
-/release 0.2.0
+/release small    # patch bump:  0.1.0 → 0.1.1
+/release medium   # minor bump:  0.1.0 → 0.2.0
+/release large    # major bump:  0.1.0 → 1.0.0
 ```
 
 ## Steps to execute
 
-**Read the version argument** from the command invocation (e.g. `0.2.0`). If no version is provided, ask the user for one before proceeding.
+**Read the current version** from `src-tauri/tauri.conf.json` (`"version"` field).
+
+**Calculate the new version** based on the argument:
+- `small` → increment the patch digit (third number): `x.y.Z+1`
+- `medium` → increment the minor digit (second number), reset patch to 0: `x.Y+1.0`
+- `large` → increment the major digit (first number), reset minor and patch to 0: `X+1.0.0`
+
+If no argument or an unrecognised argument is given, ask the user: "Please specify the release size: small (patch), medium (minor), or large (major). Current version is x.y.z."
+
+Tell the user the calculated new version and confirm before proceeding: "Releasing v<new_version> — shall I proceed?"
 
 ---
 
