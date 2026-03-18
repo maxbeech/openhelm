@@ -115,8 +115,10 @@ jobs:
             npx @tauri-apps/cli signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" "$TAR"
           fi
           if [ -f "$SIG" ]; then
-            gh release upload "$TAG" "$SIG#OpenHelm_${VER}_${ARCH}.app.tar.gz.sig" \
-              --clobber -R maxbeech/OpenHelm
+            # Copy to a versioned name so GitHub uses it as the download filename
+            DEST="/tmp/OpenHelm_${VER}_${ARCH}.app.tar.gz.sig"
+            cp "$SIG" "$DEST"
+            gh release upload "$TAG" "$DEST" --clobber -R maxbeech/OpenHelm
             echo "Uploaded sig for $ARCH"
           else
             echo "ERROR: sig file still not found at $SIG" && exit 1
