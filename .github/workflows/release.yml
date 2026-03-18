@@ -95,6 +95,24 @@ jobs:
           prerelease: false
           args: --target ${{ matrix.target }}
 
+      - name: Upload updater signature
+        # tauri-action builds the .sig file but skips attaching it to the release.
+        # Upload explicitly with a versioned name so update-manifest can find it.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          VER="${TAG#v}"
+          [[ "$TARGET" == "aarch64-apple-darwin" ]] && ARCH="aarch64" || ARCH="x64"
+          SIG="src-tauri/target/${TARGET}/release/bundle/macos/OpenHelm.app.tar.gz.sig"
+          if [ -f "$SIG" ]; then
+            gh release upload "$TAG" "$SIG#OpenHelm_${VER}_${ARCH}.app.tar.gz.sig" \
+              --clobber -R maxbeech/OpenHelm
+          else
+            echo "ERROR: sig file not found at $SIG" && exit 1
+          fi
+
   update-manifest:
     needs: [build-macos]
     runs-on: ubuntu-latest
@@ -127,11 +145,11 @@ jobs:
             'platforms': {
               'darwin-aarch64': {
                 'signature': sys.argv[2],
-                'url': 'https://github.com/openhelm/openhelm/releases/download/' + sys.argv[4] + '/OpenHelm_' + sys.argv[1] + '_aarch64.app.tar.gz'
+                'url': 'https://github.com/openhelm/openhelm/releases/download/' + sys.argv[4] + '/OpenHelm_aarch64.app.tar.gz'
               },
               'darwin-x86_64': {
                 'signature': sys.argv[3],
-                'url': 'https://github.com/openhelm/openhelm/releases/download/' + sys.argv[4] + '/OpenHelm_' + sys.argv[1] + '_x64.app.tar.gz'
+                'url': 'https://github.com/openhelm/openhelm/releases/download/' + sys.argv[4] + '/OpenHelm_x64.app.tar.gz'
               }
             }
           }
