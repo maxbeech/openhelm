@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2] - 2026-03-18
+
+### Added
+- Auto-updates via Tauri updater plugin integrated with GitHub Releases
+
+### Fixed
+- ESLint v9 flat config (`eslint.config.js`) added for linting compatibility
+
 ## [0.1.1] - 2026-03-18
 
 ### Added
