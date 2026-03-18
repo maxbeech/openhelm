@@ -5,6 +5,7 @@ import { ProjectStep } from "./steps/project-step";
 import { NewsletterStep } from "./steps/newsletter-step";
 import { CompleteStep } from "./steps/complete-step";
 import { Progress } from "@/components/ui/progress";
+import * as api from "@/lib/api";
 
 const STEPS = [
   { id: "welcome", label: "Welcome" },
@@ -25,6 +26,13 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const progress = ((step + 1) / STEPS.length) * 100;
 
   const next = () => setStep((s) => Math.min(s + 1, STEPS.length - 1));
+
+  const handleComplete = (autoUpdate: boolean) => {
+    api
+      .setSetting({ key: "auto_update_enabled", value: String(autoUpdate) })
+      .catch(() => {})
+      .finally(() => onComplete(projectId!));
+  };
 
   return (
     <div className="no-select flex min-h-screen flex-col items-center justify-center bg-background p-8">
@@ -56,9 +64,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           />
         )}
         {step === 3 && <NewsletterStep onNext={next} />}
-        {step === 4 && (
-          <CompleteStep onComplete={() => onComplete(projectId!)} />
-        )}
+        {step === 4 && <CompleteStep onComplete={handleComplete} />}
       </div>
     </div>
   );

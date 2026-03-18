@@ -85,6 +85,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'OpenHelm ${{ github.ref_name }}'
@@ -92,3 +94,51 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}
+
+  update-manifest:
+    needs: [build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Generate and commit latest.json
+        # VERSION and TAG are passed via env to avoid injection via untrusted refs.
+        # All git context (ref_name) flows through env vars, not directly into run: scripts.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          VER="${TAG#v}"
+          gh release download "$TAG" \
+            --pattern "*.app.tar.gz.sig" \
+            --dir /tmp/sigs
+          ARM_SIG=$(cat "/tmp/sigs/OpenHelm_${VER}_aarch64.app.tar.gz.sig")
+          X64_SIG=$(cat "/tmp/sigs/OpenHelm_${VER}_x64.app.tar.gz.sig")
+          python3 -c "
+          import json, sys
+          manifest = {
+            'version': sys.argv[1],
+            'notes': 'See https://github.com/openhelm/openhelm/releases/tag/' + sys.argv[4] + ' for details.',
+            'pub_date': '$(date -u +%Y-%m-%dT%H:%M:%SZ)',
+            'platforms': {
+              'darwin-aarch64': {
+                'signature': sys.argv[2],
+                'url': 'https://github.com/openhelm/openhelm/releases/download/' + sys.argv[4] + '/OpenHelm_' + sys.argv[1] + '_aarch64.app.tar.gz'
+              },
+              'darwin-x86_64': {
+                'signature': sys.argv[3],
+                'url': 'https://github.com/openhelm/openhelm/releases/download/' + sys.argv[4] + '/OpenHelm_' + sys.argv[1] + '_x64.app.tar.gz'
+              }
+            }
+          }
+          print(json.dumps(manifest, indent=2))
+          " "$VER" "$ARM_SIG" "$X64_SIG" "$TAG" > update-manifest/latest.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add update-manifest/latest.json
+          git commit -m "chore: update manifest for $TAG [skip ci]"
+          git push origin main

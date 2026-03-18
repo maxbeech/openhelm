@@ -16,6 +16,7 @@ import { useRunStore } from "./stores/run-store";
 import { useInboxStore } from "./stores/inbox-store";
 import { useMemoryStore } from "./stores/memory-store";
 import { useChatStore } from "./stores/chat-store";
+import { useUpdaterStore } from "./stores/updater-store";
 import { useAgentEvent } from "./hooks/use-agent-event";
 import type { RunStatus, ChatMessage, InboxItem, Memory } from "@openhelm/shared";
 import {
@@ -38,6 +39,7 @@ import { NewProjectDialog } from "./components/shared/new-project-dialog";
 import { EditProjectDialog } from "./components/shared/edit-project-dialog";
 
 export default function App() {
+  const { setShouldCheckUpdates } = useUpdaterStore();
   const {
     contentView,
     selectedGoalId,
@@ -315,9 +317,19 @@ export default function App() {
       } catch {
         // Keep optimistic default (enabled)
       }
+      // Enable auto-update check unless user has explicitly opted out
+      try {
+        const autoUpdate = await api.getSetting("auto_update_enabled");
+        if (autoUpdate?.value !== "false") {
+          setShouldCheckUpdates(true);
+        }
+      } catch {
+        // Default ON
+        setShouldCheckUpdates(true);
+      }
       setInitialLoading(false);
     })();
-  }, [agentReady, fetchProjects, setOnboardingComplete, setActiveProjectId, fetchInboxItems, fetchInboxCount]);
+  }, [agentReady, fetchProjects, setOnboardingComplete, setActiveProjectId, fetchInboxItems, fetchInboxCount, setShouldCheckUpdates]);
 
   // Fetch data when project filter changes (null = All Projects)
   useEffect(() => {

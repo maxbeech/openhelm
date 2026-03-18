@@ -1,7 +1,12 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { CheckCircle2 } from "lucide-react";
 
-export function CompleteStep({ onComplete }: { onComplete: () => void }) {
+export function CompleteStep({ onComplete }: { onComplete: (autoUpdate: boolean) => void }) {
+  const [autoUpdate, setAutoUpdate] = useState(true);
+
   return (
     <div className="flex flex-col items-center text-center">
       <div className="rounded-full bg-success/20 p-3">
@@ -11,7 +16,17 @@ export function CompleteStep({ onComplete }: { onComplete: () => void }) {
       <p className="mt-2 text-sm text-muted-foreground">
         Everything is configured. Create your first goal to get started.
       </p>
-      <Button onClick={onComplete} size="lg" className="mt-8">
+      <div className="mt-6 flex items-center gap-2">
+        <Checkbox
+          id="auto-update"
+          checked={autoUpdate}
+          onCheckedChange={(v) => setAutoUpdate(Boolean(v))}
+        />
+        <Label htmlFor="auto-update" className="text-sm font-normal cursor-pointer">
+          Automatically install updates when available
+        </Label>
+      </div>
+      <Button onClick={() => onComplete(autoUpdate)} size="lg" className="mt-6">
         Create your first goal
       </Button>
     </div>

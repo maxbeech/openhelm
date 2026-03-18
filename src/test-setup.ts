@@ -31,3 +31,11 @@ vi.mock("@/lib/sentry", () => ({
   captureFrontendError: vi.fn(),
   addUserBreadcrumb: vi.fn(),
 }));
+
+vi.mock("@tauri-apps/plugin-updater", () => ({
+  check: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: vi.fn().mockResolvedValue("0.1.1"),
+}));

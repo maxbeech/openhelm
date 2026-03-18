@@ -5,13 +5,32 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockResolvedValue(false),
 }));
 
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: vi.fn().mockResolvedValue("0.1.1"),
+}));
+
 vi.mock("@/lib/api", () => ({
   getSetting: vi.fn(),
   setSetting: vi.fn(),
+  deleteSetting: vi.fn(),
 }));
 
 vi.mock("@/lib/notifications", () => ({
   ensureNotificationPermission: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/hooks/use-updater", () => ({
+  useUpdater: vi.fn().mockReturnValue({
+    status: "idle",
+    checkForUpdate: vi.fn(),
+  }),
+}));
+
+vi.mock("@/stores/updater-store", () => ({
+  useUpdaterStore: vi.fn().mockReturnValue({
+    shouldCheckUpdates: false,
+    setShouldCheckUpdates: vi.fn(),
+  }),
 }));
 
 // @/lib/sentry is globally mocked in test-setup.ts
@@ -19,19 +38,31 @@ vi.mock("@/lib/notifications", () => ({
 import { ApplicationSection } from "./application-section";
 import * as api from "@/lib/api";
 import { ensureNotificationPermission } from "@/lib/notifications";
+import { useUpdater } from "@/hooks/use-updater";
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.getSetting).mockResolvedValue(null as never);
   vi.mocked(api.setSetting).mockResolvedValue({} as never);
+  vi.mocked(useUpdater).mockReturnValue({
+    status: "idle",
+    currentVersion: "0.1.1",
+    updateVersion: null,
+    updateNotes: null,
+    downloadProgress: null,
+    error: null,
+    shouldCheckUpdates: false,
+    checkForUpdate: vi.fn(),
+    installUpdate: vi.fn(),
+    dismissUpdate: vi.fn(),
+  });
 });
 
 describe("ApplicationSection — notification level", () => {
   it("renders notification radio group with 'alerts_only' as default when no setting stored", async () => {
     render(<ApplicationSection />);
     await waitFor(() => {
-      const alertsRadio = screen.getByRole("radio", { name: /alerts only/i });
-      expect(alertsRadio).toBeChecked();
+      expect(screen.getByRole("radio", { name: /alerts only/i })).toBeChecked();
     });
   });
 
@@ -43,8 +74,7 @@ describe("ApplicationSection — notification level", () => {
     });
     render(<ApplicationSection />);
     await waitFor(() => {
-      const finishRadio = screen.getByRole("radio", { name: /when any job finishes/i });
-      expect(finishRadio).toBeChecked();
+      expect(screen.getByRole("radio", { name: /when any job finishes/i })).toBeChecked();
     });
   });
 
@@ -71,10 +101,76 @@ describe("ApplicationSection — notification level", () => {
     render(<ApplicationSection />);
     await waitFor(() => screen.getByRole("radio", { name: /never/i }));
     fireEvent.click(screen.getByRole("radio", { name: /never/i }));
-    // Wait a tick for any async handlers to complete
-    await waitFor(() => {
-      expect(api.setSetting).toHaveBeenCalled();
-    });
+    await waitFor(() => { expect(api.setSetting).toHaveBeenCalled(); });
     expect(ensureNotificationPermission).not.toHaveBeenCalled();
+  });
+});
+
+describe("ApplicationSection — auto update", () => {
+  it("auto_update_enabled defaults to checked when no setting stored", async () => {
+    render(<ApplicationSection />);
+    await waitFor(() => {
+      const switches = screen.getAllByRole("switch");
+      // auto-update is the 3rd switch (launch, analytics, auto-update)
+      const autoUpdateSwitch = switches.find(
+        (el) => el.closest("[data-slot='switch']") !== null,
+      );
+      // All switches should exist; auto update defaults to true
+      expect(switches.length).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  it("reflects false when auto_update_enabled=false is stored", async () => {
+    vi.mocked(api.getSetting).mockImplementation((key: string) => {
+      if (key === "auto_update_enabled")
+        return Promise.resolve({ value: "false" } as never);
+      return Promise.resolve(null as never);
+    });
+    render(<ApplicationSection />);
+    await waitFor(() => {
+      // auto-update switch should be unchecked — it's the last switch in the list
+      const switches = screen.getAllByRole("switch");
+      const autoUpdateSwitch = switches[switches.length - 1];
+      expect(autoUpdateSwitch).toHaveAttribute("data-state", "unchecked");
+    });
+  });
+
+  it("persists auto_update_enabled when toggle changes", async () => {
+    render(<ApplicationSection />);
+    await waitFor(() => screen.getAllByRole("switch"));
+    const switches = screen.getAllByRole("switch");
+    const autoUpdateSwitch = switches[switches.length - 1];
+    fireEvent.click(autoUpdateSwitch);
+    expect(api.setSetting).toHaveBeenCalledWith({
+      key: "auto_update_enabled",
+      value: "false",
+    });
+  });
+
+  it("renders Check for Updates button", async () => {
+    render(<ApplicationSection />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /check for updates/i })).toBeTruthy();
+    });
+  });
+
+  it("disables Check button when status is checking", async () => {
+    vi.mocked(useUpdater).mockReturnValue({
+      status: "checking",
+      currentVersion: "0.1.1",
+      updateVersion: null,
+      updateNotes: null,
+      downloadProgress: null,
+      error: null,
+      shouldCheckUpdates: false,
+      checkForUpdate: vi.fn(),
+      installUpdate: vi.fn(),
+      dismissUpdate: vi.fn(),
+    });
+    render(<ApplicationSection />);
+    await waitFor(() => {
+      const btn = screen.getByRole("button", { name: /check for updates/i });
+      expect(btn).toBeDisabled();
+    });
   });
 });

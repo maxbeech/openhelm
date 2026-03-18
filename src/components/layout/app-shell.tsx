@@ -1,9 +1,13 @@
+import { useEffect } from "react";
 import { MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sidebar } from "./sidebar";
 import { ChatPanel } from "@/components/chat/chat-panel";
+import { UpdateBanner } from "@/components/shared/update-banner";
 import { useChatStore } from "@/stores/chat-store";
 import { useAppStore } from "@/stores/app-store";
+import { useUpdaterStore } from "@/stores/updater-store";
+import { useUpdater } from "@/hooks/use-updater";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 interface AppShellProps {
@@ -23,6 +27,26 @@ export function AppShell({
 }: AppShellProps) {
   const { panelOpen, togglePanel } = useChatStore();
   const { activeProjectId } = useAppStore();
+  const { shouldCheckUpdates } = useUpdaterStore();
+  const {
+    status,
+    updateVersion,
+    downloadProgress,
+    error,
+    checkForUpdate,
+    installUpdate,
+    dismissUpdate,
+  } = useUpdater();
+
+  // Trigger check once when the app signals it's ready
+  useEffect(() => {
+    if (shouldCheckUpdates) {
+      void checkForUpdate();
+    }
+  }, [shouldCheckUpdates, checkForUpdate]);
+
+  const showBanner =
+    status !== "idle" && status !== "not-available" && status !== "checking";
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -32,8 +56,19 @@ export function AppShell({
         <div
           data-tauri-drag-region
           onMouseDown={() => { getCurrentWindow().startDragging(); }}
-          className="flex h-12 shrink-0 items-center justify-end border-b border-border px-3"
+          className="flex h-12 shrink-0 items-center justify-end gap-2 border-b border-border px-3"
         >
+          {showBanner && (
+            <UpdateBanner
+              status={status}
+              updateVersion={updateVersion}
+              downloadProgress={downloadProgress}
+              error={error}
+              onInstall={installUpdate}
+              onDismiss={dismissUpdate}
+              onRetry={checkForUpdate}
+            />
+          )}
           {!panelOpen && (
             <Button
               variant="outline"

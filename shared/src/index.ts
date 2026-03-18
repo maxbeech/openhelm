@@ -191,7 +191,8 @@ export type SettingKey =
   | "max_correction_retries"
   | "analytics_enabled"
   | "wake_schedule_enabled"
-  | "newsletter_email";
+  | "newsletter_email"
+  | "auto_update_enabled";
 
 export interface Setting {
   key: SettingKey;

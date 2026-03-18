@@ -1,40 +1,43 @@
 import { useEffect, useState } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Loader2 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import * as api from "@/lib/api";
 import { setAnalyticsEnabled } from "@/lib/sentry";
 import { ensureNotificationPermission } from "@/lib/notifications";
+import { useUpdater } from "@/hooks/use-updater";
+import { useUpdaterStore } from "@/stores/updater-store";
+import { NewsletterSection } from "./newsletter-section";
 import type { NotificationLevel } from "@openhelm/shared";
 
 export function ApplicationSection() {
+  const [appVersion, setAppVersion] = useState<string>("…");
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [launchLoading, setLaunchLoading] = useState(true);
   const [analyticsEnabled, setAnalyticsEnabledState] = useState(true);
   const [notifLevel, setNotifLevel] = useState<NotificationLevel>("alerts_only");
-  const [newsletterEmail, setNewsletterEmail] = useState("");
-  const [emailInput, setEmailInput] = useState("");
-  const [emailEditing, setEmailEditing] = useState(false);
-  const [emailError, setEmailError] = useState<string | null>(null);
-  const [emailSaving, setEmailSaving] = useState(false);
+  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
+
+  const { setShouldCheckUpdates } = useUpdaterStore();
+  const { status, checkForUpdate } = useUpdater();
 
   useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => {});
+
     invoke<boolean>("plugin:autostart|is_enabled")
       .then(setLaunchAtLogin)
       .catch(() => setLaunchAtLogin(false))
       .finally(() => setLaunchLoading(false));
 
-    api
-      .getSetting("analytics_enabled")
+    api.getSetting("analytics_enabled")
       .then((s) => setAnalyticsEnabledState(s?.value !== "false"))
       .catch(() => {});
 
-    api
-      .getSetting("notification_level")
+    api.getSetting("notification_level")
       .then((s) => {
         const v = s?.value;
         if (v === "never" || v === "on_finish" || v === "alerts_only") {
@@ -43,21 +46,14 @@ export function ApplicationSection() {
       })
       .catch(() => {});
 
-    api
-      .getSetting("newsletter_email")
-      .then((s) => {
-        if (s?.value) setNewsletterEmail(s.value);
-      })
+    api.getSetting("auto_update_enabled")
+      .then((s) => setAutoUpdateEnabled(s?.value !== "false"))
       .catch(() => {});
   }, []);
 
   const toggleLaunchAtLogin = async (enabled: boolean) => {
     try {
-      if (enabled) {
-        await invoke("plugin:autostart|enable");
-      } else {
-        await invoke("plugin:autostart|disable");
-      }
+      await invoke(enabled ? "plugin:autostart|enable" : "plugin:autostart|disable");
       setLaunchAtLogin(enabled);
     } catch (err) {
       console.error("Failed to toggle launch at login:", err);
@@ -67,9 +63,7 @@ export function ApplicationSection() {
   const toggleAnalytics = (checked: boolean) => {
     setAnalyticsEnabledState(checked);
     setAnalyticsEnabled(checked);
-    api
-      .setSetting({ key: "analytics_enabled", value: String(checked) })
-      .catch(() => {});
+    api.setSetting({ key: "analytics_enabled", value: String(checked) }).catch(() => {});
   };
 
   const changeNotifLevel = async (value: string) => {
@@ -81,48 +75,19 @@ export function ApplicationSection() {
     }
   };
 
-  const isValidEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
-
-  const saveNewsletterEmail = async () => {
-    if (!isValidEmail(emailInput.trim())) {
-      setEmailError("Please enter a valid email address.");
-      return;
-    }
-    setEmailSaving(true);
-    setEmailError(null);
-    try {
-      await api.setSetting({ key: "newsletter_email", value: emailInput.trim() });
-      setNewsletterEmail(emailInput.trim());
-      setEmailEditing(false);
-    } catch {
-      setEmailError("Failed to save — please try again.");
-    } finally {
-      setEmailSaving(false);
-    }
+  const toggleAutoUpdate = (checked: boolean) => {
+    setAutoUpdateEnabled(checked);
+    setShouldCheckUpdates(checked);
+    api.setSetting({ key: "auto_update_enabled", value: String(checked) }).catch(() => {});
   };
 
-  const removeNewsletterEmail = async () => {
-    try {
-      await api.deleteSetting("newsletter_email");
-      setNewsletterEmail("");
-      setEmailInput("");
-      setEmailEditing(false);
-    } catch {
-      // Silently ignore — worst case email remains stored locally
-    }
-  };
-
-  const startEditing = () => {
-    setEmailInput(newsletterEmail);
-    setEmailError(null);
-    setEmailEditing(true);
-  };
+  const handleCheckNow = () => { void checkForUpdate(); };
 
   return (
     <div>
       <h3 className="mb-3 font-medium">Application</h3>
       <div className="space-y-4 text-sm text-muted-foreground">
-        <p>Version: 0.1.0</p>
+        <p>Version: {appVersion}</p>
         <div className="flex items-center justify-between">
           <div>
             <Label className="text-sm text-foreground">Launch at login</Label>
@@ -130,17 +95,11 @@ export function ApplicationSection() {
               Start OpenHelm automatically when you log in.
             </p>
           </div>
-          <Switch
-            checked={launchAtLogin}
-            onCheckedChange={toggleLaunchAtLogin}
-            disabled={launchLoading}
-          />
+          <Switch checked={launchAtLogin} onCheckedChange={toggleLaunchAtLogin} disabled={launchLoading} />
         </div>
         <div className="flex items-center justify-between gap-4">
           <div>
-            <Label className="text-sm text-foreground">
-              Share anonymous error reports
-            </Label>
+            <Label className="text-sm text-foreground">Share anonymous error reports</Label>
             <p className="text-xs text-muted-foreground">
               Send crash reports to help improve OpenHelm. No code,
               prompts, or file paths included.
@@ -153,11 +112,7 @@ export function ApplicationSection() {
           <p className="mb-2 text-xs text-muted-foreground">
             Choose when to receive native notifications.
           </p>
-          <RadioGroup
-            value={notifLevel}
-            onValueChange={changeNotifLevel}
-            className="space-y-1"
-          >
+          <RadioGroup value={notifLevel} onValueChange={changeNotifLevel} className="space-y-1">
             <div className="flex items-center gap-2">
               <RadioGroupItem value="alerts_only" id="notif-alerts" />
               <Label htmlFor="notif-alerts" className="text-sm font-normal cursor-pointer">
@@ -178,75 +133,28 @@ export function ApplicationSection() {
             </div>
           </RadioGroup>
         </div>
-        <div>
-          <Label className="text-sm text-foreground">Newsletter</Label>
-          <p className="mb-2 text-xs text-muted-foreground">
-            Receive occasional updates on new features and releases.
-          </p>
-          {newsletterEmail && !emailEditing ? (
-            <div className="flex items-center gap-2">
-              <span className="text-sm">{newsletterEmail}</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-auto px-2 py-0.5 text-xs"
-                onClick={startEditing}
-              >
-                Change
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-auto px-2 py-0.5 text-xs text-destructive hover:text-destructive"
-                onClick={removeNewsletterEmail}
-              >
-                Remove
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <div className="flex gap-2">
-                <Input
-                  type="email"
-                  placeholder="you@example.com"
-                  value={emailInput}
-                  onChange={(e) => {
-                    setEmailInput(e.target.value);
-                    setEmailError(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") saveNewsletterEmail();
-                    if (e.key === "Escape" && emailEditing) setEmailEditing(false);
-                  }}
-                  disabled={emailSaving}
-                  className="h-8 text-sm"
-                />
-                <Button
-                  size="sm"
-                  className="h-8"
-                  onClick={saveNewsletterEmail}
-                  disabled={emailSaving || emailInput.trim() === ""}
-                >
-                  {emailSaving ? "Saving…" : "Subscribe"}
-                </Button>
-                {emailEditing && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8"
-                    onClick={() => setEmailEditing(false)}
-                    disabled={emailSaving}
-                  >
-                    Cancel
-                  </Button>
-                )}
-              </div>
-              {emailError && (
-                <p className="text-xs text-destructive">{emailError}</p>
-              )}
-            </div>
-          )}
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <Label className="text-sm text-foreground">Automatically install updates</Label>
+            <p className="text-xs text-muted-foreground">
+              Check for and install new versions when available.
+            </p>
+          </div>
+          <Switch checked={autoUpdateEnabled} onCheckedChange={toggleAutoUpdate} />
         </div>
+        <div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={handleCheckNow}
+            disabled={status === "checking"}
+          >
+            {status === "checking" && <Loader2 className="mr-2 size-3 animate-spin" />}
+            Check for Updates
+          </Button>
+        </div>
+        <NewsletterSection />
         <div className="flex gap-4">
           <a
             href="https://openhelm.ai"
