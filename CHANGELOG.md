@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.6] - 2026-03-19
+
+### Fixed
+- Build pipeline fixes and stability improvements
+
 ## [0.1.5] - 2026-03-19
 
 ### Fixed
