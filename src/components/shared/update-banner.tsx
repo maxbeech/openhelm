@@ -21,7 +21,7 @@ export function UpdateBanner({
   onDismiss,
   onRetry,
 }: UpdateBannerProps) {
-  if (status === "idle" || status === "not-available" || status === "checking") {
+  if (status === "idle" || status === "not-available") {
     return null;
   }
 
@@ -75,6 +75,9 @@ export function UpdateBanner({
             Relaunch Now
           </Button>
         </>
+      )}
+      {status === "checking" && (
+        <span className="text-muted-foreground">Checking for updates…</span>
       )}
       {status === "error" && (
         <>

@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Sidebar } from "./sidebar";
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { UpdateBanner } from "@/components/shared/update-banner";
+import { LicenseBanner, shouldShowLicenseBanner } from "@/components/shared/license-banner";
+import { useLicense } from "@/hooks/use-license";
 import { useChatStore } from "@/stores/chat-store";
 import { useAppStore } from "@/stores/app-store";
 import { useUpdaterStore } from "@/stores/updater-store";
@@ -28,6 +30,7 @@ export function AppShell({
   const { panelOpen, togglePanel } = useChatStore();
   const { activeProjectId } = useAppStore();
   const { shouldCheckUpdates } = useUpdaterStore();
+  const { licenseStatus } = useLicense();
   const {
     status,
     updateVersion,
@@ -46,7 +49,7 @@ export function AppShell({
   }, [shouldCheckUpdates, checkForUpdate]);
 
   const showBanner =
-    status !== "idle" && status !== "not-available" && status !== "checking";
+    status !== "idle" && status !== "not-available";
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -58,6 +61,9 @@ export function AppShell({
           onMouseDown={() => { getCurrentWindow().startDragging(); }}
           className="flex h-12 shrink-0 items-center justify-end gap-2 border-b border-border px-3"
         >
+          {licenseStatus && shouldShowLicenseBanner(licenseStatus) && (
+            <LicenseBanner licenseStatus={licenseStatus} />
+          )}
           {showBanner && (
             <UpdateBanner
               status={status}

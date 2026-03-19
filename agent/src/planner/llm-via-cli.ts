@@ -19,6 +19,12 @@ export interface LlmCallConfig {
   timeoutMs?: number;
   jsonSchema?: object;
   onProgress?: (chunk: string) => void;
+  /** Whether to pass --tools "" to disable tool use (default: true) */
+  disableTools?: boolean;
+  /** Working directory for the Claude Code process (defaults to os.tmpdir()) */
+  workingDirectory?: string;
+  /** Permission mode for Claude Code (e.g. "plan", "bypassPermissions") */
+  permissionMode?: string;
 }
 
 const MODEL_MAP: Record<ModelTier, string> = {
@@ -31,7 +37,7 @@ const MODEL_MAP: Record<ModelTier, string> = {
 const TIMEOUT_MAP: Record<ModelTier, number> = {
   planning: 180_000,      // 3 minutes — sonnet plan generation can take 60-90s
   classification: 60_000, // 1 minute — haiku assess/summarise is fast but allow headroom
-  chat: 120_000,          // 2 minutes — sonnet for interactive chat (needs structured output)
+  chat: 300_000,          // 5 minutes — native tool use (web search, file read) takes longer
 };
 
 /**
@@ -53,7 +59,9 @@ export async function callLlmViaCli(config: LlmCallConfig): Promise<string> {
     prompt: config.userMessage,
     systemPrompt: config.systemPrompt,
     model,
-    disableTools: true,
+    disableTools: config.disableTools ?? true,
+    workingDirectory: config.workingDirectory,
+    permissionMode: config.permissionMode,
     timeoutMs,
     jsonSchema: config.jsonSchema,
     effort: config.effort,

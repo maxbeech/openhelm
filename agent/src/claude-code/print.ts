@@ -31,6 +31,8 @@ export interface PrintConfig {
   effort?: "low" | "medium" | "high";
   /** Optional callback fired per stdout line as it arrives */
   onProgress?: (chunk: string) => void;
+  /** Permission mode passed via --permission-mode (e.g. "default", "acceptEdits") */
+  permissionMode?: string;
 }
 
 export interface PrintResult {
@@ -155,6 +157,11 @@ function buildPrintArgs(config: PrintConfig): string[] {
   // Disable tools (default: true for pure generation calls)
   if (config.disableTools !== false) {
     args.push("--tools", "");
+  }
+
+  // Permission mode
+  if (config.permissionMode) {
+    args.push("--permission-mode", config.permissionMode);
   }
 
   // Effort level

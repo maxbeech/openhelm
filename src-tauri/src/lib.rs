@@ -3,6 +3,63 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandChild;
 
+/// Build an extended PATH string that prepends common Node.js install locations.
+/// macOS GUI apps inherit a minimal PATH (/usr/bin:/bin:...) that may not include
+/// Homebrew (/opt/homebrew/bin) or NVM paths. Prepending them ensures the sidecar's
+/// #!/usr/bin/env node shebang can find node on most developer machines.
+///
+/// In debug builds (tauri dev) the terminal already supplies the correct PATH, so we
+/// return it unchanged. Overriding it can cause the sidecar to run with a different
+/// Node.js version than the one used to compile native addons (e.g. better-sqlite3),
+/// producing NODE_MODULE_VERSION mismatches.
+fn build_node_path() -> String {
+    let current = std::env::var("PATH").unwrap_or_default();
+
+    // Dev mode: inherit terminal PATH as-is so native addons and the sidecar's node
+    // are guaranteed to match.
+    #[cfg(debug_assertions)]
+    return current;
+
+    // Release mode: macOS .app bundles have a minimal PATH — prepend known locations.
+    #[cfg(not(debug_assertions))]
+    {
+        let mut extra: Vec<String> = vec![
+            "/opt/homebrew/bin".into(),  // Homebrew (Apple Silicon)
+            "/usr/local/bin".into(),     // Homebrew (Intel) / official .pkg installer
+        ];
+
+        // NVM: check for the highest installed version under ~/.nvm
+        if let Ok(home) = std::env::var("HOME") {
+            let nvm_base = format!("{}/.nvm/versions/node", home);
+            if let Ok(entries) = std::fs::read_dir(&nvm_base) {
+                let mut versions: Vec<String> = entries
+                    .filter_map(|e| e.ok())
+                    .filter_map(|e| e.file_name().into_string().ok())
+                    .collect();
+                versions.sort();
+                if let Some(latest) = versions.last() {
+                    extra.insert(0, format!("{}/{}/bin", nvm_base, latest));
+                }
+            }
+
+            // fnm (Fast Node Manager)
+            let fnm_base = format!("{}/.local/share/fnm/node-versions", home);
+            if let Ok(entries) = std::fs::read_dir(&fnm_base) {
+                let mut versions: Vec<String> = entries
+                    .filter_map(|e| e.ok())
+                    .filter_map(|e| e.file_name().into_string().ok())
+                    .collect();
+                versions.sort();
+                if let Some(latest) = versions.last() {
+                    extra.insert(0, format!("{}/{}/installation/bin", fnm_base, latest));
+                }
+            }
+        }
+
+        format!("{}:{}", extra.join(":"), current)
+    }
+}
+
 struct SidecarChild(Mutex<Option<CommandChild>>);
 
 #[tauri::command]
@@ -67,10 +124,27 @@ pub fn run() {
             .traffic_light_position(tauri::LogicalPosition::new(16.0_f64, 24.0_f64))
             .build()?;
 
+            // Resolve the bundled-node-modules resource directory so that
+            // better-sqlite3 (and its bindings helper) can be found at runtime.
+            // In production the path is inside Contents/Resources/; in dev it
+            // falls back to an empty string (workspace node_modules are found
+            // via normal directory traversal instead).
+            let node_path_env = app
+                .path()
+                .resource_dir()
+                .map(|dir| {
+                    dir.join("bundled-node-modules")
+                        .to_string_lossy()
+                        .to_string()
+                })
+                .unwrap_or_default();
+
             let shell = app.shell();
             let (mut rx, child) = shell
                 .sidecar("agent")
                 .expect("failed to create sidecar command")
+                .env("PATH", build_node_path())
+                .env("NODE_PATH", node_path_env)
                 .spawn()
                 .expect("failed to spawn sidecar");
 

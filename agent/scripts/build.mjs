@@ -1,5 +1,5 @@
 import { build, context } from "esbuild";
-import { copyFileSync, chmodSync, existsSync } from "fs";
+import { copyFileSync, chmodSync, existsSync, cpSync, mkdirSync } from "fs";
 import { execFileSync } from "child_process";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -40,6 +40,38 @@ function copySidecarBinaries() {
   console.error("[agent] copied to src-tauri/binaries/");
 }
 
+/**
+ * Copy native modules required at runtime into src-tauri/bundled-node-modules/
+ * so they can be included as Tauri resources and found via NODE_PATH in production.
+ *
+ * better-sqlite3 is the only startup-blocking dependency: it's marked `external`
+ * in esbuild but is `require()`d at agent boot via `createRequire(import.meta.url)`.
+ * In development the workspace node_modules is found by directory traversal; in a
+ * production .app bundle there is no such traversal, so we must ship the package.
+ */
+function copyNativeModules() {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  // Workspace root node_modules (packages are hoisted here by npm workspaces)
+  const rootNodeModules = resolve(__dirname, "..", "..", "node_modules");
+  const destDir = resolve(__dirname, "..", "..", "src-tauri", "bundled-node-modules");
+
+  // Packages needed at runtime by better-sqlite3
+  const packages = ["better-sqlite3", "bindings", "file-uri-to-path"];
+
+  for (const pkg of packages) {
+    const src = resolve(rootNodeModules, pkg);
+    const dest = resolve(destDir, pkg);
+    if (!existsSync(src)) {
+      console.error(`[agent] WARNING: ${pkg} not found at ${src} — skipping`);
+      continue;
+    }
+    mkdirSync(dest, { recursive: true });
+    cpSync(src, dest, { recursive: true });
+    console.error(`[agent] bundled native module: ${pkg}`);
+  }
+  console.error("[agent] native modules copied to src-tauri/bundled-node-modules/");
+}
+
 if (isWatch) {
   const ctx = await context(options);
   await ctx.watch();
@@ -47,6 +79,7 @@ if (isWatch) {
 } else {
   await build(options);
   copySidecarBinaries();
+  copyNativeModules();
 
   // Upload source maps to Sentry (only in CI/release with auth token present)
   if (process.env.SENTRY_AUTH_TOKEN) {

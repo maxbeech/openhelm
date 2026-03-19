@@ -11,6 +11,7 @@ import { scheduler } from "./scheduler/index.js";
 import { executor } from "./executor/index.js";
 import { initAgentSentry, captureAgentError } from "./sentry.js";
 import { initPowerManagement, shutdownPowerManagement } from "./power/index.js";
+import { startPeriodicVerifier, stopPeriodicVerifier } from "./license/periodic-verifier.js";
 
 // -- Bootstrap --
 
@@ -73,6 +74,7 @@ rl.on("close", () => {
   console.error("[agent] stdin closed, shutting down");
   scheduler.stop();
   executor.stopAll();
+  stopPeriodicVerifier();
   shutdownPowerManagement().finally(() => process.exit(0));
 });
 
@@ -104,6 +106,13 @@ scheduler.start();
 initPowerManagement().catch((err) =>
   console.error("[agent] power management init failed (non-fatal):", err),
 );
+
+// 7c. Start periodic license verifier (non-blocking, non-fatal)
+try {
+  startPeriodicVerifier();
+} catch (err) {
+  console.error("[agent] license verifier init failed (non-fatal):", err);
+}
 
 // Process any re-enqueued runs from crash recovery
 executor.processNext();

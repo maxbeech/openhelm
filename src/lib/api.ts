@@ -43,6 +43,16 @@ import type {
   RejectAllChatActionsParams,
   ListChatMessagesParams,
   ClearChatParams,
+  LicenseStatus,
+  RequestEmailVerificationParams,
+  EmailVerificationResult,
+  CheckEmailVerificationParams,
+  EmailVerificationStatus,
+  CreateCheckoutSessionParams,
+  CheckoutSessionResult,
+  PollCheckoutSessionParams,
+  PollCheckoutSessionResult,
+  CustomerPortalResult,
 } from "@openhelm/shared";
 
 // ─── Projects ───
@@ -380,4 +390,56 @@ export function getPowerStatus(): Promise<{
   sleepGuardActive: boolean;
 }> {
   return agentClient.request("power.status");
+}
+
+// ─── License ───
+
+export function getLicenseStatus(): Promise<LicenseStatus> {
+  return agentClient.request<LicenseStatus>("license.getStatus");
+}
+
+export function requestEmailVerification(
+  params: RequestEmailVerificationParams,
+): Promise<EmailVerificationResult> {
+  return agentClient.request<EmailVerificationResult>(
+    "license.requestEmailVerification",
+    params,
+  );
+}
+
+export function checkEmailVerification(
+  params: CheckEmailVerificationParams,
+): Promise<EmailVerificationStatus> {
+  return agentClient.request<EmailVerificationStatus>(
+    "license.checkEmailVerification",
+    params,
+  );
+}
+
+export function createCheckoutSession(
+  params: CreateCheckoutSessionParams,
+): Promise<CheckoutSessionResult> {
+  return agentClient.request<CheckoutSessionResult>(
+    "license.createCheckoutSession",
+    params,
+  );
+}
+
+export function pollCheckoutSession(
+  params: PollCheckoutSessionParams,
+): Promise<PollCheckoutSessionResult> {
+  return agentClient.request<PollCheckoutSessionResult>(
+    "license.pollCheckoutSession",
+    params,
+  );
+}
+
+export function createPortalSession(): Promise<CustomerPortalResult> {
+  return agentClient.request<CustomerPortalResult>(
+    "license.createPortalSession",
+  );
+}
+
+export function verifyLicense(): Promise<LicenseStatus> {
+  return agentClient.request<LicenseStatus>("license.verify");
 }

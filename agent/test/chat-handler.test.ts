@@ -49,6 +49,38 @@ beforeEach(() => {
   // Clear conversation between tests by creating a fresh project per test where needed
 });
 
+describe("handleChatMessage — native tool wiring", () => {
+  it("passes disableTools: false to callLlmViaCli", async () => {
+    callLlmViaCliMock.mockResolvedValueOnce("Done.");
+
+    await handleChatMessage(projectId, "Search the web");
+
+    expect(callLlmViaCliMock).toHaveBeenCalledWith(
+      expect.objectContaining({ disableTools: false }),
+    );
+  });
+
+  it("passes the project directoryPath as workingDirectory", async () => {
+    callLlmViaCliMock.mockResolvedValueOnce("Done.");
+
+    await handleChatMessage(projectId, "Read a file");
+
+    expect(callLlmViaCliMock).toHaveBeenCalledWith(
+      expect.objectContaining({ workingDirectory: "/tmp/chat-handler" }),
+    );
+  });
+
+  it("passes permissionMode 'plan' for read-only native tool access", async () => {
+    callLlmViaCliMock.mockResolvedValueOnce("Done.");
+
+    await handleChatMessage(projectId, "Search something");
+
+    expect(callLlmViaCliMock).toHaveBeenCalledWith(
+      expect.objectContaining({ permissionMode: "plan" }),
+    );
+  });
+});
+
 describe("handleChatMessage — plain text response", () => {
   it("stores user and assistant messages and returns both", async () => {
     callLlmViaCliMock.mockResolvedValueOnce("Here is some helpful info.");

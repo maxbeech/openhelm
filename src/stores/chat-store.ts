@@ -19,6 +19,14 @@ export const CHAT_EFFORTS = [
 
 export type ChatEffortValue = typeof CHAT_EFFORTS[number]["value"];
 
+export const CHAT_PERMISSION_MODES = [
+  { value: "plan", label: "Read-only", description: "Web search, file read" },
+  { value: "auto", label: "Auto", description: "Claude decides" },
+  { value: "bypassPermissions", label: "Full access", description: "All tools allowed" },
+] as const;
+
+export type ChatPermissionModeValue = typeof CHAT_PERMISSION_MODES[number]["value"];
+
 interface ChatState {
   messages: ChatMessage[];
   loading: boolean;
@@ -28,6 +36,7 @@ interface ChatState {
   statusText: string | null;
   chatModel: ChatModelValue;
   chatEffort: ChatEffortValue;
+  chatPermissionMode: ChatPermissionModeValue;
 
   togglePanel: () => void;
   openPanel: () => void;
@@ -35,6 +44,7 @@ interface ChatState {
   setStatusText: (text: string | null) => void;
   setChatModel: (model: ChatModelValue) => void;
   setChatEffort: (effort: ChatEffortValue) => void;
+  setChatPermissionMode: (mode: ChatPermissionModeValue) => void;
   fetchMessages: (projectId: string) => Promise<void>;
   sendMessage: (projectId: string, content: string, context?: ChatContext) => Promise<void>;
   approveAction: (messageId: string, callId: string, projectId: string) => Promise<void>;
@@ -55,6 +65,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   statusText: null,
   chatModel: "sonnet",
   chatEffort: "medium",
+  chatPermissionMode: "plan",
 
   togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
   openPanel: () => set({ panelOpen: true }),
@@ -62,6 +73,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setStatusText: (text) => set({ statusText: text }),
   setChatModel: (model) => set({ chatModel: model }),
   setChatEffort: (effort) => set({ chatEffort: effort }),
+  setChatPermissionMode: (mode) => set({ chatPermissionMode: mode }),
 
   fetchMessages: async (projectId) => {
     set({ loading: true, error: null });
@@ -75,10 +87,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   sendMessage: async (projectId, content, context) => {
     set({ sending: true, error: null });
-    const { chatModel, chatEffort } = get();
+    const { chatModel, chatEffort, chatPermissionMode } = get();
     try {
       // Optimistically add user message (agent will emit the real one via event)
-      await api.sendChatMessage({ projectId, content, context, model: chatModel, modelEffort: chatEffort });
+      await api.sendChatMessage({ projectId, content, context, model: chatModel, modelEffort: chatEffort, permissionMode: chatPermissionMode });
     } catch (err) {
       set({ error: friendlyError(err, "Failed to send message"), sending: false });
       throw err;

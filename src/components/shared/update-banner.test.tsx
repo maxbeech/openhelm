@@ -22,9 +22,9 @@ describe("UpdateBanner", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("renders null when status is checking", () => {
-    const { container } = render(<UpdateBanner {...baseProps} status="checking" />);
-    expect(container.firstChild).toBeNull();
+  it("shows checking indicator when status is checking", () => {
+    render(<UpdateBanner {...baseProps} status="checking" />);
+    expect(screen.getByText(/checking for updates/i)).toBeTruthy();
   });
 
   it("shows version and action buttons when available", () => {

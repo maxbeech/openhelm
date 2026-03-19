@@ -11,7 +11,6 @@ import { setAnalyticsEnabled } from "@/lib/sentry";
 import { ensureNotificationPermission } from "@/lib/notifications";
 import { useUpdater } from "@/hooks/use-updater";
 import { useUpdaterStore } from "@/stores/updater-store";
-import { NewsletterSection } from "./newsletter-section";
 import type { NotificationLevel } from "@openhelm/shared";
 
 export function ApplicationSection() {
@@ -154,7 +153,6 @@ export function ApplicationSection() {
             Check for Updates
           </Button>
         </div>
-        <NewsletterSection />
         <div className="flex gap-4">
           <a
             href="https://openhelm.ai"

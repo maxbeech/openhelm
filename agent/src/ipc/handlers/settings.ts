@@ -1,6 +1,7 @@
 import { registerHandler } from "../handler.js";
 import * as settingQueries from "../../db/queries/settings.js";
 import type { SettingKey, SetSettingParams } from "@openhelm/shared";
+import { subscribeToNewsletter } from "../../newsletter/resend.js";
 import {
   syncWakeEvents,
   cancelAllWakes,
@@ -24,6 +25,13 @@ export function registerSettingHandlers() {
     if (!p?.key) throw new Error("key is required");
     if (p?.value === undefined) throw new Error("value is required");
     const result = settingQueries.setSetting(p.key, p.value);
+
+    // Sync newsletter signup to Resend
+    if (p.key === "newsletter_email") {
+      subscribeToNewsletter(p.value).catch((err) =>
+        console.error("[settings] newsletter subscribe failed:", err),
+      );
+    }
 
     // React to wake scheduling toggle
     if (p.key === "wake_schedule_enabled") {

@@ -1,18 +1,24 @@
 import { useState } from "react";
 import { WelcomeStep } from "./steps/welcome-step";
+import { UsageTypeStep } from "./steps/usage-type-step";
+import { EmailStep } from "./steps/email-step";
 import { ClaudeCodeStep } from "./steps/claude-code-step";
 import { ProjectStep } from "./steps/project-step";
-import { NewsletterStep } from "./steps/newsletter-step";
+import { PaymentStep } from "./steps/payment-step";
 import { CompleteStep } from "./steps/complete-step";
 import { Progress } from "@/components/ui/progress";
 import * as api from "@/lib/api";
+import type { UsageType, EmployeeCount } from "@openhelm/shared";
+import { needsPayment } from "@/lib/license-utils";
 
-const STEPS = [
-  { id: "welcome", label: "Welcome" },
-  { id: "claude-code", label: "Claude Code" },
-  { id: "project", label: "Project" },
-  { id: "newsletter", label: "Newsletter" },
-  { id: "complete", label: "Complete" },
+const STEP_LABELS = [
+  "Welcome",
+  "Email",
+  "Usage",
+  "Claude Code",
+  "Project",
+  "Payment",
+  "Complete",
 ] as const;
 
 interface OnboardingWizardProps {
@@ -22,10 +28,39 @@ interface OnboardingWizardProps {
 export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [step, setStep] = useState(0);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [usageType, setUsageType] = useState<UsageType>("personal");
+  const [employeeCount, setEmployeeCount] = useState<EmployeeCount>("1-3");
+  const [userEmail, setUserEmail] = useState("");
 
-  const progress = ((step + 1) / STEPS.length) * 100;
+  const requiresPayment = needsPayment(usageType, employeeCount);
 
-  const next = () => setStep((s) => Math.min(s + 1, STEPS.length - 1));
+  // Effective step count changes depending on whether payment is needed
+  const totalSteps = requiresPayment ? STEP_LABELS.length : STEP_LABELS.length - 1;
+  const progress = ((step + 1) / totalSteps) * 100;
+  const currentLabel = STEP_LABELS[Math.min(step, STEP_LABELS.length - 1)];
+
+  const next = () => setStep((s) => s + 1);
+
+  const handleUsageNext = (type: UsageType, count: EmployeeCount) => {
+    setUsageType(type);
+    setEmployeeCount(count);
+    next();
+  };
+
+  const handleEmailNext = (email: string) => {
+    setUserEmail(email);
+    next();
+  };
+
+  const handleProjectNext = (id: string) => {
+    setProjectId(id);
+    // If payment needed, advance to payment step; otherwise skip to complete
+    if (requiresPayment) {
+      next(); // → payment
+    } else {
+      setStep(6); // → complete (index 6)
+    }
+  };
 
   const handleComplete = (autoUpdate: boolean) => {
     api
@@ -36,14 +71,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
   return (
     <div className="no-select flex min-h-screen flex-col items-center justify-center bg-background p-8">
-      {/* Progress */}
-      {step > 0 && step < STEPS.length - 1 && (
+      {/* Progress (shown on steps 1–5) */}
+      {step > 0 && step < STEP_LABELS.length - 1 && (
         <div className="fixed top-0 right-0 left-0 p-4">
           <div className="mx-auto max-w-md">
             <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-              <span>{STEPS[step].label}</span>
+              <span>{currentLabel}</span>
               <span>
-                {step + 1} of {STEPS.length}
+                {step + 1} of {totalSteps}
               </span>
             </div>
             <Progress value={progress} className="h-1" />
@@ -51,20 +86,31 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         </div>
       )}
 
-      {/* Steps */}
       <div className="w-full max-w-md">
         {step === 0 && <WelcomeStep onNext={next} />}
-        {step === 1 && <ClaudeCodeStep onNext={next} />}
-        {step === 2 && (
+        {step === 1 && <EmailStep onNext={handleEmailNext} />}
+        {step === 2 && <UsageTypeStep userEmail={userEmail} onBack={() => setStep(1)} onNext={handleUsageNext} />}
+        {step === 3 && <ClaudeCodeStep onNext={next} />}
+        {step === 4 && (
           <ProjectStep
             onNext={(id) => {
               setProjectId(id);
-              next();
+              handleProjectNext(id);
             }}
           />
         )}
-        {step === 3 && <NewsletterStep onNext={next} />}
-        {step === 4 && <CompleteStep onComplete={handleComplete} />}
+        {step === 5 && requiresPayment && (
+          <PaymentStep
+            email={userEmail}
+            employeeCount={employeeCount}
+            onNext={next}
+          />
+        )}
+        {step === 6 && <CompleteStep onComplete={handleComplete} />}
+        {/* When payment not required, step 5 = complete */}
+        {step === 5 && !requiresPayment && (
+          <CompleteStep onComplete={handleComplete} />
+        )}
       </div>
     </div>
   );

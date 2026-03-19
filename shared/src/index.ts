@@ -192,7 +192,18 @@ export type SettingKey =
   | "analytics_enabled"
   | "wake_schedule_enabled"
   | "newsletter_email"
-  | "auto_update_enabled";
+  | "auto_update_enabled"
+  | "usage_type"
+  | "employee_count"
+  | "user_email"
+  | "email_verified"
+  | "email_verification_token"
+  | "newsletter_opt_in"
+  | "license_tier"
+  | "stripe_customer_id"
+  | "stripe_subscription_id"
+  | "stripe_subscription_status"
+  | "license_verified_at";
 
 export interface Setting {
   key: SettingKey;
@@ -382,6 +393,7 @@ export interface SendChatMessageParams {
   context?: ChatContext;
   model?: string;
   modelEffort?: "low" | "medium" | "high";
+  permissionMode?: string;
 }
 
 export interface ApproveChatActionParams {
@@ -757,4 +769,65 @@ export interface AssessPromptParams {
 export interface PromptAssessmentResult {
   needsClarification: boolean;
   questions: ClarifyingQuestion[];
+}
+
+// ─── License & Payment Types ───
+
+export type UsageType = "personal" | "education" | "business";
+export type EmployeeCount = "1-3" | "4-10" | "11-50" | "51-200" | "200+";
+export type LicenseTier = "community" | "business";
+
+export interface LicenseStatus {
+  tier: LicenseTier;
+  usageType: UsageType | null;
+  employeeCount: EmployeeCount | null;
+  email: string | null;
+  emailVerified: boolean;
+  stripeSubscriptionStatus: string | null;
+  trialEndsAt: string | null;
+  isValid: boolean;
+}
+
+export interface RequestEmailVerificationParams {
+  email: string;
+  usageType?: UsageType;
+  newsletterOptIn: boolean;
+}
+
+export interface EmailVerificationResult {
+  sent: boolean;
+  token: string;
+  error?: string;
+}
+
+export interface CheckEmailVerificationParams {
+  token: string;
+}
+
+export interface EmailVerificationStatus {
+  verified: boolean;
+}
+
+export interface CreateCheckoutSessionParams {
+  email: string;
+  employeeCount: EmployeeCount;
+}
+
+export interface CheckoutSessionResult {
+  sessionId: string;
+  url: string;
+}
+
+export interface PollCheckoutSessionParams {
+  sessionId: string;
+}
+
+export interface PollCheckoutSessionResult {
+  complete: boolean;
+  customerId?: string;
+  subscriptionId?: string;
+}
+
+export interface CustomerPortalResult {
+  url: string;
 }

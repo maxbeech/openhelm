@@ -22,7 +22,7 @@ export function registerChatHandlers() {
     const p = params as SendChatMessageParams;
     if (!p?.projectId) throw new Error("projectId is required");
     if (!p?.content?.trim()) throw new Error("content is required");
-    return handleChatMessage(p.projectId, p.content.trim(), p.context, p.model, p.modelEffort);
+    return handleChatMessage(p.projectId, p.content.trim(), p.context, p.model, p.modelEffort, p.permissionMode);
   });
 
   registerHandler("chat.approveAction", async (params) => {

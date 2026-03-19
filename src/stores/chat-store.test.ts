@@ -87,6 +87,7 @@ describe("sendMessage", () => {
       context: undefined,
       model: "sonnet",
       modelEffort: "medium",
+      permissionMode: "plan",
     });
     expect(useChatStore.getState().sending).toBe(false);
   });

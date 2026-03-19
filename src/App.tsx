@@ -317,15 +317,17 @@ export default function App() {
       } catch {
         // Keep optimistic default (enabled)
       }
-      // Enable auto-update check unless user has explicitly opted out
-      try {
-        const autoUpdate = await api.getSetting("auto_update_enabled");
-        if (autoUpdate?.value !== "false") {
+      // Enable auto-update check unless user has explicitly opted out or running in dev mode
+      if (!import.meta.env.DEV) {
+        try {
+          const autoUpdate = await api.getSetting("auto_update_enabled");
+          if (autoUpdate?.value !== "false") {
+            setShouldCheckUpdates(true);
+          }
+        } catch {
+          // Default ON
           setShouldCheckUpdates(true);
         }
-      } catch {
-        // Default ON
-        setShouldCheckUpdates(true);
       }
       setInitialLoading(false);
     })();

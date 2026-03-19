@@ -64,6 +64,7 @@ export async function handleChatMessage(
   context?: ChatContext,
   modelOverride?: string,
   effort?: "low" | "medium" | "high",
+  permissionMode?: string,
 ): Promise<ChatMessage[]> {
   const project = getProject(projectId);
   if (!project) throw new Error(`Project not found: ${projectId}`);
@@ -92,7 +93,16 @@ export async function handleChatMessage(
   for (let iter = 0; iter < MAX_TOOL_LOOP_ITERATIONS; iter++) {
     emit("chat.status", { status: iter === 0 ? "thinking" : "analyzing" });
     const userMessage = buildLlmUserMessage(history, content, toolExchange || undefined);
-    const rawResponse = await callLlmViaCli({ model: "chat", modelOverride, effort, systemPrompt, userMessage });
+    const rawResponse = await callLlmViaCli({
+      model: "chat",
+      modelOverride,
+      effort,
+      systemPrompt,
+      userMessage,
+      disableTools: false,
+      workingDirectory: project.directoryPath,
+      permissionMode: permissionMode || "plan",
+    });
     const parsed = parseLlmResponse(rawResponse);
     finalTextSegments = parsed.textSegments;
 

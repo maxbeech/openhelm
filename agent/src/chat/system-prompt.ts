@@ -16,6 +16,19 @@ export interface ChatSystemContext {
   viewingRun?: Run | null;
 }
 
+function buildNativeToolsSection(): string {
+  return `## Built-in Claude Code Tools (use directly — NOT via XML)
+
+You have Claude Code's built-in tools available. These work automatically — just use them:
+- **WebSearch** — search the web for current information
+- **WebFetch** — fetch and read a URL's content
+- **Read** — read files in the project directory
+- **Grep / Glob** — search file contents or find files by pattern
+
+These are completely separate from the OpenHelm CRUD tools below. Never use XML <tool_call> syntax for these.
+When the user asks you to search the web, look something up, or read a file — use these built-in tools directly.`;
+}
+
 function buildToolsSection(): string {
   const toolDocs = TOOLS.map((t) => {
     const params = Object.entries(t.parameters)
@@ -146,6 +159,7 @@ Directory: ${ctx.project.directoryPath}${ctx.project.description ? `\nDescriptio
 
     buildCurrentViewSection(ctx),
     memorySection,
+    buildNativeToolsSection(),
     buildMcpSection(),
     buildToolsSection(),
 

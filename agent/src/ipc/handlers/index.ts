@@ -10,6 +10,7 @@ import { registerInboxHandlers } from "./inbox.js";
 import { registerMemoryHandlers } from "./memories.js";
 import { registerDataHandlers } from "./data.js";
 import { registerPowerHandlers } from "./power.js";
+import { registerLicenseHandlers } from "./license.js";
 
 /** Register all domain IPC handlers */
 export function registerAllHandlers() {
@@ -25,4 +26,5 @@ export function registerAllHandlers() {
   registerMemoryHandlers();
   registerDataHandlers();
   registerPowerHandlers();
+  registerLicenseHandlers();
 }
