@@ -61,5 +61,14 @@ jobs:
           mkdir -p ../src-tauri/binaries
           cp dist/agent.js ../src-tauri/binaries/agent-aarch64-apple-darwin
 
+      - name: Bundle native modules for Tauri resources
+        run: |
+          mkdir -p src-tauri/bundled-node-modules
+          for pkg in better-sqlite3 bindings file-uri-to-path; do
+            if [ -d "node_modules/$pkg" ]; then
+              cp -r "node_modules/$pkg" "src-tauri/bundled-node-modules/$pkg"
+            fi
+          done
+
       - name: Check Rust compilation
         run: cd src-tauri && cargo check
