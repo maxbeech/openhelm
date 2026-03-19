@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.7] - 2026-03-19
+
+### Fixed
+- Scheduler fixes and stability improvements
+
 ## [0.1.6] - 2026-03-19
 
 ### Fixed
