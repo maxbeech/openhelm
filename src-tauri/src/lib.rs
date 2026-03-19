@@ -3,33 +3,60 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandChild;
 
-/// Build an extended PATH string that prepends common Node.js install locations.
-/// macOS GUI apps inherit a minimal PATH (/usr/bin:/bin:...) that may not include
-/// Homebrew (/opt/homebrew/bin) or NVM paths. Prepending them ensures the sidecar's
-/// #!/usr/bin/env node shebang can find node on most developer machines.
+/// Build an extended PATH string so the sidecar's `#!/usr/bin/env node` shebang
+/// finds the correct Node.js binary in release builds.
 ///
-/// In debug builds (tauri dev) the terminal already supplies the correct PATH, so we
-/// return it unchanged. Overriding it can cause the sidecar to run with a different
-/// Node.js version than the one used to compile native addons (e.g. better-sqlite3),
-/// producing NODE_MODULE_VERSION mismatches.
-fn build_node_path() -> String {
+/// macOS GUI apps inherit a minimal PATH (/usr/bin:/bin:…) that omits Homebrew,
+/// NVM, fnm, etc. We must extend it — but we MUST use the same Node.js version
+/// that was used to compile native addons (e.g. better-sqlite3). Using a different
+/// version produces NODE_MODULE_VERSION mismatches and crashes the agent.
+///
+/// Strategy (highest → lowest priority):
+///   1. Build-time node directory: patch-bundle.mjs writes the exact node binary
+///      path used during `npm run tauri:build` into `.node-bin-dir` inside the
+///      bundle. This guarantees the same version is used at runtime as was used to
+///      compile bundled-node-modules/. Present on locally-built apps.
+///   2. Homebrew locations (/opt/homebrew/bin, /usr/local/bin) — the most common
+///      primary Node.js installation on macOS; typically matches the dev environment.
+///   3. NVM / fnm — fallback for users who use version managers exclusively.
+///      These come LAST so they cannot shadow a Homebrew installation that was used
+///      to compile native addons.
+///
+/// In debug builds (tauri dev) the terminal already supplies the correct PATH, so
+/// we return it unchanged.
+fn build_node_path(bin_dir: &std::path::Path) -> String {
     let current = std::env::var("PATH").unwrap_or_default();
 
-    // Dev mode: inherit terminal PATH as-is so native addons and the sidecar's node
-    // are guaranteed to match.
+    // Dev mode: inherit terminal PATH as-is.
     #[cfg(debug_assertions)]
-    return current;
+    {
+        let _ = bin_dir; // suppress unused warning
+        return current;
+    }
 
-    // Release mode: macOS .app bundles have a minimal PATH — prepend known locations.
+    // Release mode: build a priority-ordered PATH.
     #[cfg(not(debug_assertions))]
     {
-        let mut extra: Vec<String> = vec![
-            "/opt/homebrew/bin".into(),  // Homebrew (Apple Silicon)
-            "/usr/local/bin".into(),     // Homebrew (Intel) / official .pkg installer
-        ];
+        let mut extra: Vec<String> = Vec::new();
 
-        // NVM: check for the highest installed version under ~/.nvm
+        // 1. Build-time node directory (written by scripts/patch-bundle.mjs).
+        //    If present this is the single best choice — it is literally the node
+        //    binary that compiled the bundled native addons.
+        let node_bin_dir_file = bin_dir.join(".node-bin-dir");
+        if let Ok(dir) = std::fs::read_to_string(&node_bin_dir_file) {
+            let dir = dir.trim().to_string();
+            if !dir.is_empty() {
+                extra.push(dir);
+            }
+        }
+
+        // 2. Homebrew (most common macOS primary install).
+        extra.push("/opt/homebrew/bin".into()); // Apple Silicon
+        extra.push("/usr/local/bin".into());    // Intel / official .pkg installer
+
+        // 3. NVM / fnm — append as fallbacks only (do NOT insert before Homebrew).
         if let Ok(home) = std::env::var("HOME") {
+            // NVM
             let nvm_base = format!("{}/.nvm/versions/node", home);
             if let Ok(entries) = std::fs::read_dir(&nvm_base) {
                 let mut versions: Vec<String> = entries
@@ -38,7 +65,7 @@ fn build_node_path() -> String {
                     .collect();
                 versions.sort();
                 if let Some(latest) = versions.last() {
-                    extra.insert(0, format!("{}/{}/bin", nvm_base, latest));
+                    extra.push(format!("{}/{}/bin", nvm_base, latest));
                 }
             }
 
@@ -51,7 +78,7 @@ fn build_node_path() -> String {
                     .collect();
                 versions.sort();
                 if let Some(latest) = versions.last() {
-                    extra.insert(0, format!("{}/{}/installation/bin", fnm_base, latest));
+                    extra.push(format!("{}/{}/installation/bin", fnm_base, latest));
                 }
             }
         }
@@ -139,11 +166,39 @@ pub fn run() {
                 })
                 .unwrap_or_default();
 
+            // Ensure the agent sidecar is treated as CommonJS by Node.js.
+            // Node.js resolves module type by walking UP the directory tree looking
+            // for a package.json. When the built .app is run from inside a Node.js
+            // workspace (e.g. during dev testing from target/release/bundle/), it
+            // finds the workspace root package.json which has "type":"module", causing
+            // a "require is not defined in ES module scope" crash. Writing a
+            // {"type":"commonjs"} package.json next to our binary prevents this by
+            // short-circuiting the traversal at the correct level.
+            // Get the directory containing this binary (Contents/MacOS/ in production).
+            // Used for both the package.json write and the build-time node path lookup.
+            let bin_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                .unwrap_or_default();
+
+            // Ensure the agent sidecar is treated as CommonJS by Node.js.
+            // Node.js resolves module type by walking UP the directory tree looking
+            // for a package.json. When the built .app is run from inside a Node.js
+            // workspace (e.g. during dev testing from target/release/bundle/), it
+            // finds the workspace root package.json which has "type":"module", causing
+            // a "require is not defined in ES module scope" crash. Writing a
+            // {"type":"commonjs"} package.json next to our binary prevents this by
+            // short-circuiting the traversal at the correct level.
+            let pkg_json = bin_dir.join("package.json");
+            if !pkg_json.exists() {
+                let _ = std::fs::write(&pkg_json, r#"{"type":"commonjs"}"#);
+            }
+
             let shell = app.shell();
             let (mut rx, child) = shell
                 .sidecar("agent")
                 .expect("failed to create sidecar command")
-                .env("PATH", build_node_path())
+                .env("PATH", build_node_path(&bin_dir))
                 .env("NODE_PATH", node_path_env)
                 .spawn()
                 .expect("failed to spawn sidecar");
@@ -180,6 +235,18 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // When the app exits (e.g. Cmd+Q), kill the sidecar so it doesn't
+            // continue running as an orphan process in the background.
+            if let tauri::RunEvent::Exit = event {
+                let state = app.state::<SidecarChild>();
+                if let Ok(mut guard) = state.0.lock() {
+                    if let Some(child) = guard.take() {
+                        let _ = child.kill();
+                    }
+                };
+            }
+        });
 }

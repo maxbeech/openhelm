@@ -18,7 +18,8 @@
     "test:ui": "npx vitest run --config vitest.config.ts",
     "test:agent": "npm run test --workspace=agent",
     "lint": "eslint .",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:build": "tauri build && node scripts/patch-bundle.mjs"
   },
   "dependencies": {
     "@sentry/react": "^10.43.0",

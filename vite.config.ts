@@ -12,7 +12,7 @@ export default defineConfig({
       ? [
           sentryVitePlugin({
             org: "openhelm",
-            project: "openhelm-frontend",
+            project: "openhelm",
             authToken: process.env.SENTRY_AUTH_TOKEN,
             telemetry: false,
           }),

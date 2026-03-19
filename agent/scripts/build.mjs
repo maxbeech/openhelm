@@ -41,6 +41,13 @@ function copySidecarBinaries() {
   // .app bundle there is no package.json so Node defaults to CJS).
   writeFileSync(resolve(binDir, "package.json"), JSON.stringify({ type: "commonjs" }));
 
+  // In dev mode Tauri runs the sidecar from target/debug/ — write the same
+  // package.json there so `require` is available during `tauri dev` too.
+  const devTargetDir = resolve(__dirname, "..", "..", "src-tauri", "target", "debug");
+  if (existsSync(devTargetDir)) {
+    writeFileSync(resolve(devTargetDir, "package.json"), JSON.stringify({ type: "commonjs" }));
+  }
+
   for (const target of ["agent-aarch64-apple-darwin", "agent-x86_64-apple-darwin"]) {
     const dest = resolve(binDir, target);
     copyFileSync(dist, dest);
@@ -104,7 +111,7 @@ if (isWatch) {
           "--org",
           "openhelm",
           "--project",
-          "openhelm-agent",
+          "openhelm",
           "dist/",
         ],
         { stdio: "inherit", env: process.env },
