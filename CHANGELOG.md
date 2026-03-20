@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.10] - 2026-03-20
+
+### Fixed
+- Minor executor, scheduler, and update-flow fixes
+
 ## [0.1.9] - 2026-03-20
 
 ### Added
