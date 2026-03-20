@@ -1,16 +1,20 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { check } from "@tauri-apps/plugin-updater";
 import { getVersion } from "@tauri-apps/api/app";
 import { useUpdaterStore } from "@/stores/updater-store";
+import { agentClient } from "@/lib/agent-client";
+import type { SchedulerStatus } from "@openhelm/shared";
 
 export type UpdaterStatus =
   | "idle"
   | "checking"
   | "available"
-  | "not-available"
+  | "confirming"    // active runs detected — user must choose
+  | "waiting"       // waiting for active runs to finish before auto-install
   | "downloading"
   | "ready"
-  | "error";
+  | "error"
+  | "not-available";
 
 interface UpdaterState {
   status: UpdaterStatus;
@@ -19,14 +23,19 @@ interface UpdaterState {
   updateNotes: string | null;
   downloadProgress: number | null;
   error: string | null;
+  activeRunCount: number;
 }
 
 interface UseUpdaterReturn extends UpdaterState {
   shouldCheckUpdates: boolean;
   checkForUpdate: () => Promise<void>;
   installUpdate: () => Promise<void>;
+  forceInstallUpdate: () => Promise<void>;
+  waitAndInstall: () => void;
   dismissUpdate: () => void;
 }
+
+const WAIT_POLL_INTERVAL_MS = 5_000;
 
 export function useUpdater(): UseUpdaterReturn {
   const { shouldCheckUpdates } = useUpdaterStore();
@@ -37,12 +46,21 @@ export function useUpdater(): UseUpdaterReturn {
     updateNotes: null,
     downloadProgress: null,
     error: null,
+    activeRunCount: 0,
   });
 
   // Store the update object between check and install
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pendingUpdate = useRef<any>(null);
   const checkingRef = useRef(false);
+  const waitTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Clean up wait polling on unmount
+  useEffect(() => {
+    return () => {
+      if (waitTimerRef.current) clearInterval(waitTimerRef.current);
+    };
+  }, []);
 
   const checkForUpdate = useCallback(async () => {
     if (checkingRef.current) return;
@@ -67,7 +85,6 @@ export function useUpdater(): UseUpdaterReturn {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Treat "no manifest" / network errors as "not available" — not a user-visible error
       if (msg.includes("release JSON") || msg.includes("404") || msg.includes("fetch")) {
         setState((s) => ({ ...s, status: "not-available" }));
       } else {
@@ -78,9 +95,18 @@ export function useUpdater(): UseUpdaterReturn {
     }
   }, []);
 
-  const installUpdate = useCallback(async () => {
+  /** Download and install the update (called after confirmation) */
+  const doInstall = useCallback(async () => {
     const update = pendingUpdate.current;
     if (!update) return;
+
+    // Signal agent to prepare for update (pauses scheduler, sets flag)
+    try {
+      await agentClient.request("executor.prepareForUpdate");
+    } catch {
+      // Non-fatal — update can still proceed
+    }
+
     setState((s) => ({ ...s, status: "downloading", downloadProgress: 0 }));
     try {
       await update.download((event: { event: string; data?: { contentLength?: number; chunkLength?: number } }) => {
@@ -105,6 +131,10 @@ export function useUpdater(): UseUpdaterReturn {
       setState((s) => ({ ...s, status: "ready" }));
       await update.install();
     } catch (err) {
+      // Cancel the update preparation since install failed
+      try {
+        await agentClient.request("executor.cancelPrepareForUpdate");
+      } catch { /* non-fatal */ }
       setState((s) => ({
         ...s,
         status: "error",
@@ -113,8 +143,74 @@ export function useUpdater(): UseUpdaterReturn {
     }
   }, []);
 
+  /** Check for active runs; if none, install immediately. Otherwise show confirmation. */
+  const installUpdate = useCallback(async () => {
+    const update = pendingUpdate.current;
+    if (!update) return;
+
+    try {
+      const schedulerStatus = await agentClient.request<SchedulerStatus>("scheduler.status");
+      const totalActive = schedulerStatus.activeRuns + schedulerStatus.queuedRuns;
+
+      if (totalActive > 0) {
+        setState((s) => ({
+          ...s,
+          status: "confirming",
+          activeRunCount: totalActive,
+        }));
+        return;
+      }
+    } catch {
+      // Can't reach agent — safe to install (agent will recover)
+    }
+
+    await doInstall();
+  }, [doInstall]);
+
+  /** Force install even with active runs (user chose "Update Now") */
+  const forceInstallUpdate = useCallback(async () => {
+    await doInstall();
+  }, [doInstall]);
+
+  /** Wait for all runs to finish, then auto-install */
+  const waitAndInstall = useCallback(() => {
+    setState((s) => ({ ...s, status: "waiting" }));
+
+    // Poll scheduler status until no active runs remain
+    waitTimerRef.current = setInterval(async () => {
+      try {
+        const schedulerStatus = await agentClient.request<SchedulerStatus>("scheduler.status");
+        const totalActive = schedulerStatus.activeRuns + schedulerStatus.queuedRuns;
+
+        setState((s) => ({ ...s, activeRunCount: totalActive }));
+
+        if (totalActive === 0) {
+          if (waitTimerRef.current) {
+            clearInterval(waitTimerRef.current);
+            waitTimerRef.current = null;
+          }
+          await doInstall();
+        }
+      } catch {
+        // Agent unreachable — proceed with install
+        if (waitTimerRef.current) {
+          clearInterval(waitTimerRef.current);
+          waitTimerRef.current = null;
+        }
+        await doInstall();
+      }
+    }, WAIT_POLL_INTERVAL_MS);
+  }, [doInstall]);
+
   const dismissUpdate = useCallback(() => {
-    setState((s) => ({ ...s, status: "idle" }));
+    // Stop any wait polling
+    if (waitTimerRef.current) {
+      clearInterval(waitTimerRef.current);
+      waitTimerRef.current = null;
+    }
+    // Cancel any pending update preparation
+    agentClient.request("executor.cancelPrepareForUpdate").catch(() => {});
+    setState((s) => ({ ...s, status: "idle", activeRunCount: 0 }));
   }, []);
 
   return {
@@ -122,6 +218,8 @@ export function useUpdater(): UseUpdaterReturn {
     shouldCheckUpdates,
     checkForUpdate,
     installUpdate,
+    forceInstallUpdate,
+    waitAndInstall,
     dismissUpdate,
   };
 }

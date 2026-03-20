@@ -13,6 +13,12 @@ vi.mock("@/stores/updater-store", () => ({
   useUpdaterStore: vi.fn().mockReturnValue({ shouldCheckUpdates: false }),
 }));
 
+vi.mock("@/lib/agent-client", () => ({
+  agentClient: {
+    request: vi.fn().mockResolvedValue({ activeRuns: 0, queuedRuns: 0 }),
+  },
+}));
+
 import { useUpdater } from "./use-updater";
 import * as updaterPlugin from "@tauri-apps/plugin-updater";
 import { useUpdaterStore } from "@/stores/updater-store";

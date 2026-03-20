@@ -27,7 +27,7 @@ import { handleInteractiveDetected } from "./hitl-handler.js";
 import { createInboxItem } from "../db/queries/inbox-items.js";
 import { getProject } from "../db/queries/projects.js";
 import { createRunLog } from "../db/queries/run-logs.js";
-import { getSetting } from "../db/queries/settings.js";
+import { getSetting, deleteSetting } from "../db/queries/settings.js";
 import { computeNextFireAt } from "../scheduler/schedule.js";
 import { emit } from "../ipc/emitter.js";
 import { generateRunSummary } from "../planner/summarize.js";
@@ -122,32 +122,70 @@ export class Executor {
     }
   }
 
-  /** Recover from agent crash on startup */
+  /** Recover from agent crash or update restart on startup */
   recoverFromCrash(): void {
-    // Transition stuck "running" runs to "failed"
-    const stuckRuns = listRuns({ status: "running", limit: 100 });
-    for (const run of stuckRuns) {
-      console.error(`[executor] recovering stuck run ${run.id} → failed`);
-      updateRun({
-        id: run.id,
-        status: "failed",
-        finishedAt: new Date().toISOString(),
-      });
-      createRunLog({
-        runId: run.id,
-        stream: "stderr",
-        text: "Run interrupted by agent restart. The process was lost.",
-      });
-      emit("run.statusChanged", {
-        runId: run.id,
-        status: "failed",
-        previousStatus: "running",
-      });
+    // Check if this restart was caused by a planned app update
+    const updatePending = getSetting("update_pending");
+    const isUpdateRestart = updatePending?.value === "true";
+    if (isUpdateRestart) {
+      deleteSetting("update_pending");
+      console.error("[executor] detected update restart — will re-enqueue interrupted runs");
     }
 
-    // Re-enqueue "queued" runs
+    // Handle stuck "running" runs
+    const stuckRuns = listRuns({ status: "running", limit: 100 });
+    for (const run of stuckRuns) {
+      if (isUpdateRestart) {
+        // Update restart: re-enqueue the run so it retries automatically
+        console.error(`[executor] re-enqueuing update-interrupted run ${run.id}`);
+        updateRun({
+          id: run.id,
+          status: "queued",
+        });
+        createRunLog({
+          runId: run.id,
+          stream: "stderr",
+          text: "Run interrupted by app update. Automatically re-enqueued.",
+        });
+        const priority = run.triggerSource === "manual" ? 0
+          : run.triggerSource === "corrective" ? 2 : 1;
+        jobQueue.enqueue({
+          runId: run.id,
+          jobId: run.jobId,
+          priority,
+          enqueuedAt: Date.now(),
+        });
+        emit("run.statusChanged", {
+          runId: run.id,
+          status: "queued",
+          previousStatus: "running",
+        });
+      } else {
+        // Crash: mark as failed (existing behaviour)
+        console.error(`[executor] recovering stuck run ${run.id} → failed`);
+        updateRun({
+          id: run.id,
+          status: "failed",
+          finishedAt: new Date().toISOString(),
+        });
+        createRunLog({
+          runId: run.id,
+          stream: "stderr",
+          text: "Run interrupted by agent restart. The process was lost.",
+        });
+        emit("run.statusChanged", {
+          runId: run.id,
+          status: "failed",
+          previousStatus: "running",
+        });
+      }
+    }
+
+    // Re-enqueue "queued" runs (same for both crash and update)
     const queuedRuns = listRuns({ status: "queued", limit: 100 });
     for (const run of queuedRuns) {
+      // Skip runs already enqueued above (update-interrupted runs)
+      if (jobQueue.has(run.id)) continue;
       console.error(`[executor] re-enqueuing run ${run.id}`);
       const priority = run.triggerSource === "manual" ? 0
         : run.triggerSource === "corrective" ? 2 : 1;
@@ -159,9 +197,12 @@ export class Executor {
       });
     }
 
+    const reEnqueued = isUpdateRestart ? stuckRuns.length : 0;
+    const failed = isUpdateRestart ? 0 : stuckRuns.length;
     if (stuckRuns.length > 0 || queuedRuns.length > 0) {
       console.error(
-        `[executor] crash recovery: ${stuckRuns.length} failed, ${queuedRuns.length} re-enqueued`,
+        `[executor] recovery: ${failed} failed, ${reEnqueued + queuedRuns.length} re-enqueued` +
+        (isUpdateRestart ? " (update restart)" : " (crash)"),
       );
     }
   }

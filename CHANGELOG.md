@@ -2,6 +2,12 @@
 
 ## [0.1.9] - 2026-03-20
 
+### Added
+- Update-aware run recovery: running tasks are automatically re-enqueued after an app update instead of being marked as failed
+- Pre-update active run check: users are warned when active runs exist before installing an update
+- "Wait for Runs" option: users can choose to wait for active runs to finish before the update installs automatically
+- `executor.prepareForUpdate` and `executor.cancelPrepareForUpdate` IPC handlers for update lifecycle management
+
 ### Fixed
 - Numerous stability fixes and improvements
 

@@ -10,6 +10,7 @@ import type {
   TriggerRunParams,
   CancelRunParams,
   SchedulerStatus,
+  PrepareForUpdateResult,
 } from "@openhelm/shared";
 
 export function registerSchedulerHandlers() {
@@ -119,6 +120,47 @@ export function registerSchedulerHandlers() {
     console.error("[scheduler] resumed by user");
     emit("scheduler.statusChanged", { paused: false });
     return { paused: false };
+  });
+
+  /**
+   * Prepare the agent for an app update. Pauses the scheduler to prevent new
+   * runs from being enqueued and sets an `update_pending` flag so that crash
+   * recovery will re-enqueue interrupted runs instead of marking them failed.
+   * Returns active/queued counts so the frontend can decide whether to wait.
+   */
+  registerHandler("executor.prepareForUpdate", () => {
+    // Pause scheduler so no new runs are enqueued during the update
+    scheduler.stop();
+    // Set flag so crash recovery knows this was a planned update
+    setSetting("update_pending", "true");
+    console.error("[executor] prepared for update — scheduler paused, update_pending flag set");
+    emit("scheduler.statusChanged", { paused: true });
+
+    const result: PrepareForUpdateResult = {
+      activeRuns: executor.activeRunCount,
+      queuedRuns: jobQueue.size(),
+      schedulerPaused: true,
+    };
+    return result;
+  });
+
+  /**
+   * Cancel the update preparation (user clicked "Later" after preparing).
+   * Clears the update_pending flag and resumes the scheduler if it wasn't
+   * already paused by the user before the update check.
+   */
+  registerHandler("executor.cancelPrepareForUpdate", () => {
+    deleteSetting("update_pending");
+    // Resume scheduler only if user hadn't manually paused it
+    const wasPaused = getSetting("scheduler_paused");
+    if (wasPaused?.value !== "true") {
+      scheduler.start();
+      console.error("[executor] update cancelled — scheduler resumed");
+      emit("scheduler.statusChanged", { paused: false });
+    } else {
+      console.error("[executor] update cancelled — scheduler stays paused (user-paused)");
+    }
+    return { ok: true };
   });
 
   /**

@@ -25,7 +25,7 @@ function rowToRun(row: typeof runs.$inferSelect): Run {
 const VALID_TRANSITIONS: Record<RunStatus, RunStatus[]> = {
   deferred: ["queued", "cancelled"],
   queued: ["running", "cancelled", "permanent_failure"],
-  running: ["succeeded", "failed", "permanent_failure", "cancelled"],
+  running: ["queued", "succeeded", "failed", "permanent_failure", "cancelled"],
   succeeded: [],
   failed: ["permanent_failure"],
   permanent_failure: [],

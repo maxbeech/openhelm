@@ -22,7 +22,7 @@ export function ApplicationSection() {
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
 
   const { setShouldCheckUpdates } = useUpdaterStore();
-  const { status, checkForUpdate } = useUpdater();
+  const { status, updateVersion, error, checkForUpdate, installUpdate } = useUpdater();
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
@@ -141,17 +141,34 @@ export function ApplicationSection() {
           </div>
           <Switch checked={autoUpdateEnabled} onCheckedChange={toggleAutoUpdate} />
         </div>
-        <div>
+        <div className="space-y-1.5">
           <Button
             variant="outline"
             size="sm"
             className="h-8"
             onClick={handleCheckNow}
-            disabled={status === "checking"}
+            disabled={status === "checking" || status === "downloading"}
           >
             {status === "checking" && <Loader2 className="mr-2 size-3 animate-spin" />}
             Check for Updates
           </Button>
+          {status === "not-available" && (
+            <p className="text-xs text-muted-foreground">OpenHelm is up to date.</p>
+          )}
+          {status === "available" && (
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-muted-foreground">Version {updateVersion} available.</p>
+              <Button size="xs" className="h-6 px-2 text-xs" onClick={() => void installUpdate()}>
+                Install &amp; Relaunch
+              </Button>
+            </div>
+          )}
+          {status === "downloading" && (
+            <p className="text-xs text-muted-foreground">Downloading update…</p>
+          )}
+          {status === "error" && (
+            <p className="text-xs text-destructive">{error ?? "Update check failed"}</p>
+          )}
         </div>
         <div className="flex gap-4">
           <a

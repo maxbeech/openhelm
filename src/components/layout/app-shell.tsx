@@ -37,8 +37,11 @@ export function AppShell({
     updateVersion,
     downloadProgress,
     error,
+    activeRunCount,
     checkForUpdate,
     installUpdate,
+    forceInstallUpdate,
+    waitAndInstall,
     dismissUpdate,
   } = useUpdater();
 
@@ -71,7 +74,10 @@ export function AppShell({
               updateVersion={updateVersion}
               downloadProgress={downloadProgress}
               error={error}
+              activeRunCount={activeRunCount}
               onInstall={installUpdate}
+              onForceInstall={forceInstallUpdate}
+              onWaitAndInstall={waitAndInstall}
               onDismiss={dismissUpdate}
               onRetry={checkForUpdate}
             />

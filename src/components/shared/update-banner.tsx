@@ -7,7 +7,10 @@ interface UpdateBannerProps {
   updateVersion: string | null;
   downloadProgress: number | null;
   error: string | null;
+  activeRunCount: number;
   onInstall: () => void;
+  onForceInstall: () => void;
+  onWaitAndInstall: () => void;
   onDismiss: () => void;
   onRetry: () => void;
 }
@@ -17,7 +20,10 @@ export function UpdateBanner({
   updateVersion,
   downloadProgress,
   error,
+  activeRunCount,
   onInstall,
+  onForceInstall,
+  onWaitAndInstall,
   onDismiss,
   onRetry,
 }: UpdateBannerProps) {
@@ -48,6 +54,63 @@ export function UpdateBanner({
             onClick={onDismiss}
           >
             Later
+          </Button>
+        </>
+      )}
+      {status === "confirming" && (
+        <>
+          <span className="text-muted-foreground">
+            {activeRunCount} active {activeRunCount === 1 ? "run" : "runs"} — runs will auto-resume after update
+          </span>
+          <Button
+            size="xs"
+            className="h-6 px-2 text-xs"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={onForceInstall}
+          >
+            Update Now
+          </Button>
+          <Button
+            variant="outline"
+            size="xs"
+            className="h-6 px-2 text-xs"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={onWaitAndInstall}
+          >
+            Wait for Runs
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            className="h-6 px-2 text-xs"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={onDismiss}
+          >
+            Later
+          </Button>
+        </>
+      )}
+      {status === "waiting" && (
+        <>
+          <span className="text-muted-foreground">
+            Waiting for {activeRunCount} {activeRunCount === 1 ? "run" : "runs"} to finish…
+          </span>
+          <Button
+            size="xs"
+            className="h-6 px-2 text-xs"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={onForceInstall}
+          >
+            Update Now
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            className="h-6 px-2 text-xs"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={onDismiss}
+          >
+            Cancel
           </Button>
         </>
       )}

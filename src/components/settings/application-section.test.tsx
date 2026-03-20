@@ -54,7 +54,10 @@ beforeEach(() => {
     shouldCheckUpdates: false,
     checkForUpdate: vi.fn(),
     installUpdate: vi.fn(),
+    forceInstallUpdate: vi.fn(),
+    waitAndInstall: vi.fn(),
     dismissUpdate: vi.fn(),
+    activeRunCount: 0,
   });
 });
 
@@ -165,12 +168,105 @@ describe("ApplicationSection — auto update", () => {
       shouldCheckUpdates: false,
       checkForUpdate: vi.fn(),
       installUpdate: vi.fn(),
+      forceInstallUpdate: vi.fn(),
+      waitAndInstall: vi.fn(),
       dismissUpdate: vi.fn(),
+      activeRunCount: 0,
     });
     render(<ApplicationSection />);
     await waitFor(() => {
       const btn = screen.getByRole("button", { name: /check for updates/i });
       expect(btn).toBeDisabled();
+    });
+  });
+
+  it("shows up-to-date message when status is not-available", async () => {
+    vi.mocked(useUpdater).mockReturnValue({
+      status: "not-available",
+      currentVersion: "0.1.9",
+      updateVersion: null,
+      updateNotes: null,
+      downloadProgress: null,
+      error: null,
+      shouldCheckUpdates: false,
+      checkForUpdate: vi.fn(),
+      installUpdate: vi.fn(),
+      forceInstallUpdate: vi.fn(),
+      waitAndInstall: vi.fn(),
+      dismissUpdate: vi.fn(),
+      activeRunCount: 0,
+    });
+    render(<ApplicationSection />);
+    await waitFor(() => {
+      expect(screen.getByText(/up to date/i)).toBeTruthy();
+    });
+  });
+
+  it("shows update version and install button when status is available", async () => {
+    vi.mocked(useUpdater).mockReturnValue({
+      status: "available",
+      currentVersion: "0.1.8",
+      updateVersion: "0.1.9",
+      updateNotes: null,
+      downloadProgress: null,
+      error: null,
+      shouldCheckUpdates: false,
+      checkForUpdate: vi.fn(),
+      installUpdate: vi.fn(),
+      forceInstallUpdate: vi.fn(),
+      waitAndInstall: vi.fn(),
+      dismissUpdate: vi.fn(),
+      activeRunCount: 0,
+    });
+    render(<ApplicationSection />);
+    await waitFor(() => {
+      expect(screen.getByText(/0\.1\.9 available/i)).toBeTruthy();
+      expect(screen.getByRole("button", { name: /install/i })).toBeTruthy();
+    });
+  });
+
+  it("shows error message when status is error", async () => {
+    vi.mocked(useUpdater).mockReturnValue({
+      status: "error",
+      currentVersion: "0.1.9",
+      updateVersion: null,
+      updateNotes: null,
+      downloadProgress: null,
+      error: "Network request failed",
+      shouldCheckUpdates: false,
+      checkForUpdate: vi.fn(),
+      installUpdate: vi.fn(),
+      forceInstallUpdate: vi.fn(),
+      waitAndInstall: vi.fn(),
+      dismissUpdate: vi.fn(),
+      activeRunCount: 0,
+    });
+    render(<ApplicationSection />);
+    await waitFor(() => {
+      expect(screen.getByText(/network request failed/i)).toBeTruthy();
+    });
+  });
+
+  it("disables Check button and shows downloading message when status is downloading", async () => {
+    vi.mocked(useUpdater).mockReturnValue({
+      status: "downloading",
+      currentVersion: "0.1.8",
+      updateVersion: "0.1.9",
+      updateNotes: null,
+      downloadProgress: 42,
+      error: null,
+      shouldCheckUpdates: false,
+      checkForUpdate: vi.fn(),
+      installUpdate: vi.fn(),
+      forceInstallUpdate: vi.fn(),
+      waitAndInstall: vi.fn(),
+      dismissUpdate: vi.fn(),
+      activeRunCount: 0,
+    });
+    render(<ApplicationSection />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /check for updates/i })).toBeDisabled();
+      expect(screen.getByText(/downloading update/i)).toBeTruthy();
     });
   });
 });

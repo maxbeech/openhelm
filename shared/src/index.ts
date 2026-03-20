@@ -204,7 +204,8 @@ export type SettingKey =
   | "stripe_subscription_id"
   | "stripe_subscription_status"
   | "license_verified_at"
-  | "scheduler_paused";
+  | "scheduler_paused"
+  | "update_pending";
 
 export interface Setting {
   key: SettingKey;
@@ -493,6 +494,13 @@ export interface SchedulerStatus {
   activeRuns: number;
   queuedRuns: number;
   maxConcurrency: number;
+}
+
+/** Result of executor.prepareForUpdate — tells the frontend how many runs are active */
+export interface PrepareForUpdateResult {
+  activeRuns: number;
+  queuedRuns: number;
+  schedulerPaused: boolean;
 }
 
 // ─── Planner Types ───
