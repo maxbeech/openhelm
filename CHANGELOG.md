@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.11] - 2026-03-20
 
 ### Fixed
 - Fix onboarding screen showing after app updates: persisted `onboarding_complete` flag in DB so it survives restarts even when project list hasn't loaded yet
