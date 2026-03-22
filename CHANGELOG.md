@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.13] - 2026-03-22
+
+### Fixed
+- Minor fixes and stability improvements
+
 ## [0.1.12] - 2026-03-22
 
 ### Added
