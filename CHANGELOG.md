@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.12] - 2026-03-22
+
+### Added
+- Claude Code health monitoring hook (`use-claude-health`) for real-time CLI status in the UI
+- Onboarding email capture step with tests
+- Planner commit summarisation (`planner/commit.ts`)
+- Native Rust IPC handlers in `lib.rs` for tighter Tauri integration
+
+### Fixed
+- Improved Claude Code detector with expanded version/path detection logic
+- Chat panel HITL interaction fixes
+- Notifications refactor for reliability
+- Job query edge-case fixes
+- Sidebar job-node display corrections
+- Miscellaneous executor, planner prompt, and app-shell stability fixes
+
 ## [0.1.11] - 2026-03-20
 
 ### Fixed
