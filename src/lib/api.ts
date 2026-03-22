@@ -216,6 +216,18 @@ export function getClaudeCodeStatus(): Promise<ClaudeCodeDetectionResult> {
   );
 }
 
+export interface ClaudeCodeHealthResult {
+  healthy: boolean;
+  authenticated: boolean;
+  error?: string;
+}
+
+export function checkClaudeCodeHealth(): Promise<ClaudeCodeHealthResult> {
+  return agentClient.request<ClaudeCodeHealthResult>(
+    "claudeCode.checkHealth",
+  );
+}
+
 // ─── Scheduler & Executor ───
 
 export function triggerRun(params: TriggerRunParams): Promise<Run> {

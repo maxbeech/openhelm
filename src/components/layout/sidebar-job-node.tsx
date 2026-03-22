@@ -21,10 +21,12 @@ function formatScheduleLabel(job: Job): string {
     case "once":
       return "One-time";
     case "interval": {
-      const cfg = job.scheduleConfig as ScheduleConfigInterval;
-      const u =
-        cfg.unit === "minutes" ? "min" : cfg.unit === "hours" ? "hr" : "day";
-      return `Every ${cfg.amount} ${u}${cfg.amount > 1 ? "s" : ""}`;
+      const raw = job.scheduleConfig as ScheduleConfigInterval & { minutes?: number };
+      // Support legacy { minutes } format from planner/chat
+      const amount = raw.amount ?? (raw.minutes != null ? (raw.minutes >= 1440 ? raw.minutes / 1440 : raw.minutes >= 60 ? raw.minutes / 60 : raw.minutes) : 1);
+      const unit = raw.unit ?? (raw.minutes != null ? (raw.minutes >= 1440 ? "days" : raw.minutes >= 60 ? "hours" : "minutes") : "days");
+      const u = unit === "minutes" ? "min" : unit === "hours" ? "hr" : "day";
+      return `Every ${amount} ${u}${amount > 1 ? "s" : ""}`;
     }
     case "cron":
       return "Cron";
@@ -56,7 +58,7 @@ const dotColor: Record<RunStatus, string> = {
   succeeded: "bg-emerald-500",
   failed: "bg-red-500",
   permanent_failure: "bg-red-500",
-  running: "bg-orange-500",
+  running: "bg-blue-500",
   queued: "bg-zinc-400",
   cancelled: "bg-zinc-500",
 };
@@ -65,8 +67,8 @@ function RunDot({ status }: { status: RunStatus }) {
   if (status === "running") {
     return (
       <span className="relative flex size-2" title="Running">
-        <span className="absolute inline-flex size-full animate-ping rounded-full bg-orange-400 opacity-75" />
-        <span className="relative inline-flex size-2 rounded-full bg-orange-500" />
+        <span className="absolute inline-flex size-full animate-ping rounded-full bg-blue-400 opacity-75" />
+        <span className="relative inline-flex size-2 rounded-full bg-blue-500" />
       </span>
     );
   }

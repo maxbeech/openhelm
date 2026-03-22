@@ -96,7 +96,20 @@ export function WelcomeStep({ onNext }: { onNext: () => void }) {
           </div>
         </RadioGroup>
       </div>
-      <Button onClick={onNext} size="lg" className="mt-8">
+      <Button
+        onClick={() => {
+          // Always persist the chosen level (even if the default was never changed)
+          api
+            .setSetting({ key: "notification_level", value: notifLevel })
+            .catch(() => {});
+          if (notifLevel !== "never") {
+            ensureNotificationPermission().catch(() => {});
+          }
+          onNext();
+        }}
+        size="lg"
+        className="mt-8"
+      >
         Let's get started
       </Button>
     </div>

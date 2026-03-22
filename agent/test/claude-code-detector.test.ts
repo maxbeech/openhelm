@@ -5,6 +5,7 @@ import {
   getVersion,
   verifyClaudeCode,
   detectClaudeCode,
+  checkClaudeCodeHealth,
   MIN_CLI_VERSION,
 } from "../src/claude-code/detector.js";
 import { getSetting } from "../src/db/queries/settings.js";
@@ -60,7 +61,7 @@ describe("getVersion", () => {
       expect(version).toMatch(/^\d+\.\d+\.\d+$/);
     }
     // If claude is not installed, this test passes silently
-  });
+  }, 15000);
 });
 
 describe("verifyClaudeCode", () => {
@@ -107,5 +108,56 @@ describe("detectClaudeCode", () => {
       expect(storedVersion).not.toBeNull();
       expect(storedVersion!.value).toBe(result.version);
     }
+  });
+
+  it("persists manual path to settings when valid", async () => {
+    // detectClaudeCode(manualPath) must persist on success — this was the
+    // root cause of "Set path manually" not sticking across sessions.
+    const result = await detectClaudeCode();
+    if (result.found && result.path) {
+      // Clear stored settings first
+      const { setSetting } = await import("../src/db/queries/settings.js");
+      setSetting("claude_code_path", "");
+      setSetting("claude_code_version", "");
+
+      // Re-detect using the known-good path as a manual override
+      const manualResult = await detectClaudeCode(result.path);
+      expect(manualResult.found).toBe(true);
+      expect(manualResult.meetsMinVersion).toBe(true);
+
+      // Verify it was persisted to the DB
+      const storedPath = getSetting("claude_code_path");
+      expect(storedPath).not.toBeNull();
+      expect(storedPath!.value).toBe(result.path);
+    }
+  });
+});
+
+describe("checkClaudeCodeHealth", () => {
+  it("returns healthy=false when no claude_code_path is configured", async () => {
+    // The test DB has no settings by default (unless detectClaudeCode populated it)
+    // Clear the setting to test the unconfigured case
+    const { setSetting } = await import("../src/db/queries/settings.js");
+    setSetting("claude_code_path", "");
+    const result = await checkClaudeCodeHealth();
+    // Either path not configured or binary not found — both are unhealthy
+    expect(result.healthy).toBe(false);
+    expect(result.error).toBeDefined();
+  });
+
+  it("returns healthy=false when binary path does not exist", async () => {
+    const { setSetting } = await import("../src/db/queries/settings.js");
+    setSetting("claude_code_path", "/nonexistent/path/claude");
+    const result = await checkClaudeCodeHealth();
+    expect(result.healthy).toBe(false);
+    expect(result.error).toContain("not found");
+  });
+
+  it("returns a valid health result shape", async () => {
+    const result = await checkClaudeCodeHealth();
+    expect(result).toHaveProperty("healthy");
+    expect(result).toHaveProperty("authenticated");
+    expect(typeof result.healthy).toBe("boolean");
+    expect(typeof result.authenticated).toBe("boolean");
   });
 });

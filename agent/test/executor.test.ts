@@ -43,6 +43,14 @@ vi.mock("../src/planner/failure-analyzer.js", () => ({
 
 vi.mock("../src/planner/summarize.js", () => ({
   generateRunSummary: vi.fn().mockResolvedValue(null),
+  collectRunLogs: vi.fn().mockReturnValue(""),
+  truncateLogsForAnalysis: vi.fn().mockReturnValue(""),
+  truncateLogs: vi.fn().mockReturnValue(""),
+}));
+
+// Mock memory extraction — not under test here
+vi.mock("../src/memory/run-extractor.js", () => ({
+  extractMemoriesFromRun: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock Sentry — keep analytics disabled in tests

@@ -31,6 +31,12 @@ describe("formatSchedule", () => {
     expect(formatSchedule("interval", { minutes: 90 })).toBe("Every 1h 30m");
   });
 
+  it("formats canonical interval with amount and unit", () => {
+    expect(formatSchedule("interval", { amount: 1, unit: "days" })).toBe("Every 1 day");
+    expect(formatSchedule("interval", { amount: 2, unit: "hours" })).toBe("Every 2 hours");
+    expect(formatSchedule("interval", { amount: 30, unit: "minutes" })).toBe("Every 30 minutes");
+  });
+
   it("formats daily cron", () => {
     expect(formatSchedule("cron", { expression: "0 9 * * *" })).toBe(
       "Daily at 9:00",

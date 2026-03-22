@@ -44,7 +44,7 @@ describe("job queries", () => {
     expect(job.goalId).toBeNull();
     expect(job.name).toBe("Interval Job");
     expect(job.scheduleType).toBe("interval");
-    expect(job.scheduleConfig).toEqual({ minutes: 60 });
+    expect(job.scheduleConfig).toEqual({ amount: 1, unit: "hours" });
     expect(job.isEnabled).toBe(true);
     expect(job.nextFireAt).toBeDefined();
 
@@ -154,7 +154,7 @@ describe("job queries", () => {
     expect(fetched).not.toBeNull();
     expect(fetched!.id).toBe(created.id);
     // Verify scheduleConfig is deserialized
-    expect(fetched!.scheduleConfig).toEqual({ minutes: 15 });
+    expect(fetched!.scheduleConfig).toEqual({ amount: 15, unit: "minutes" });
   });
 
   it("should list jobs with filters", () => {
@@ -182,7 +182,7 @@ describe("job queries", () => {
     });
 
     expect(updated.prompt).toBe("Updated prompt");
-    expect(updated.scheduleConfig).toEqual({ minutes: 120 });
+    expect(updated.scheduleConfig).toEqual({ amount: 2, unit: "hours" });
 
     // nextFireAt should now be ~120 minutes out
     const nextFire = new Date(updated.nextFireAt!);

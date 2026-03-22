@@ -81,5 +81,18 @@ function adjustScheduleConfig(planned: PlannedJob): PlannedJob["scheduleConfig"]
   if (planned.scheduleType === "once") {
     return { fireAt: new Date(Date.now() + ONCE_FIRE_BUFFER_MS).toISOString() } satisfies ScheduleConfigOnce;
   }
+  // Normalize legacy { minutes } interval format to { amount, unit }
+  if (planned.scheduleType === "interval") {
+    const cfg = planned.scheduleConfig as Record<string, unknown>;
+    if ("minutes" in cfg && !("unit" in cfg)) {
+      const mins = cfg.minutes as number;
+      if (mins >= 1440 && mins % 1440 === 0) {
+        return { amount: mins / 1440, unit: "days" };
+      } else if (mins >= 60 && mins % 60 === 0) {
+        return { amount: mins / 60, unit: "hours" };
+      }
+      return { amount: mins, unit: "minutes" };
+    }
+  }
   return planned.scheduleConfig;
 }

@@ -65,13 +65,13 @@ Respond with a JSON object in this exact format:
       "prompt": "The full, self-contained prompt that Claude Code will receive",
       "rationale": "One sentence explaining why this job is needed for the goal",
       "scheduleType": "once|interval|cron",
-      "scheduleConfig": { "fireAt": "..." } | { "minutes": N } | { "expression": "..." }
+      "scheduleConfig": { "fireAt": "..." } | { "amount": N, "unit": "minutes"|"hours"|"days" } | { "expression": "..." }
     }
   ]
 }
 
 For once-jobs, set scheduleConfig to { "fireAt": "<current ISO datetime>" }.
-For interval jobs, set scheduleConfig to { "minutes": N } where N >= 60.
+For interval jobs, set scheduleConfig to { "amount": N, "unit": "minutes"|"hours"|"days" } where the interval is at least 60 minutes.
 For cron jobs, set scheduleConfig to { "expression": "<cron>" }.
 
 Respond with ONLY the JSON object. No markdown fences, no explanation.`;
@@ -133,14 +133,14 @@ If the goal is clear enough to plan:
         "prompt": "The full, self-contained prompt that Claude Code will receive",
         "rationale": "One sentence explaining why this job is needed",
         "scheduleType": "once|interval|cron",
-        "scheduleConfig": { "fireAt": "..." } | { "minutes": N } | { "expression": "..." }
+        "scheduleConfig": { "fireAt": "..." } | { "amount": N, "unit": "minutes"|"hours"|"days" } | { "expression": "..." }
       }
     ]
   }
 }
 
 For once-jobs, set scheduleConfig to { "fireAt": "<current ISO datetime>" }.
-For interval jobs, set scheduleConfig to { "minutes": N } where N >= 60.
+For interval jobs, set scheduleConfig to { "amount": N, "unit": "minutes"|"hours"|"days" } where the interval is at least 60 minutes.
 For cron jobs, set scheduleConfig to { "expression": "<cron>" }.
 
 Respond with ONLY the JSON object. No markdown fences, no explanation.`;

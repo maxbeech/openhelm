@@ -42,6 +42,14 @@ vi.mock("../src/executor/failure-triage.js", () => ({
 // Mock summarize
 vi.mock("../src/planner/summarize.js", () => ({
   generateRunSummary: vi.fn().mockResolvedValue(null),
+  collectRunLogs: vi.fn().mockReturnValue(""),
+  truncateLogsForAnalysis: vi.fn().mockReturnValue(""),
+  truncateLogs: vi.fn().mockReturnValue(""),
+}));
+
+// Mock memory extraction — not under test here
+vi.mock("../src/memory/run-extractor.js", () => ({
+  extractMemoriesFromRun: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { attemptSelfCorrection } from "../src/executor/self-correction.js";

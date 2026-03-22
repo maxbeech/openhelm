@@ -1,4 +1,4 @@
-import { Trash2, X } from "lucide-react";
+import { AlertTriangle, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chat-store";
 import { useAppStore } from "@/stores/app-store";
@@ -15,11 +15,13 @@ export function ChatPanel({ projectId }: ChatPanelProps) {
   const {
     messages,
     sending,
+    error,
     panelOpen,
     closePanel,
     sendMessage,
     clearChat,
   } = useChatStore();
+  const clearError = () => useChatStore.setState({ error: null });
 
   const { selectedGoalId, selectedJobId, selectedRunId, contentView } =
     useAppStore();
@@ -90,6 +92,21 @@ export function ChatPanel({ projectId }: ChatPanelProps) {
         sending={sending}
         projectId={projectId}
       />
+
+      {/* Error banner */}
+      {error && (
+        <div className="flex items-start gap-2 border-t border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+          <span className="flex-1">{error}</span>
+          <button
+            type="button"
+            onClick={clearError}
+            className="shrink-0 text-destructive/60 hover:text-destructive"
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      )}
 
       {/* Input */}
       <ChatInput onSend={handleSend} disabled={sending} />

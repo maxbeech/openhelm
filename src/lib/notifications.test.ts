@@ -1,14 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { InboxItem } from "@openhelm/shared";
 
-const mockSendNotification = vi.fn();
-const mockIsPermissionGranted = vi.fn();
-const mockRequestPermission = vi.fn();
+const mockInvoke = vi.fn();
 
-vi.mock("@tauri-apps/plugin-notification", () => ({
-  get sendNotification() { return mockSendNotification; },
-  get isPermissionGranted() { return mockIsPermissionGranted; },
-  get requestPermission() { return mockRequestPermission; },
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => mockInvoke(...args),
 }));
 
 vi.mock("./api", () => ({
@@ -35,8 +31,7 @@ const baseItem: InboxItem = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockIsPermissionGranted.mockResolvedValue(true);
-  mockRequestPermission.mockResolvedValue("granted");
+  mockInvoke.mockResolvedValue(undefined);
   vi.mocked(api.setSetting).mockResolvedValue({} as never);
 });
 
@@ -44,7 +39,8 @@ describe("notifyInboxItem", () => {
   it("sends notification when level is 'alerts_only'", async () => {
     vi.mocked(api.getSetting).mockResolvedValue({ value: "alerts_only" } as never);
     await notifyInboxItem(baseItem);
-    expect(mockSendNotification).toHaveBeenCalledWith(
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "send_notification",
       expect.objectContaining({ title: "Run Failed Permanently" }),
     );
   });
@@ -52,25 +48,26 @@ describe("notifyInboxItem", () => {
   it("sends notification when level is 'on_finish'", async () => {
     vi.mocked(api.getSetting).mockResolvedValue({ value: "on_finish" } as never);
     await notifyInboxItem(baseItem);
-    expect(mockSendNotification).toHaveBeenCalled();
+    expect(mockInvoke).toHaveBeenCalledWith("send_notification", expect.anything());
   });
 
   it("does not send notification when level is 'never'", async () => {
     vi.mocked(api.getSetting).mockResolvedValue({ value: "never" } as never);
     await notifyInboxItem(baseItem);
-    expect(mockSendNotification).not.toHaveBeenCalled();
+    expect(mockInvoke).not.toHaveBeenCalledWith("send_notification", expect.anything());
   });
 
   it("defaults to 'alerts_only' when setting is not set", async () => {
     vi.mocked(api.getSetting).mockResolvedValue(null as never);
     await notifyInboxItem(baseItem);
-    expect(mockSendNotification).toHaveBeenCalled();
+    expect(mockInvoke).toHaveBeenCalledWith("send_notification", expect.anything());
   });
 
   it("uses 'Input Required' title for human_in_loop items", async () => {
     vi.mocked(api.getSetting).mockResolvedValue({ value: "alerts_only" } as never);
     await notifyInboxItem({ ...baseItem, type: "human_in_loop" });
-    expect(mockSendNotification).toHaveBeenCalledWith(
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "send_notification",
       expect.objectContaining({ title: "Input Required" }),
     );
   });
@@ -80,7 +77,8 @@ describe("notifyRunCompleted", () => {
   it("sends notification when level is 'on_finish'", async () => {
     vi.mocked(api.getSetting).mockResolvedValue({ value: "on_finish" } as never);
     await notifyRunCompleted("succeeded", "My Job");
-    expect(mockSendNotification).toHaveBeenCalledWith(
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "send_notification",
       expect.objectContaining({ title: '"My Job" succeeded' }),
     );
   });
@@ -88,19 +86,20 @@ describe("notifyRunCompleted", () => {
   it("does not send notification when level is 'alerts_only'", async () => {
     vi.mocked(api.getSetting).mockResolvedValue({ value: "alerts_only" } as never);
     await notifyRunCompleted("succeeded", "My Job");
-    expect(mockSendNotification).not.toHaveBeenCalled();
+    expect(mockInvoke).not.toHaveBeenCalledWith("send_notification", expect.anything());
   });
 
   it("does not send notification when level is 'never'", async () => {
     vi.mocked(api.getSetting).mockResolvedValue({ value: "never" } as never);
     await notifyRunCompleted("failed", "My Job");
-    expect(mockSendNotification).not.toHaveBeenCalled();
+    expect(mockInvoke).not.toHaveBeenCalledWith("send_notification", expect.anything());
   });
 
   it("uses failed status in title when run did not succeed", async () => {
     vi.mocked(api.getSetting).mockResolvedValue({ value: "on_finish" } as never);
     await notifyRunCompleted("failed", "Build Job");
-    expect(mockSendNotification).toHaveBeenCalledWith(
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "send_notification",
       expect.objectContaining({ title: '"Build Job" finished (failed)' }),
     );
   });
@@ -108,35 +107,21 @@ describe("notifyRunCompleted", () => {
   it("includes summary in notification body when provided", async () => {
     vi.mocked(api.getSetting).mockResolvedValue({ value: "on_finish" } as never);
     await notifyRunCompleted("succeeded", "My Job", "All tests passed.");
-    expect(mockSendNotification).toHaveBeenCalledWith(
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "send_notification",
       expect.objectContaining({ body: "All tests passed." }),
     );
   });
 });
 
 describe("ensureNotificationPermission", () => {
-  it("requests permission when not already granted and not previously requested", async () => {
-    vi.mocked(api.getSetting).mockResolvedValue(null as never);
-    mockIsPermissionGranted.mockResolvedValue(false);
+  it("invokes request_notification_permission", async () => {
     await ensureNotificationPermission();
-    expect(mockRequestPermission).toHaveBeenCalled();
-    expect(api.setSetting).toHaveBeenCalledWith({
-      key: "notification_permission_requested",
-      value: "true",
-    });
+    expect(mockInvoke).toHaveBeenCalledWith("request_notification_permission");
   });
 
-  it("does not re-request if already requested", async () => {
-    vi.mocked(api.getSetting).mockResolvedValue({ value: "true" } as never);
-    await ensureNotificationPermission();
-    expect(mockRequestPermission).not.toHaveBeenCalled();
-  });
-
-  it("skips requestPermission if already granted", async () => {
-    vi.mocked(api.getSetting).mockResolvedValue(null as never);
-    mockIsPermissionGranted.mockResolvedValue(true);
-    await ensureNotificationPermission();
-    expect(mockRequestPermission).not.toHaveBeenCalled();
-    expect(api.setSetting).toHaveBeenCalled();
+  it("does not throw when invoke fails (browser dev mode)", async () => {
+    mockInvoke.mockRejectedValue(new Error("not in Tauri"));
+    await expect(ensureNotificationPermission()).resolves.toBeUndefined();
   });
 });

@@ -488,7 +488,7 @@ export class Executor {
         } else if (scResult.analysisError) {
           // LLM failed but this is NOT "confirmed unfixable" — notify user, keep as "failed"
           console.error(`[executor] self-correction: LLM analysis failed, creating inbox item`);
-          const failedJob = getJob(jobId);
+          const failedJob = getJob(job.id);
           if (failedJob) {
             const item = createInboxItem({
               runId,

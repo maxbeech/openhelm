@@ -33,12 +33,31 @@ function rescheduleWakeLazy(jobId: string, nextFireAt: string | null): void {
     .catch(() => {/* non-fatal */});
 }
 
+function normalizeIntervalConfig(
+  scheduleType: string,
+  config: ScheduleConfig,
+): ScheduleConfig {
+  if (scheduleType !== "interval") return config;
+  const c = config as Record<string, unknown>;
+  if ("minutes" in c && !("unit" in c)) {
+    const mins = c.minutes as number;
+    if (mins >= 1440 && mins % 1440 === 0) {
+      return { amount: mins / 1440, unit: "days" };
+    } else if (mins >= 60 && mins % 60 === 0) {
+      return { amount: mins / 60, unit: "hours" };
+    }
+    return { amount: mins, unit: "minutes" };
+  }
+  return config;
+}
+
 function rowToJob(row: typeof jobs.$inferSelect): Job {
+  const rawConfig = JSON.parse(row.scheduleConfig) as ScheduleConfig;
   return {
     ...row,
     isEnabled: Boolean(row.isEnabled),
     isArchived: Boolean(row.isArchived),
-    scheduleConfig: JSON.parse(row.scheduleConfig) as ScheduleConfig,
+    scheduleConfig: normalizeIntervalConfig(row.scheduleType, rawConfig),
     model: row.model ?? "sonnet",
     modelEffort: (row.modelEffort ?? "medium") as "low" | "medium" | "high",
     permissionMode: (row.permissionMode ?? "bypassPermissions") as Job["permissionMode"],

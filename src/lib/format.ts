@@ -13,14 +13,11 @@ export function formatSchedule(
     case "interval": {
       // Support both legacy { minutes } and new { amount, unit }
       const c = config as { minutes?: number; amount?: number; unit?: string };
-      const minutes =
-        c.minutes !== undefined
-          ? c.minutes
-          : c.unit === "hours"
-            ? (c.amount ?? 1) * 60
-            : c.unit === "days"
-              ? (c.amount ?? 1) * 1440
-              : (c.amount ?? 0);
+      if (c.unit && c.amount != null) {
+        const u = c.unit === "minutes" ? "minute" : c.unit === "hours" ? "hour" : "day";
+        return `Every ${c.amount} ${u}${c.amount > 1 ? "s" : ""}`;
+      }
+      const minutes = c.minutes ?? 0;
       if (minutes < 60) return `Every ${minutes} minutes`;
       if (minutes === 60) return "Every hour";
       if (minutes % 60 === 0) return `Every ${minutes / 60} hours`;

@@ -100,6 +100,7 @@ detectClaudeCode()
   })
   .catch((err) => {
     console.error("[agent] Claude Code detection error:", err);
+    captureAgentError(err, { errorCode: "startupDetection" });
   });
 
 // 7. Start scheduler — connects to executor via callback (unless paused)

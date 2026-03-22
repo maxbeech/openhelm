@@ -17,6 +17,14 @@ export function friendlyError(err: unknown, context: string): string {
     return "The agent is not responding. Try again or restart the app.";
   }
 
+  // Detect auth/login errors and surface a clear message
+  const lower = raw.toLowerCase();
+  if (
+    /not.*log.*in|unauthenticated|unauthorized|expired.*session|sign.?in.*required/i.test(lower)
+  ) {
+    return "Claude Code is not logged in. Run `claude` in your terminal to log in, then try again.";
+  }
+
   // JSON-RPC error codes like "-32001: Some message"
   const rpcMatch = raw.match(/-\d{5}:\s*(.+)/);
   if (rpcMatch) {

@@ -17,21 +17,33 @@ async function getNotificationLevel(): Promise<NotificationLevel> {
   return "alerts_only";
 }
 
+/**
+ * Send a native macOS notification via a custom Tauri command backed by osascript.
+ *
+ * The official `tauri-plugin-notification` desktop path uses `mac-notification-sys`
+ * which relies on `NSUserNotificationCenter` — removed in macOS 14 (Sonoma). Our
+ * custom `send_notification` command runs `osascript -e 'display notification...'`
+ * which routes through the current UNUserNotificationCenter API and works on all
+ * modern macOS versions.
+ */
+async function sendNativeNotification(title: string, body: string): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  console.log("[notifications] invoke send_notification", { title, body });
+  await invoke("send_notification", { title, body });
+}
+
 export async function notifyInboxItem(item: InboxItem): Promise<void> {
   const level = await getNotificationLevel();
   if (level === "never") return;
   // Both "on_finish" and "alerts_only" send inbox alert notifications
   try {
-    const { sendNotification } = await import(
-      "@tauri-apps/plugin-notification"
-    );
     const title =
       item.type === "permanent_failure"
         ? "Run Failed Permanently"
         : "Input Required";
-    sendNotification({ title, body: item.title });
-  } catch {
-    // Tauri-only API — silently ignore in browser dev mode
+    await sendNativeNotification(title, item.title);
+  } catch (err) {
+    console.error("[notifications] notifyInboxItem invoke failed:", err);
   }
 }
 
@@ -43,38 +55,27 @@ export async function notifyRunCompleted(
   const level = await getNotificationLevel();
   if (level !== "on_finish") return;
   try {
-    const { sendNotification } = await import(
-      "@tauri-apps/plugin-notification"
-    );
     const title =
       status === "succeeded"
         ? `"${jobName}" succeeded`
         : `"${jobName}" finished (${status})`;
-    sendNotification({ title, body: summary ?? "" });
-  } catch {
-    // Tauri-only API — silently ignore in browser dev mode
+    console.log("[notifications] sending invoke notify:", { title });
+    await sendNativeNotification(title, summary ?? "");
+    console.log("[notifications] invoke notify succeeded");
+  } catch (err) {
+    console.error("[notifications] notifyRunCompleted invoke failed:", err);
   }
 }
 
 /**
- * Request OS notification permission if not already granted.
- * Persists the fact that permission was requested to avoid repeated prompts.
+ * Request macOS notification permission via our custom Rust command.
+ * Delegates to UNUserNotificationCenter.requestAuthorization inside the app process
+ * so the system prompt is attributed to OpenHelm.
  */
 export async function ensureNotificationPermission(): Promise<void> {
   try {
-    const notifRequested = await api.getSetting(
-      "notification_permission_requested",
-    );
-    if (notifRequested?.value) return;
-    const { isPermissionGranted, requestPermission } = await import(
-      "@tauri-apps/plugin-notification"
-    );
-    const granted = await isPermissionGranted();
-    if (!granted) await requestPermission();
-    await api.setSetting({
-      key: "notification_permission_requested",
-      value: "true",
-    });
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("request_notification_permission");
   } catch {
     // Tauri-only API — silently ignore in browser dev mode
   }

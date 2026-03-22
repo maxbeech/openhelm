@@ -99,7 +99,15 @@ export async function executeWriteTool(call: ChatToolCall, projectId: string): P
         if (scheduleType === "once") {
           scheduleConfig = { fireAt: new Date(Date.now() + 10_000).toISOString() };
         } else if (scheduleType === "interval") {
-          scheduleConfig = { minutes: (a.intervalMinutes as number) ?? 60 };
+          const mins = (a.intervalMinutes as number) ?? 60;
+          // Store in canonical { amount, unit } format
+          if (mins >= 1440 && mins % 1440 === 0) {
+            scheduleConfig = { amount: mins / 1440, unit: "days" };
+          } else if (mins >= 60 && mins % 60 === 0) {
+            scheduleConfig = { amount: mins / 60, unit: "hours" };
+          } else {
+            scheduleConfig = { amount: mins, unit: "minutes" };
+          }
         } else {
           scheduleConfig = { expression: (a.cronExpression as string) ?? "0 9 * * 1" };
         }

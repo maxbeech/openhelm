@@ -126,4 +126,30 @@ describe("ChatPanel", () => {
     render(<ChatPanel projectId="p1" />);
     expect(screen.getByText("Thinking...")).toBeInTheDocument();
   });
+
+  it("displays error banner when chat store has an error", () => {
+    useChatStore.setState({ error: "Claude Code is not logged in." });
+    render(<ChatPanel projectId="p1" />);
+    expect(screen.getByText("Claude Code is not logged in.")).toBeInTheDocument();
+  });
+
+  it("clears error when dismiss button is clicked", () => {
+    useChatStore.setState({ error: "Something went wrong" });
+    render(<ChatPanel projectId="p1" />);
+    expect(screen.getByText("Something went wrong")).toBeInTheDocument();
+
+    // Find and click the dismiss button (the X inside the error banner)
+    const errorBanner = screen.getByText("Something went wrong").closest("div")!;
+    const dismissBtn = errorBanner.querySelector("button:last-child")!;
+    fireEvent.click(dismissBtn);
+
+    expect(useChatStore.getState().error).toBeNull();
+  });
+
+  it("does not show error banner when there is no error", () => {
+    useChatStore.setState({ error: null });
+    render(<ChatPanel projectId="p1" />);
+    // AlertTriangle icon is only present when there's an error
+    expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
+  });
 });

@@ -89,4 +89,73 @@ describe("EmailStep", () => {
     fireEvent.click(checkbox);
     expect(checkbox).not.toBeChecked();
   });
+
+  it("shows 'I've verified' button after email is sent", async () => {
+    render(<EmailStep onNext={vi.fn()} />);
+    await act(async () => {
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: "user@example.com" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send verification/i }));
+    });
+    await waitFor(
+      () => { expect(screen.getByRole("button", { name: /i've verified/i })).toBeInTheDocument(); },
+      { timeout: 3000 },
+    );
+  });
+
+  it("manual continue advances when verified", async () => {
+    checkEmailVerificationMock.mockResolvedValue({ verified: true });
+    const onNext = vi.fn();
+    render(<EmailStep onNext={onNext} />);
+    await act(async () => {
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: "user@example.com" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send verification/i }));
+    });
+    await waitFor(() => screen.getByRole("button", { name: /i've verified/i }), { timeout: 3000 });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /i've verified/i }));
+    });
+    await waitFor(() => expect(onNext).toHaveBeenCalledWith("user@example.com"), { timeout: 3000 });
+  });
+
+  it("manual continue shows error when not yet verified", async () => {
+    checkEmailVerificationMock.mockResolvedValue({ verified: false });
+    render(<EmailStep onNext={vi.fn()} />);
+    await act(async () => {
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: "user@example.com" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send verification/i }));
+    });
+    await waitFor(() => screen.getByRole("button", { name: /i've verified/i }), { timeout: 3000 });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /i've verified/i }));
+    });
+    await waitFor(
+      () => { expect(screen.getByText(/hasn't been verified yet/i)).toBeInTheDocument(); },
+      { timeout: 3000 },
+    );
+  });
+
+  it("manual continue shows error when check throws", async () => {
+    checkEmailVerificationMock.mockRejectedValue(new Error("Network error"));
+    render(<EmailStep onNext={vi.fn()} />);
+    await act(async () => {
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: "user@example.com" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send verification/i }));
+    });
+    await waitFor(() => screen.getByRole("button", { name: /i've verified/i }), { timeout: 3000 });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /i've verified/i }));
+    });
+    await waitFor(
+      () => { expect(screen.getByText(/network error/i)).toBeInTheDocument(); },
+      { timeout: 3000 },
+    );
+  });
 });

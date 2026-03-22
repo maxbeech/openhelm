@@ -116,6 +116,79 @@ fn relaunch_app(app: tauri::AppHandle) {
     app.restart();
 }
 
+/// Send a native macOS notification.
+///
+/// `tauri-plugin-notification` uses `mac-notification-sys` → `NSUserNotificationCenter`
+/// on macOS desktop, which was removed in macOS 14 (Sonoma).
+///
+/// Release builds: invoke `UNUserNotificationCenter` directly — notifications are
+/// attributed to OpenHelm (proper `.app` bundle exists).
+///
+/// Debug builds: `UNUserNotificationCenter.currentNotificationCenter()` crashes when the
+/// process is not running inside a `.app` bundle (the raw `target/debug/openhelm` binary
+/// has no bundle proxy). Fall back to `osascript` which works unconditionally.
+#[tauri::command]
+fn send_notification(title: String, body: String) -> Result<(), String> {
+    #[cfg(all(target_os = "macos", not(debug_assertions)))]
+    {
+        use objc2_foundation::{NSString, NSUUID};
+        use objc2_user_notifications::{
+            UNMutableNotificationContent, UNNotificationContent, UNNotificationRequest,
+            UNUserNotificationCenter,
+        };
+        use std::ops::Deref;
+
+        let center = UNUserNotificationCenter::currentNotificationCenter();
+        let content = UNMutableNotificationContent::new();
+        content.setTitle(&NSString::from_str(&title));
+        content.setBody(&NSString::from_str(&body));
+        let identifier = NSUUID::new().UUIDString();
+        let base_content: &UNNotificationContent = content.deref();
+        let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
+            &identifier,
+            base_content,
+            None,
+        );
+        center.addNotificationRequest_withCompletionHandler(&request, None);
+    }
+
+    // Dev builds: process runs as a raw binary without a bundle proxy; fall back to osascript.
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    {
+        let safe_title = title.replace('\\', "\\\\").replace('"', "\\\"");
+        let safe_body = body.replace('\\', "\\\\").replace('"', "\\\"");
+        let script = format!(r#"display notification "{safe_body}" with title "{safe_title}""#);
+        std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+/// Request macOS notification permission via `UNUserNotificationCenter`.
+/// Only meaningful in release builds where the app runs as a proper `.app` bundle.
+/// In dev builds this is a no-op — osascript handles its own permission flow.
+#[tauri::command]
+fn request_notification_permission() {
+    #[cfg(all(target_os = "macos", not(debug_assertions)))]
+    {
+        use block2::RcBlock;
+        use objc2::runtime::Bool;
+        use objc2_foundation::NSError;
+        use objc2_user_notifications::{UNAuthorizationOptions, UNUserNotificationCenter};
+
+        let center = UNUserNotificationCenter::currentNotificationCenter();
+        let options = UNAuthorizationOptions::Alert
+            | UNAuthorizationOptions::Sound
+            | UNAuthorizationOptions::Badge;
+        let handler = RcBlock::new(|_granted: Bool, _error: *mut NSError| {});
+        center.requestAuthorizationWithOptions_completionHandler(options, &*handler);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -131,6 +204,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             write_to_sidecar,
             relaunch_app,
+            send_notification,
+            request_notification_permission,
         ])
         .on_window_event(|_window, _event| {
             // Window close (red ✕) quits the app normally.

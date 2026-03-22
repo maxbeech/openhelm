@@ -22,8 +22,26 @@ export function EmailStep({ onNext }: EmailStepProps) {
   const [verificationToken, setVerificationToken] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
 
+  const [pollError, setPollError] = useState<string | null>(null);
+  const [manualChecking, setManualChecking] = useState(false);
+
   const pollRef = useRef<NodeJS.Timeout | null>(null);
   const cooldownRef = useRef<NodeJS.Timeout | null>(null);
+
+  const advanceIfVerified = async (token: string): Promise<boolean> => {
+    const status = await api.checkEmailVerification({ token });
+    if (status.verified) {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      await api.setSetting({ key: "user_email", value: email.trim() });
+      await api.setSetting({ key: "newsletter_opt_in", value: String(newsletterOptIn) });
+      onNext(email.trim());
+      return true;
+    }
+    return false;
+  };
 
   // Poll for email verification once we have a token
   useEffect(() => {
@@ -31,24 +49,34 @@ export function EmailStep({ onNext }: EmailStepProps) {
 
     pollRef.current = setInterval(async () => {
       try {
-        const status = await api.checkEmailVerification({ token: verificationToken });
-        if (status.verified) {
-          clearInterval(pollRef.current!);
-          pollRef.current = null;
-          // Save email + newsletter opt-in settings
-          await api.setSetting({ key: "user_email", value: email.trim() });
-          await api.setSetting({ key: "newsletter_opt_in", value: String(newsletterOptIn) });
-          onNext(email.trim());
-        }
-      } catch {
-        // Ignore transient poll errors
+        await advanceIfVerified(verificationToken);
+      } catch (err) {
+        console.error("[email-step] poll error:", err);
+        setPollError(err instanceof Error ? err.message : "Verification check failed");
       }
     }, POLL_INTERVAL_MS);
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [verificationToken, email, newsletterOptIn, onNext]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verificationToken]);
+
+  const handleManualContinue = async () => {
+    if (!verificationToken) return;
+    setManualChecking(true);
+    setPollError(null);
+    try {
+      const advanced = await advanceIfVerified(verificationToken);
+      if (!advanced) {
+        setPollError("Your email hasn't been verified yet — please click the link in your inbox first.");
+      }
+    } catch (err) {
+      setPollError(err instanceof Error ? err.message : "Verification check failed. Please try again.");
+    } finally {
+      setManualChecking(false);
+    }
+  };
 
   // Resend cooldown countdown
   useEffect(() => {
@@ -111,7 +139,18 @@ export function EmailStep({ onNext }: EmailStepProps) {
         <p className="mt-1 text-xs text-muted-foreground">
           Check your spam folder if you don't see it.
         </p>
-        <div className="mt-6 flex flex-col items-center gap-2">
+        <div className="mt-6 flex flex-col items-center gap-3">
+          <Button
+            size="sm"
+            onClick={handleManualContinue}
+            disabled={manualChecking}
+            className="w-full max-w-xs"
+          >
+            {manualChecking ? "Checking…" : "I've verified my email"}
+          </Button>
+          {pollError && (
+            <p className="text-xs text-destructive text-center max-w-xs">{pollError}</p>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -128,6 +167,7 @@ export function EmailStep({ onNext }: EmailStepProps) {
             className="text-xs text-muted-foreground"
             onClick={() => {
               setVerificationToken(null);
+              setPollError(null);
               if (pollRef.current) clearInterval(pollRef.current);
             }}
           >

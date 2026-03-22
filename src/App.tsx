@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import logoSvg from "./assets/logo.svg";
 import { RefreshCw } from "lucide-react";
 import { agentClient } from "./lib/agent-client";
@@ -125,6 +125,11 @@ export default function App() {
 
   const activeProject = projects.find((p) => p.id === activeProjectId);
 
+  // Track which run IDs we've already notified to prevent duplicate notifications.
+  // The agent can emit run.statusChanged multiple times for the same run (e.g. once
+  // when the executor finishes and once after memory extraction updates the run).
+  const notifiedRunIds = useRef<Set<string>>(new Set());
+
   // Global run event handlers
   const handleRunCreated = useCallback(() => {
     fetchRuns(activeProjectId);
@@ -156,7 +161,8 @@ export default function App() {
         "failed",
         "permanent_failure",
       ];
-      if (terminalStatuses.includes(data.status)) {
+      if (terminalStatuses.includes(data.status) && !notifiedRunIds.current.has(data.runId)) {
+        notifiedRunIds.current.add(data.runId);
         const run = useRunStore
           .getState()
           .runs.find((r) => r.id === data.runId);
@@ -421,9 +427,9 @@ export default function App() {
     }
   }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns, fetchMessages, fetchMemories, fetchMemoryCount, fetchInboxItems, fetchInboxCount]);
 
-  // Request notification permission on startup (skipped if level is "never")
+  // Request notification permission on startup (only after onboarding, skipped if level is "never")
   useEffect(() => {
-    if (!agentReady || initialLoading) return;
+    if (!agentReady || initialLoading || !onboardingComplete) return;
     (async () => {
       try {
         const level = await api.getSetting("notification_level");
@@ -433,7 +439,7 @@ export default function App() {
         console.error("Failed to request notification permission:", err);
       }
     })();
-  }, [agentReady, initialLoading]);
+  }, [agentReady, initialLoading, onboardingComplete]);
 
   const handleOnboardingComplete = useCallback(
     (projectId: string) => {

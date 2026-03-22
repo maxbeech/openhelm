@@ -44,4 +44,25 @@ describe("friendlyError", () => {
   it("handles null/undefined error values", () => {
     expect(friendlyError(undefined, "Context")).toBe("Context: undefined");
   });
+
+  it("detects auth/login errors and returns friendly message", () => {
+    const err = new Error("[-32001] Claude Code exited with code 1: Error: not logged in");
+    expect(friendlyError(err, "Failed")).toBe(
+      "Claude Code is not logged in. Run `claude` in your terminal to log in, then try again.",
+    );
+  });
+
+  it("detects unauthenticated errors", () => {
+    const err = new Error("Unauthenticated: session expired");
+    expect(friendlyError(err, "Failed")).toBe(
+      "Claude Code is not logged in. Run `claude` in your terminal to log in, then try again.",
+    );
+  });
+
+  it("detects expired session errors", () => {
+    const err = new Error("Error: expired session token");
+    expect(friendlyError(err, "Failed")).toBe(
+      "Claude Code is not logged in. Run `claude` in your terminal to log in, then try again.",
+    );
+  });
 });

@@ -1,5 +1,6 @@
 import { execFile } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, readdirSync } from "fs";
+import { join } from "path";
 import { promisify } from "util";
 import type { ClaudeCodeDetectionResult } from "@openhelm/shared";
 import { getSetting, setSetting } from "../db/queries/settings.js";
@@ -15,12 +16,14 @@ const SEARCH_LOCATIONS = [
   "/opt/homebrew/bin/claude",
   // Homebrew (Intel)
   "/usr/local/bin/claude",
-  // Common npm global install (nvm)
+  // Common npm global install (nvm) — glob resolved at runtime
   `${process.env.HOME}/.nvm/versions/node/*/bin/claude`,
   // Common npm global install (system)
   "/usr/local/lib/node_modules/.bin/claude",
   // npm global bin
   `${process.env.HOME}/.npm-global/bin/claude`,
+  // pip / pipx / manual installs
+  `${process.env.HOME}/.local/bin/claude`,
 ];
 
 /**
@@ -56,13 +59,37 @@ async function findViaWhich(): Promise<string | null> {
 }
 
 /**
+ * Expand a simple glob pattern with a single `*` segment.
+ * Example: ~/.nvm/versions/node/{star}/bin/claude
+ * Returns matching paths that exist on disk, or an empty array.
+ */
+function expandGlob(pattern: string): string[] {
+  const starIdx = pattern.indexOf("*");
+  if (starIdx === -1) return existsSync(pattern) ? [pattern] : [];
+
+  const dir = pattern.slice(0, pattern.lastIndexOf("/", starIdx));
+  const suffix = pattern.slice(pattern.indexOf("/", starIdx) + 1); // everything after */
+
+  try {
+    return readdirSync(dir)
+      .map((entry) => join(dir, entry, suffix))
+      .filter((p) => existsSync(p));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Try to find the Claude Code binary in common install locations.
  * Returns the first existing path, or null.
  */
 function findInLocations(): string | null {
   for (const loc of SEARCH_LOCATIONS) {
-    // Handle glob patterns (e.g. nvm paths)
-    if (loc.includes("*")) continue;
+    if (loc.includes("*")) {
+      const expanded = expandGlob(loc);
+      if (expanded.length > 0) return expanded[0];
+      continue;
+    }
     if (existsSync(loc)) return loc;
   }
   return null;
@@ -185,6 +212,73 @@ export async function detectClaudeCode(
     error:
       "Claude Code CLI not found. Install it with: npm install -g @anthropic-ai/claude-code",
   };
+}
+
+export interface ClaudeCodeHealthResult {
+  healthy: boolean;
+  authenticated: boolean;
+  error?: string;
+}
+
+/**
+ * Check if Claude Code is actually functional (authenticated and able to run).
+ * Runs a minimal `--print` call to verify the session is active.
+ */
+export async function checkClaudeCodeHealth(): Promise<ClaudeCodeHealthResult> {
+  const pathSetting = getSetting("claude_code_path");
+  if (!pathSetting?.value) {
+    return {
+      healthy: false,
+      authenticated: false,
+      error: "Claude Code CLI path is not configured.",
+    };
+  }
+
+  if (!existsSync(pathSetting.value)) {
+    return {
+      healthy: false,
+      authenticated: false,
+      error: "Claude Code CLI not found at the configured path.",
+    };
+  }
+
+  try {
+    const env = { ...process.env };
+    delete env.CLAUDECODE;
+
+    const { stdout, stderr } = await execFileAsync(
+      pathSetting.value,
+      ["--print", "--output-format", "text", "--model", "claude-haiku-4-5-20251001", "--no-session-persistence", "--tools", "", "Reply with OK"],
+      { timeout: 30_000, env },
+    );
+
+    const output = stdout.trim();
+    if (output.length > 0) {
+      return { healthy: true, authenticated: true };
+    }
+
+    // Empty output — likely an auth issue
+    return {
+      healthy: false,
+      authenticated: false,
+      error: stderr.trim() || "Claude Code returned empty output. You may need to log in again.",
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const stderr = (err as { stderr?: string })?.stderr?.trim() ?? "";
+
+    // Detect common auth-related error patterns
+    const isAuthError =
+      /not.*log.*in|auth|unauthenticated|unauthorized|expired|sign.?in|session/i.test(msg + stderr);
+
+    return {
+      healthy: false,
+      authenticated: !isAuthError,
+      error: isAuthError
+        ? "Claude Code is not logged in. Run `claude` in your terminal to log in."
+        : `Claude Code health check failed: ${stderr || msg}`.slice(0, 300),
+    };
+  }
 }
 
 /** Persist detection results to the settings table */
