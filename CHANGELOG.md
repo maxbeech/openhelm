@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.17] - 2026-03-24
+
+### Fixed
+- Fix execFileAsync bug in agent sidecar
+
 ## [0.1.16] - 2026-03-24
 
 ### Fixed
