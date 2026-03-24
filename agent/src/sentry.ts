@@ -7,6 +7,9 @@
 import * as Sentry from "@sentry/node";
 import { getSetting } from "./db/queries/settings.js";
 
+// Injected at build time by esbuild define — see agent/scripts/build.mjs
+declare const __OPENHELM_VERSION__: string;
+
 // Whitelisted extra keys — anything else is stripped in beforeSend
 const ALLOWED_EXTRA_KEYS = new Set([
   "runId",
@@ -14,6 +17,8 @@ const ALLOWED_EXTRA_KEYS = new Set([
   "exitCode",
   "method",
   "errorCode",
+  "healthCheckStderr",
+  "healthCheckCode",
 ]);
 
 // Synchronous enabled flag — set during init, read in captureAgentError / addAgentBreadcrumb
@@ -29,7 +34,7 @@ export function initAgentSentry(): void {
       dsn: process.env.SENTRY_DSN ?? "",
       environment:
         process.env.NODE_ENV === "production" ? "production" : "development",
-      release: "openhelm@0.1.0",
+      release: `openhelm@${typeof __OPENHELM_VERSION__ !== "undefined" ? __OPENHELM_VERSION__ : "unknown"}`,
       tracesSampleRate: 0.1,
       skipOpenTelemetrySetup: true,
       integrations: [
@@ -64,22 +69,36 @@ export function initAgentSentry(): void {
   }
 }
 
-/** Capture an exception in Sentry with optional whitelisted context. No-op when disabled. */
+// Deduplicate errors within a session: map of fingerprint → last-reported timestamp
+const _reported = new Map<string, number>();
+const DEDUP_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+/** Capture an exception in Sentry with optional whitelisted context. No-op when disabled.
+ *  Deduplicates identical errors within a 5-minute window to avoid flooding Sentry. */
 export function captureAgentError(
   err: unknown,
   context?: Record<string, unknown>,
 ): void {
   if (!_enabled) return;
   try {
+    const error = err instanceof Error ? err : new Error(String(err));
+    const fingerprint = `${context?.errorCode ?? "unknown"}:${error.message}`;
+    const now = Date.now();
+    const last = _reported.get(fingerprint) ?? 0;
+    if (now - last < DEDUP_WINDOW_MS) return; // already reported recently
+    _reported.set(fingerprint, now);
+
     Sentry.withScope((scope) => {
       if (context) {
         for (const [k, v] of Object.entries(context)) {
           if (ALLOWED_EXTRA_KEYS.has(k)) scope.setExtra(k, v);
         }
+        // Set errorCode as a tag for easy Sentry filtering
+        if (typeof context.errorCode === "string") {
+          scope.setTag("errorCode", context.errorCode);
+        }
       }
-      Sentry.captureException(
-        err instanceof Error ? err : new Error(String(err)),
-      );
+      Sentry.captureException(error);
     });
   } catch {
     // Swallow — Sentry must never crash the agent

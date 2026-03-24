@@ -6,6 +6,10 @@ import { fileURLToPath } from "url";
 
 const isWatch = process.argv.includes("--watch");
 
+// Read version from package.json for build-time baking
+import { readFileSync } from "fs";
+const _pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+
 /** @type {import('esbuild').BuildOptions} */
 const options = {
   entryPoints: ["src/index.ts"],
@@ -30,6 +34,8 @@ const options = {
   // Falls back to empty string if not set at build time (Sentry init handles gracefully).
   define: {
     "process.env.SENTRY_DSN": JSON.stringify(process.env.SENTRY_DSN || ""),
+    // Bake version into the bundle so Sentry reports the correct release at runtime
+    "__OPENHELM_VERSION__": JSON.stringify(_pkg.version),
   },
 };
 
@@ -109,10 +115,7 @@ if (isWatch) {
   if (process.env.SENTRY_AUTH_TOKEN) {
     const { execFileSync } = await import("child_process");
     try {
-      // Read version from package.json for the release name
-      const { readFileSync } = await import("fs");
-      const pkg = JSON.parse(readFileSync(resolve(__dirname, "..", "package.json"), "utf8"));
-      const release = `openhelm@${pkg.version}`;
+      const release = `openhelm@${_pkg.version}`;
       execFileSync(
         "sentry-cli",
         [

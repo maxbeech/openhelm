@@ -1,4 +1,4 @@
-import { execFile } from "child_process";
+import { execFile, spawn } from "child_process";
 import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { promisify } from "util";
@@ -242,45 +242,77 @@ export async function checkClaudeCodeHealth(): Promise<ClaudeCodeHealthResult> {
     };
   }
 
-  try {
+  return new Promise((resolve) => {
     const env = { ...process.env };
     delete env.CLAUDECODE;
 
-    const { stdout, stderr } = await execFileAsync(
+    const child = spawn(
       pathSetting.value,
       ["--print", "--output-format", "text", "--model", "claude-haiku-4-5-20251001", "--tools", ""],
-      { timeout: 30_000, env, input: "Reply with OK" },
+      { env, stdio: ["pipe", "pipe", "pipe"] },
     );
 
-    const output = stdout.trim();
-    if (output.length > 0) {
-      return { healthy: true, authenticated: true };
-    }
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
 
-    // Empty output — likely an auth issue
-    return {
-      healthy: false,
-      authenticated: false,
-      error: stderr.trim() || "Claude Code returned empty output. You may need to log in again.",
-    };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const stderr = (err as { stderr?: string })?.stderr?.trim() ?? "";
+    child.stdout.on("data", (d: Buffer) => stdoutChunks.push(d.toString()));
+    child.stderr.on("data", (d: Buffer) => stderrChunks.push(d.toString()));
 
-    // Detect common auth-related error patterns.
-    // Only check stderr (not msg) — msg includes command args like
-    // "--no-session-persistence" which cause false positives.
-    const isAuthError =
-      /not\s+logged\s+in|unauthenticated|unauthorized|session\s+expired|sign[\s-]?in\s+required|login\s+required|please\s+(log|sign)\s+in/i.test(stderr);
+    // Write prompt via stdin — execFileAsync's `input` option is silently ignored
+    // (only sync variants support it). Using spawn + stdin.write is the reliable approach.
+    child.stdin.write("Reply with OK");
+    child.stdin.end();
 
-    return {
-      healthy: false,
-      authenticated: !isAuthError,
-      error: isAuthError
-        ? "Claude Code is not logged in. Run `claude` in your terminal to log in."
-        : `Claude Code health check failed: ${stderr || msg}`.slice(0, 300),
-    };
-  }
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      resolve({
+        healthy: false,
+        authenticated: false,
+        error: "Claude Code health check timed out after 30s.",
+      });
+    }, 30_000);
+
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const stdout = stdoutChunks.join("").trim();
+      const stderr = stderrChunks.join("").trim();
+
+      if (stdout.length > 0) {
+        resolve({ healthy: true, authenticated: true });
+        return;
+      }
+
+      // Detect common auth-related error patterns.
+      // Only check stderr — it avoids false positives from command args in error messages.
+      const isAuthError =
+        /not\s+logged\s+in|unauthenticated|unauthorized|session\s+expired|sign[\s-]?in\s+required|login\s+required|please\s+(log|sign)\s+in/i.test(stderr);
+
+      if (isAuthError) {
+        resolve({
+          healthy: false,
+          authenticated: false,
+          error: "Claude Code is not logged in. Run `claude` in your terminal to log in.",
+        });
+        return;
+      }
+
+      const detail = stderr || `exited with code ${code}`;
+      resolve({
+        healthy: false,
+        authenticated: true,
+        error: `Claude Code health check failed: ${detail}`.slice(0, 300),
+      });
+    });
+
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({
+        healthy: false,
+        authenticated: false,
+        error: `Claude Code health check failed: ${err.message}`.slice(0, 300),
+      });
+    });
+  });
 }
 
 /** Persist detection results to the settings table */
