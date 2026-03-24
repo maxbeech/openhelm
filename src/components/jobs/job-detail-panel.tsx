@@ -5,10 +5,11 @@ import { Separator } from "@/components/ui/separator";
 import { X, Play, Clock, AlertTriangle, Archive, ArchiveRestore, Trash2, CalendarClock } from "lucide-react";
 import { RunStatusBadge } from "@/components/shared/status-badge";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { TokensChart } from "@/components/shared/tokens-chart";
 import { useJobStore } from "@/stores/job-store";
 import { useRunStore } from "@/stores/run-store";
 import { useAppStore } from "@/stores/app-store";
-import { formatSchedule, formatRelativeTime } from "@/lib/format";
+import { formatSchedule, formatRelativeTime, formatTokenCount } from "@/lib/format";
 import type { Job, Run } from "@openhelm/shared";
 import { cn } from "@/lib/utils";
 
@@ -224,6 +225,14 @@ export function JobDetailPanel({ job, runs, onClose }: JobDetailPanelProps) {
 
         <Separator className="my-4" />
 
+        {/* Token Usage */}
+        <div className="mb-2">
+          <h4 className="mb-2 text-xs font-medium text-muted-foreground">Token Usage</h4>
+          <TokensChart jobIds={[job.id]} compact />
+        </div>
+
+        <Separator className="my-4" />
+
         {/* Run History */}
         <div className="mb-2 flex items-center justify-between">
           <h4 className="text-xs font-medium text-muted-foreground">
@@ -254,6 +263,11 @@ export function JobDetailPanel({ job, runs, onClose }: JobDetailPanelProps) {
                       ? `at ${new Date(run.scheduledFor).toLocaleString()}`
                       : formatRelativeTime(run.createdAt)}
                   </span>
+                  {(run.inputTokens != null || run.outputTokens != null) && (
+                    <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/70">
+                      {formatTokenCount((run.inputTokens ?? 0) + (run.outputTokens ?? 0))}
+                    </span>
+                  )}
                 </button>
                 <button
                   onClick={(e) => handleDeleteRun(run.id, e)}

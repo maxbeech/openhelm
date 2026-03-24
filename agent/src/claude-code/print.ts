@@ -91,7 +91,10 @@ export function runClaudeCodePrint(config: PrintConfig): Promise<PrintResult> {
     const stdoutChunks: string[] = [];
     const stderrChunks: string[] = [];
     let resolved = false;
-    const useStreamJson = !!(config.onTextChunk || config.onToolUse);
+    // Use stream-json for streaming callbacks OR structured JSON output: the
+    // result event's "result" field is a prose summary, so we must read the
+    // assistant message text blocks directly when jsonSchema is requested.
+    const useStreamJson = !!(config.onTextChunk || config.onToolUse || config.jsonSchema);
 
     const stdoutRl = createInterface({ input: child.stdout! });
     stdoutRl.on("line", (line) => {
@@ -123,8 +126,9 @@ export function runClaudeCodePrint(config: PrintConfig): Promise<PrintResult> {
 
       let text: string;
       if (useStreamJson) {
-        // Extract final text from the result event
-        text = extractResultFromStreamJson(stdoutChunks);
+        // For jsonSchema calls, the assistant text blocks contain the structured
+        // JSON response; the result event's "result" field is just a prose summary.
+        text = extractResultFromStreamJson(stdoutChunks, !!config.jsonSchema);
       } else {
         text = stdoutChunks.join("\n");
       }
@@ -176,20 +180,27 @@ function parseStreamJsonLine(line: string, config: PrintConfig): void {
   }
 }
 
-/** Extract the final result text from collected stream-json lines. */
-function extractResultFromStreamJson(lines: string[]): string {
-  for (const line of lines) {
-    let event: Record<string, unknown>;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (event.type === "result" && typeof event.result === "string") {
-      return event.result;
+/**
+ * Extract the final result text from collected stream-json lines.
+ * @param preferAssistantText - When true (jsonSchema mode), skip the result
+ *   event's prose summary and extract directly from assistant text blocks.
+ */
+function extractResultFromStreamJson(lines: string[], preferAssistantText = false): string {
+  if (!preferAssistantText) {
+    for (const line of lines) {
+      let event: Record<string, unknown>;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (event.type === "result" && typeof event.result === "string") {
+        return event.result;
+      }
     }
   }
-  // Fallback: concatenate all text blocks from assistant events
+  // Primary path for jsonSchema / fallback for plain text: concatenate all
+  // text blocks from assistant events (these contain the actual LLM response)
   const parts: string[] = [];
   for (const line of lines) {
     let event: Record<string, unknown>;
@@ -214,14 +225,16 @@ function extractResultFromStreamJson(lines: string[]): string {
 function buildPrintArgs(config: PrintConfig): string[] {
   const args: string[] = ["--print"];
 
-  // Output format — stream-json when streaming callbacks are provided
-  const useStreamJson = !!(config.onTextChunk || config.onToolUse);
+  // Output format — stream-json when streaming callbacks or jsonSchema are used.
+  // We always use stream-json for jsonSchema: the result event's "result" field
+  // is a prose summary, so structured JSON lives in the assistant message text blocks.
+  const useStreamJson = !!(config.onTextChunk || config.onToolUse || config.jsonSchema);
   if (useStreamJson) {
     args.push("--output-format", "stream-json");
     args.push("--verbose"); // required by CLI when combining --print with --output-format stream-json
-  } else if (config.jsonSchema) {
-    args.push("--output-format", "json");
-    args.push("--json-schema", JSON.stringify(config.jsonSchema));
+    if (config.jsonSchema) {
+      args.push("--json-schema", JSON.stringify(config.jsonSchema));
+    }
   } else {
     args.push("--output-format", "text");
   }

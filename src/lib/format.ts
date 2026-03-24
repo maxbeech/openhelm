@@ -77,6 +77,18 @@ function describeCron(expr: string): string {
   return `Cron: ${expr}`;
 }
 
+/**
+ * Format a token count compactly to at most ~4 characters.
+ * Returns "—" for null/undefined.
+ */
+export function formatTokenCount(n: number | null | undefined): string {
+  if (n == null) return "—";
+  if (n < 1_000) return String(n);
+  if (n < 100_000) return `${(n / 1_000).toFixed(1)}k`;
+  if (n < 1_000_000) return `${Math.round(n / 1_000)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
 /** Format a relative time string from an ISO date */
 export function formatRelativeTime(isoDate: string): string {
   const diff = Date.now() - new Date(isoDate).getTime();

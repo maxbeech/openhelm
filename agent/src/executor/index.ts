@@ -416,7 +416,7 @@ export class Executor {
     // in the DB when the statusChanged event reaches the UI
     const summary = await generateRunSummary(runId, finalStatus);
 
-    // Update run status with summary and session ID
+    // Update run status with summary, session ID, and token usage
     updateRun({
       id: runId,
       status: finalStatus,
@@ -424,6 +424,8 @@ export class Executor {
       exitCode: result.exitCode ?? undefined,
       summary: summary ?? undefined,
       sessionId: result.sessionId ?? undefined,
+      inputTokens: result.inputTokens ?? undefined,
+      outputTokens: result.outputTokens ?? undefined,
     });
 
     console.error(`[executor] run ${runId} finished: ${finalStatus} (exit=${result.exitCode ?? "n/a"})`);

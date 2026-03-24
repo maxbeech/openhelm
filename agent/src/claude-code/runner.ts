@@ -89,6 +89,8 @@ export function runClaudeCode(
     let killed = false;
     let resolved = false;
     let capturedSessionId: string | null = null;
+    let capturedInputTokens: number | null = null;
+    let capturedOutputTokens: number | null = null;
 
     const cleanup = () => {
       if (timeoutTimer) clearTimeout(timeoutTimer);
@@ -100,7 +102,14 @@ export function runClaudeCode(
       if (resolved) return;
       resolved = true;
       cleanup();
-      resolve({ exitCode, timedOut, killed, sessionId: capturedSessionId });
+      resolve({
+        exitCode,
+        timedOut,
+        killed,
+        sessionId: capturedSessionId,
+        inputTokens: capturedInputTokens,
+        outputTokens: capturedOutputTokens,
+      });
     };
 
     // -- Interactive Detector --
@@ -120,7 +129,21 @@ export function runClaudeCode(
       const parsed = parseStreamLine(line);
       if (parsed) {
         if (parsed.sessionId) capturedSessionId = parsed.sessionId;
-        if (parsed.text) {
+        // Input tokens: always overwrite — each assistant event's input_tokens
+        // is cumulative (includes all prior context), so the last value is correct.
+        if (parsed.inputTokens != null) capturedInputTokens = parsed.inputTokens;
+        // Output tokens: accumulate per-turn values from assistant events;
+        // if the result event carries a definitive total, use it directly.
+        if (parsed.outputTokens != null) {
+          if (parsed.isResult) {
+            capturedOutputTokens = parsed.outputTokens;
+          } else {
+            capturedOutputTokens = (capturedOutputTokens ?? 0) + parsed.outputTokens;
+          }
+        }
+        // Skip the result event text — it duplicates content already shown in
+        // the assistant turn and is surfaced separately as the run summary.
+        if (parsed.text && !parsed.isResult) {
           config.onLogChunk("stdout", parsed.text);
           // Record for silence timeout context (no pattern matching)
           interactiveDetector.processLine(parsed.text);

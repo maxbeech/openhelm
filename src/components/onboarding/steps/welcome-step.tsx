@@ -65,25 +65,35 @@ export function WelcomeStep({ onNext }: { onNext: () => void }) {
         <RadioGroup
           value={notifLevel}
           onValueChange={handleNotifLevelChange}
-          className="mt-1 space-y-1"
+          className="mt-1 space-y-2"
         >
-          <div className="flex items-center gap-2">
-            <RadioGroupItem value="alerts_only" id="onb-notif-alerts" />
-            <Label
-              htmlFor="onb-notif-alerts"
-              className="cursor-pointer text-xs font-normal text-muted-foreground"
-            >
-              Alerts only — when something needs your attention (recommended)
-            </Label>
+          <div className="flex items-start gap-2">
+            <RadioGroupItem value="on_finish" id="onb-notif-finish" className="mt-0.5" />
+            <div>
+              <Label
+                htmlFor="onb-notif-finish"
+                className="cursor-pointer text-xs font-medium"
+              >
+                Everything
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                When any job finishes and when an alert needs your attention.
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <RadioGroupItem value="on_finish" id="onb-notif-finish" />
-            <Label
-              htmlFor="onb-notif-finish"
-              className="cursor-pointer text-xs font-normal text-muted-foreground"
-            >
-              All job completions — notify when any job finishes
-            </Label>
+          <div className="flex items-start gap-2">
+            <RadioGroupItem value="alerts_only" id="onb-notif-alerts" className="mt-0.5" />
+            <div>
+              <Label
+                htmlFor="onb-notif-alerts"
+                className="cursor-pointer text-xs font-medium"
+              >
+                Alerts only (recommended)
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Only when a job fails permanently or needs your input.
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <RadioGroupItem value="never" id="onb-notif-never" />

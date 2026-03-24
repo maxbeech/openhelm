@@ -32,6 +32,8 @@ import type {
   TriggerRunParams,
   CancelRunParams,
   ClearRunsByJobParams,
+  GetJobTokenStatsParams,
+  JobTokenStat,
   SchedulerStatus,
   ListInboxItemsParams,
   ResolveInboxItemParams,
@@ -240,6 +242,10 @@ export function cancelRun(params: CancelRunParams): Promise<{ cancelled: boolean
 
 export function clearRunsByJob(params: ClearRunsByJobParams): Promise<{ cleared: number }> {
   return agentClient.request<{ cleared: number }>("runs.clearByJob", params);
+}
+
+export function getJobTokenStats(params?: GetJobTokenStatsParams): Promise<JobTokenStat[]> {
+  return agentClient.request<JobTokenStat[]>("runs.getTokenStats", params ?? {});
 }
 
 export function openRunInTerminal(runId: string): Promise<{ opened: boolean }> {

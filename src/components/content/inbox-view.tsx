@@ -10,7 +10,9 @@ import { useAppStore } from "@/stores/app-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RunStatusBadge } from "@/components/shared/status-badge";
+import { TokensChart } from "@/components/shared/tokens-chart";
 import { InboxCard } from "./inbox-card";
+import { formatTokenCount } from "@/lib/format";
 import type { Run } from "@openhelm/shared";
 
 const DEFAULT_VISIBLE_ALERTS = 3;
@@ -21,7 +23,7 @@ export function InboxView() {
   const { jobs } = useJobStore();
   const { runs } = useRunStore();
   const { projects } = useProjectStore();
-  const { selectRunPreserveView } = useAppStore();
+  const { selectRunPreserveView, activeProjectId } = useAppStore();
   const { triggerRun } = useRunStore();
   const [showAllAlerts, setShowAllAlerts] = useState(false);
   const [dismissingAll, setDismissingAll] = useState(false);
@@ -168,6 +170,12 @@ export function InboxView() {
         )}
       </section>
 
+      {/* Token Usage chart */}
+      <section>
+        <h3 className="mb-3 text-sm font-semibold text-muted-foreground">Token Usage</h3>
+        <TokensChart projectId={activeProjectId ?? undefined} />
+      </section>
+
       {/* Empty state when everything is clear and nothing to show */}
       {items.length === 0 && recentRuns.length === 0 && (
         <div className="py-8 text-center">
@@ -257,6 +265,11 @@ function RecentRunRow({
         </button>
       </div>
       <RunStatusBadge status={run.status} />
+      {(run.inputTokens != null || run.outputTokens != null) && (
+        <span className="shrink-0 text-[11px] text-muted-foreground font-mono tabular-nums">
+          {formatTokenCount((run.inputTokens ?? 0) + (run.outputTokens ?? 0))}
+        </span>
+      )}
       <span className="shrink-0 text-[11px] text-muted-foreground">
         {timeAgo}
       </span>

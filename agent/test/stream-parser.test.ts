@@ -76,6 +76,38 @@ describe("parseStreamLine", () => {
     expect(result!.numTurns).toBe(3);
   });
 
+  it("extracts token counts from result usage object", () => {
+    const line = JSON.stringify({
+      type: "result",
+      result: "Done.",
+      cost_usd: 0.01,
+      usage: {
+        input_tokens: 1234,
+        output_tokens: 567,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    });
+
+    const result = parseStreamLine(line);
+    expect(result).not.toBeNull();
+    expect(result!.inputTokens).toBe(1234);
+    expect(result!.outputTokens).toBe(567);
+  });
+
+  it("returns undefined tokens when usage object is absent", () => {
+    const line = JSON.stringify({
+      type: "result",
+      result: "Done.",
+      cost_usd: 0.01,
+    });
+
+    const result = parseStreamLine(line);
+    expect(result).not.toBeNull();
+    expect(result!.inputTokens).toBeUndefined();
+    expect(result!.outputTokens).toBeUndefined();
+  });
+
   it("parses a user message with tool_result", () => {
     const line = JSON.stringify({
       type: "user",

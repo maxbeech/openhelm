@@ -35,6 +35,8 @@ export interface ParsedLogEntry {
   durationMs?: number;
   numTurns?: number;
   sessionId?: string;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 /**
@@ -56,6 +58,7 @@ export function parseStreamLine(line: string): ParsedLogEntry | null {
   const eventSessionId = event.session_id as string | undefined;
 
   if (type === "result") {
+    const usage = event.usage as Record<string, number> | undefined;
     return {
       text: (event.result as string) ?? "",
       isResult: true,
@@ -63,6 +66,8 @@ export function parseStreamLine(line: string): ParsedLogEntry | null {
       durationMs: event.duration_ms as number | undefined,
       numTurns: event.num_turns as number | undefined,
       sessionId: eventSessionId,
+      inputTokens: usage?.input_tokens,
+      outputTokens: usage?.output_tokens,
     };
   }
 
@@ -75,8 +80,19 @@ export function parseStreamLine(line: string): ParsedLogEntry | null {
     const message = event.message as Record<string, unknown> | undefined;
     if (!message) return null;
 
+    // Extract per-turn token usage from assistant messages (Claude Code v2.x
+    // does not include usage on the result event — it's on each assistant turn)
+    const usage = type === "assistant"
+      ? (message.usage as Record<string, number> | undefined)
+      : undefined;
+
     const content = message.content as ContentBlock[] | undefined;
-    if (!content || !Array.isArray(content)) return null;
+    if (!content || !Array.isArray(content)) {
+      if (usage?.input_tokens != null || usage?.output_tokens != null) {
+        return { text: "", isResult: false, inputTokens: usage?.input_tokens, outputTokens: usage?.output_tokens };
+      }
+      return null;
+    }
 
     const parts: string[] = [];
 
@@ -93,8 +109,13 @@ export function parseStreamLine(line: string): ParsedLogEntry | null {
       }
     }
 
-    if (parts.length === 0) return null;
-    return { text: parts.join("\n"), isResult: false };
+    if (parts.length === 0 && usage?.input_tokens == null && usage?.output_tokens == null) return null;
+    return {
+      text: parts.join("\n"),
+      isResult: false,
+      inputTokens: usage?.input_tokens,
+      outputTokens: usage?.output_tokens,
+    };
   }
 
   // system messages and other types — skip

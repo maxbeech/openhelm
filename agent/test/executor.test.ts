@@ -48,6 +48,10 @@ vi.mock("../src/planner/summarize.js", () => ({
   truncateLogs: vi.fn().mockReturnValue(""),
 }));
 
+vi.mock("../src/planner/correction-evaluator.js", () => ({
+  evaluateCorrectionNote: vi.fn().mockResolvedValue(null),
+}));
+
 // Mock memory extraction — not under test here
 vi.mock("../src/memory/run-extractor.js", () => ({
   extractMemoriesFromRun: vi.fn().mockResolvedValue(undefined),

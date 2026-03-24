@@ -9,6 +9,7 @@ import { LogViewer } from "./log-viewer";
 import { useRunLogs } from "@/hooks/use-run-logs";
 import { openRunInTerminal, listMemoriesForRun } from "@/lib/api";
 import { MemoryTypeBadge } from "@/components/memory/memory-type-badge";
+import { formatTokenCount } from "@/lib/format";
 import type { Run, Memory } from "@openhelm/shared";
 
 interface RunDetailPanelProps {
@@ -118,6 +119,26 @@ export function RunDetailPanel({ run, jobName, onClose }: RunDetailPanelProps) {
               ? "Summary will appear when the run completes."
               : (run.summary ?? "Summary unavailable.")}
           </p>
+        </div>
+      )}
+
+      {/* Token Usage */}
+      {(run.inputTokens != null || run.outputTokens != null) && (
+        <div className="border-b border-border px-4 py-3">
+          <h4 className="mb-1.5 text-xs font-medium text-muted-foreground">Tokens Used</h4>
+          <div className="flex items-center gap-4 text-sm">
+            <span>
+              <span className="text-[11px] text-muted-foreground">in </span>
+              <span className="font-mono tabular-nums">{formatTokenCount(run.inputTokens)}</span>
+            </span>
+            <span>
+              <span className="text-[11px] text-muted-foreground">out </span>
+              <span className="font-mono tabular-nums">{formatTokenCount(run.outputTokens)}</span>
+            </span>
+            <span className="font-medium font-mono tabular-nums">
+              {formatTokenCount((run.inputTokens ?? 0) + (run.outputTokens ?? 0))} total
+            </span>
+          </div>
         </div>
       )}
 

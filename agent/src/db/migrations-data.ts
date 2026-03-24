@@ -17,6 +17,7 @@ import sql0012 from "./migrations/0012_rename_correction_to_post_prompt.sql";
 import sql0013 from "./migrations/0013_add_performance_indexes.sql";
 import sql0014 from "./migrations/0014_rename_to_correction_note.sql";
 import sql0015 from "./migrations/0015_add_memories.sql";
+import sql0016 from "./migrations/0016_add_token_usage.sql";
 
 export interface MigrationEntry {
   idx: number;
@@ -41,4 +42,5 @@ export const MIGRATIONS: MigrationEntry[] = [
   { idx: 13, tag: "0013_add_performance_indexes", sql: sql0013 },
   { idx: 14, tag: "0014_rename_to_correction_note", sql: sql0014 },
   { idx: 15, tag: "0015_add_memories", sql: sql0015 },
+  { idx: 16, tag: "0016_add_token_usage", sql: sql0016 },
 ];

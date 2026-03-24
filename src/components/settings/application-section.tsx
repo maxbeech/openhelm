@@ -121,18 +121,28 @@ export function ApplicationSection() {
           <p className="mb-2 text-xs text-muted-foreground">
             Choose when to receive native notifications.
           </p>
-          <RadioGroup value={notifLevel} onValueChange={changeNotifLevel} className="space-y-1">
-            <div className="flex items-center gap-2">
-              <RadioGroupItem value="alerts_only" id="notif-alerts" />
-              <Label htmlFor="notif-alerts" className="text-sm font-normal cursor-pointer">
-                Alerts only (default) — when something needs attention
-              </Label>
+          <RadioGroup value={notifLevel} onValueChange={changeNotifLevel} className="space-y-2">
+            <div className="flex items-start gap-2">
+              <RadioGroupItem value="on_finish" id="notif-finish" className="mt-0.5" />
+              <div>
+                <Label htmlFor="notif-finish" className="text-sm font-normal cursor-pointer">
+                  Everything
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  When any job finishes and when an alert needs your attention.
+                </p>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <RadioGroupItem value="on_finish" id="notif-finish" />
-              <Label htmlFor="notif-finish" className="text-sm font-normal cursor-pointer">
-                When any job finishes
-              </Label>
+            <div className="flex items-start gap-2">
+              <RadioGroupItem value="alerts_only" id="notif-alerts" className="mt-0.5" />
+              <div>
+                <Label htmlFor="notif-alerts" className="text-sm font-normal cursor-pointer">
+                  Alerts only (default)
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Only when a job fails permanently or needs your input.
+                </p>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <RadioGroupItem value="never" id="notif-never" />

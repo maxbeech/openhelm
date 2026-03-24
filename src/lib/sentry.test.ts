@@ -9,6 +9,9 @@ vi.unmock("@/lib/sentry");
 vi.mock("@sentry/react", () => ({
   init: vi.fn(),
   captureException: vi.fn(),
+  captureMessage: vi.fn().mockReturnValue("mock-event-id"),
+  captureFeedback: vi.fn(),
+  consoleLoggingIntegration: vi.fn().mockReturnValue({ name: "ConsoleLogging" }),
   withScope: vi.fn(
     (cb: (scope: { setExtra: ReturnType<typeof vi.fn> }) => void) => {
       cb({ setExtra: vi.fn() });

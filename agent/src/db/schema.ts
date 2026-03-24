@@ -104,6 +104,8 @@ export const runs = sqliteTable("runs", {
   exitCode: integer("exit_code"),
   summary: text("summary"),
   sessionId: text("session_id"),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

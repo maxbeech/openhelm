@@ -77,7 +77,7 @@ describe("ApplicationSection — notification level", () => {
     });
     render(<ApplicationSection />);
     await waitFor(() => {
-      expect(screen.getByRole("radio", { name: /when any job finishes/i })).toBeChecked();
+      expect(screen.getByRole("radio", { name: /everything/i })).toBeChecked();
     });
   });
 
@@ -93,8 +93,8 @@ describe("ApplicationSection — notification level", () => {
 
   it("calls ensureNotificationPermission when selecting non-never level", async () => {
     render(<ApplicationSection />);
-    await waitFor(() => screen.getByRole("radio", { name: /when any job finishes/i }));
-    fireEvent.click(screen.getByRole("radio", { name: /when any job finishes/i }));
+    await waitFor(() => screen.getByRole("radio", { name: /everything/i }));
+    fireEvent.click(screen.getByRole("radio", { name: /everything/i }));
     await waitFor(() => {
       expect(ensureNotificationPermission).toHaveBeenCalled();
     });

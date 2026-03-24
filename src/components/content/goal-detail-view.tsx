@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -23,8 +23,10 @@ import { useGoalStore } from "@/stores/goal-store";
 import { useJobStore } from "@/stores/job-store";
 import { useRunStore } from "@/stores/run-store";
 import { useAppStore } from "@/stores/app-store";
-import { formatSchedule, formatRelativeTime } from "@/lib/format";
-import type { GoalStatus } from "@openhelm/shared";
+import { formatSchedule, formatRelativeTime, formatTokenCount } from "@/lib/format";
+import { getJobTokenStats } from "@/lib/api";
+import { useAgentEvent } from "@/hooks/use-agent-event";
+import type { GoalStatus, JobTokenStat } from "@openhelm/shared";
 
 interface GoalDetailViewProps {
   goalId: string;
@@ -42,6 +44,7 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
   >(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [showEditSheet, setShowEditSheet] = useState(false);
+  const [tokenStats, setTokenStats] = useState<JobTokenStat[]>([]);
 
   const goal = goals.find((g) => g.id === goalId);
   const goalJobs = useMemo(
@@ -51,6 +54,26 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
 
   const getLastRunForJob = (jobId: string) =>
     runs.find((r) => r.jobId === jobId);
+
+  const fetchTokenStatsRef = useRef<() => void>(null!);
+  const fetchTokenStats = useCallback(async () => {
+    if (goalJobs.length === 0) return;
+    try {
+      const stats = await getJobTokenStats({ jobIds: goalJobs.map((j) => j.id) });
+      setTokenStats(stats);
+    } catch {
+      // ignore
+    }
+  }, [goalJobs]);
+  fetchTokenStatsRef.current = fetchTokenStats;
+
+  useEffect(() => { fetchTokenStats(); }, [fetchTokenStats]);
+
+  const handleRunStatusChanged = useCallback((data: { status: string }) => {
+    const terminal = ["succeeded", "failed", "permanent_failure", "cancelled"];
+    if (terminal.includes(data.status)) fetchTokenStatsRef.current();
+  }, []);
+  useAgentEvent("run.statusChanged", handleRunStatusChanged);
 
   const handleStatusChange = async (status: GoalStatus) => {
     await updateGoalStatus(goalId, status);
@@ -152,11 +175,18 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
               <th className="px-3 py-2 font-medium">Name</th>
               <th className="px-3 py-2 font-medium">Schedule</th>
               <th className="px-3 py-2 font-medium">Last Run</th>
+              <th className="px-3 py-2 font-medium text-right">Total Tokens</th>
+              <th className="px-3 py-2 font-medium text-right">Avg/Run</th>
             </tr>
           </thead>
           <tbody>
             {goalJobs.map((job) => {
               const lastRun = getLastRunForJob(job.id);
+              const stat = tokenStats.find((s) => s.jobId === job.id);
+              const totalTokens = stat ? stat.totalInputTokens + stat.totalOutputTokens : null;
+              const avgTokens = stat && stat.runCount > 0
+                ? Math.round(totalTokens! / stat.runCount)
+                : null;
               return (
                 <tr
                   key={job.id}
@@ -180,6 +210,12 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
                         Never
                       </span>
                     )}
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-muted-foreground">
+                    {formatTokenCount(totalTokens)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-muted-foreground">
+                    {formatTokenCount(avgTokens)}
                   </td>
                 </tr>
               );

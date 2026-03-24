@@ -84,7 +84,7 @@ describe("WelcomeStep", () => {
 
   it("calls ensureNotificationPermission when selecting a non-never level", () => {
     render(<WelcomeStep onNext={() => {}} />);
-    const finishRadio = screen.getByRole("radio", { name: /all job completions/i });
+    const finishRadio = screen.getByRole("radio", { name: /everything/i });
     fireEvent.click(finishRadio);
     expect(ensureNotificationPermission).toHaveBeenCalled();
   });

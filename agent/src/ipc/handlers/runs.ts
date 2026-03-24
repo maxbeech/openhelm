@@ -11,6 +11,7 @@ import type {
   ListRunsParams,
   CreateRunLogParams,
   ListRunLogsParams,
+  GetJobTokenStatsParams,
 } from "@openhelm/shared";
 
 export function registerRunHandlers() {
@@ -89,6 +90,10 @@ export function registerRunHandlers() {
 
     openRunInMacTerminal(workingDir, claudePath, run.sessionId);
     return { opened: true };
+  });
+
+  registerHandler("runs.getTokenStats", (params) => {
+    return runQueries.getJobTokenStats((params ?? {}) as GetJobTokenStatsParams);
   });
 }
 

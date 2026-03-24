@@ -161,6 +161,8 @@ export interface Run {
   exitCode: number | null;
   summary: string | null;
   sessionId: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
   createdAt: string;
 }
 
@@ -296,6 +298,24 @@ export interface UpdateRunParams {
   exitCode?: number;
   summary?: string;
   sessionId?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+/** Per-job token usage aggregation returned by getJobTokenStats */
+export interface JobTokenStat {
+  jobId: string;
+  jobName: string;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  runCount: number;
+}
+
+export interface GetJobTokenStatsParams {
+  projectId?: string;
+  jobIds?: string[];
+  from?: string; // ISO datetime (inclusive)
+  to?: string;   // ISO datetime (exclusive)
 }
 
 // RunLogs
@@ -465,6 +485,8 @@ export interface ClaudeCodeRunResult {
   timedOut: boolean;
   killed: boolean;
   sessionId: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
 }
 
 // ─── Scheduler & Executor Types ───

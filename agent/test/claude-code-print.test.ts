@@ -214,7 +214,7 @@ describe("runClaudeCodePrint", () => {
     await promise;
   });
 
-  it("should use --output-format json when jsonSchema is set", async () => {
+  it("should use --output-format stream-json when jsonSchema is set", async () => {
     const schema = { type: "object", properties: { answer: { type: "string" } } };
     const promise = runClaudeCodePrint({
       binaryPath: "/usr/bin/claude",
@@ -228,7 +228,8 @@ describe("runClaudeCodePrint", () => {
 
     const spawnArgs = (spawn as ReturnType<typeof vi.fn>).mock.calls[0][1] as string[];
     expect(spawnArgs).toContain("--output-format");
-    expect(spawnArgs[spawnArgs.indexOf("--output-format") + 1]).toBe("json");
+    // jsonSchema calls use stream-json so we can read assistant text blocks directly
+    expect(spawnArgs[spawnArgs.indexOf("--output-format") + 1]).toBe("stream-json");
     expect(spawnArgs).toContain("--json-schema");
 
     simulateProcess(['{"answer":"ok"}'], [], 0);

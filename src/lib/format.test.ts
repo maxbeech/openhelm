@@ -4,6 +4,7 @@ import {
   formatRelativeTime,
   formatDuration,
   getElapsed,
+  formatTokenCount,
 } from "./format";
 
 describe("formatSchedule", () => {
@@ -109,6 +110,38 @@ describe("formatRelativeTime", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     expect(formatRelativeTime("2026-01-01T02:00:00Z")).toBe("in 2h");
     vi.useRealTimers();
+  });
+});
+
+describe("formatTokenCount", () => {
+  it("returns — for null", () => {
+    expect(formatTokenCount(null)).toBe("—");
+  });
+
+  it("returns — for undefined", () => {
+    expect(formatTokenCount(undefined)).toBe("—");
+  });
+
+  it("formats small numbers as-is", () => {
+    expect(formatTokenCount(0)).toBe("0");
+    expect(formatTokenCount(999)).toBe("999");
+  });
+
+  it("formats thousands with one decimal", () => {
+    expect(formatTokenCount(1000)).toBe("1.0k");
+    expect(formatTokenCount(12345)).toBe("12.3k");
+    expect(formatTokenCount(99999)).toBe("100.0k");
+  });
+
+  it("formats 100k+ without decimal", () => {
+    expect(formatTokenCount(100000)).toBe("100k");
+    expect(formatTokenCount(123456)).toBe("123k");
+    expect(formatTokenCount(999999)).toBe("1000k");
+  });
+
+  it("formats millions with one decimal", () => {
+    expect(formatTokenCount(1_000_000)).toBe("1.0M");
+    expect(formatTokenCount(2_500_000)).toBe("2.5M");
   });
 });
 

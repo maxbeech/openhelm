@@ -1,4 +1,4 @@
-import { eq, and, desc, inArray, lte } from "drizzle-orm";
+import { eq, and, desc, inArray, lte, gte, sql } from "drizzle-orm";
 import { getDb } from "../init.js";
 import { runs, jobs } from "../schema.js";
 import type {
@@ -7,6 +7,8 @@ import type {
   CreateRunParams,
   UpdateRunParams,
   ListRunsParams,
+  JobTokenStat,
+  GetJobTokenStatsParams,
 } from "@openhelm/shared";
 
 function rowToRun(row: typeof runs.$inferSelect): Run {
@@ -15,6 +17,8 @@ function rowToRun(row: typeof runs.$inferSelect): Run {
     parentRunId: row.parentRunId ?? null,
     correctionNote: row.correctionNote ?? null,
     sessionId: row.sessionId ?? null,
+    inputTokens: row.inputTokens ?? null,
+    outputTokens: row.outputTokens ?? null,
   } as Run;
 }
 
@@ -139,6 +143,8 @@ export function updateRun(params: UpdateRunParams): Run {
       ...(params.exitCode !== undefined && { exitCode: params.exitCode }),
       ...(params.summary !== undefined && { summary: params.summary }),
       ...(params.sessionId !== undefined && { sessionId: params.sessionId }),
+      ...(params.inputTokens !== undefined && { inputTokens: params.inputTokens }),
+      ...(params.outputTokens !== undefined && { outputTokens: params.outputTokens }),
     })
     .where(eq(runs.id, params.id))
     .returning()
@@ -198,4 +204,62 @@ export function clearRunsByJob(jobId: string): number {
   const db = getDb();
   const result = db.delete(runs).where(eq(runs.jobId, jobId)).run();
   return result.changes;
+}
+
+/** Terminal run statuses that have known token counts */
+const TERMINAL_STATUSES = ["succeeded", "failed", "permanent_failure"] as const;
+
+/**
+ * Return per-job token usage aggregated over terminal runs.
+ * Filters by projectId, optional jobIds, and optional date range on startedAt.
+ */
+export function getJobTokenStats(params: GetJobTokenStatsParams): JobTokenStat[] {
+  const db = getDb();
+
+  const conditions = [
+    inArray(runs.status, [...TERMINAL_STATUSES]),
+  ];
+
+  if (params.projectId) {
+    const jobIdsSubquery = db
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(eq(jobs.projectId, params.projectId));
+    conditions.push(inArray(runs.jobId, jobIdsSubquery));
+  }
+
+  if (params.jobIds && params.jobIds.length > 0) {
+    conditions.push(inArray(runs.jobId, params.jobIds));
+  }
+
+  if (params.from) {
+    conditions.push(gte(runs.startedAt, params.from));
+  }
+
+  if (params.to) {
+    conditions.push(lte(runs.startedAt, params.to));
+  }
+
+  const rows = db
+    .select({
+      jobId: jobs.id,
+      jobName: jobs.name,
+      totalInputTokens: sql<number>`COALESCE(SUM(${runs.inputTokens}), 0)`,
+      totalOutputTokens: sql<number>`COALESCE(SUM(${runs.outputTokens}), 0)`,
+      runCount: sql<number>`COUNT(*)`,
+    })
+    .from(runs)
+    .innerJoin(jobs, eq(runs.jobId, jobs.id))
+    .where(and(...conditions))
+    .groupBy(jobs.id)
+    .orderBy(desc(sql`COALESCE(SUM(${runs.inputTokens}), 0) + COALESCE(SUM(${runs.outputTokens}), 0)`))
+    .all();
+
+  return rows.map((r) => ({
+    jobId: r.jobId,
+    jobName: r.jobName,
+    totalInputTokens: Number(r.totalInputTokens),
+    totalOutputTokens: Number(r.totalOutputTokens),
+    runCount: Number(r.runCount),
+  }));
 }

@@ -8,6 +8,7 @@ import {
   listRuns,
   updateRun,
   deleteRun,
+  getJobTokenStats,
 } from "../src/db/queries/runs.js";
 import { createRunLog, listRunLogs } from "../src/db/queries/run-logs.js";
 
@@ -161,6 +162,114 @@ describe("run queries", () => {
       expect(r.jobId).toBe(job2.id);
       expect(r.status).toBe("queued");
     });
+  });
+});
+
+describe("token tracking", () => {
+  it("persists inputTokens and outputTokens on updateRun", () => {
+    const run = createRun({ jobId, triggerSource: "manual" });
+    expect(run.inputTokens).toBeNull();
+    expect(run.outputTokens).toBeNull();
+
+    const updated = updateRun({
+      id: run.id,
+      status: "running",
+      startedAt: new Date().toISOString(),
+    });
+    // Transition to terminal so we can set tokens
+    const terminal = updateRun({
+      id: updated.id,
+      status: "succeeded",
+      finishedAt: new Date().toISOString(),
+      inputTokens: 1500,
+      outputTokens: 350,
+    });
+
+    expect(terminal.inputTokens).toBe(1500);
+    expect(terminal.outputTokens).toBe(350);
+
+    // Round-trip via getRun
+    const fetched = getRun(run.id);
+    expect(fetched!.inputTokens).toBe(1500);
+    expect(fetched!.outputTokens).toBe(350);
+  });
+
+  it("getJobTokenStats returns aggregated totals per job", () => {
+    const project = createProject({
+      name: "Token Stats Project",
+      directoryPath: "/tmp/token-stats",
+    });
+    const job = createJob({
+      projectId: project.id,
+      name: "Stats Job",
+      prompt: "token test",
+      scheduleType: "manual",
+      scheduleConfig: {},
+    });
+
+    // Create two succeeded runs with tokens
+    for (const [inp, out] of [[1000, 200], [3000, 800]] as const) {
+      const r = createRun({ jobId: job.id, triggerSource: "manual" });
+      updateRun({ id: r.id, status: "running", startedAt: new Date().toISOString() });
+      updateRun({
+        id: r.id,
+        status: "succeeded",
+        finishedAt: new Date().toISOString(),
+        inputTokens: inp,
+        outputTokens: out,
+      });
+    }
+
+    // Create one run without tokens (should not crash)
+    const r3 = createRun({ jobId: job.id, triggerSource: "manual" });
+    updateRun({ id: r3.id, status: "running", startedAt: new Date().toISOString() });
+    updateRun({ id: r3.id, status: "succeeded", finishedAt: new Date().toISOString() });
+
+    const stats = getJobTokenStats({ projectId: project.id });
+    expect(stats.length).toBe(1);
+    const stat = stats[0];
+    expect(stat.jobId).toBe(job.id);
+    expect(stat.jobName).toBe("Stats Job");
+    expect(stat.totalInputTokens).toBe(4000);
+    expect(stat.totalOutputTokens).toBe(1000);
+    expect(stat.runCount).toBe(3);
+  });
+
+  it("getJobTokenStats filters by jobIds", () => {
+    const project = createProject({
+      name: "Filter Stats Project",
+      directoryPath: "/tmp/filter-stats",
+    });
+    const jobA = createJob({
+      projectId: project.id,
+      name: "Job A",
+      prompt: "a",
+      scheduleType: "manual",
+      scheduleConfig: {},
+    });
+    const jobB = createJob({
+      projectId: project.id,
+      name: "Job B",
+      prompt: "b",
+      scheduleType: "manual",
+      scheduleConfig: {},
+    });
+
+    for (const jId of [jobA.id, jobB.id]) {
+      const r = createRun({ jobId: jId, triggerSource: "manual" });
+      updateRun({ id: r.id, status: "running", startedAt: new Date().toISOString() });
+      updateRun({
+        id: r.id,
+        status: "succeeded",
+        finishedAt: new Date().toISOString(),
+        inputTokens: 500,
+        outputTokens: 100,
+      });
+    }
+
+    const stats = getJobTokenStats({ jobIds: [jobA.id] });
+    expect(stats.length).toBe(1);
+    expect(stats[0].jobId).toBe(jobA.id);
   });
 });
 
