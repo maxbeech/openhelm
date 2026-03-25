@@ -45,6 +45,10 @@ export interface RunnerConfig {
   onInteractiveDetected?: (reason: string, type: InteractiveDetectionType) => void;
   /** Resume a previous session instead of starting fresh */
   resumeSessionId?: string;
+  /** Additional environment variables to merge into the spawned process env */
+  additionalEnv?: Record<string, string>;
+  /** Called immediately after the Claude Code process is spawned, with its PID */
+  onPidAvailable?: (pid: number) => void;
 }
 
 const DEFAULT_TIMEOUT_MS = 0; // No limit (silence timeout catches stuck processes)
@@ -75,8 +79,9 @@ export function runClaudeCode(
     console.error(`[runner] cwd: ${config.workingDirectory}`);
 
     // Spawn the process — inherit the parent's full environment,
+    // merge any additional env vars (e.g. credentials),
     // but unset CLAUDECODE so jobs aren't blocked by nested session detection.
-    const env = { ...process.env };
+    const env = { ...process.env, ...config.additionalEnv };
     delete env.CLAUDECODE;
 
     const child = spawn(config.binaryPath, args, {
@@ -84,6 +89,11 @@ export function runClaudeCode(
       env,
       stdio: ["pipe", "pipe", "pipe"],
     });
+
+    // Notify caller of the child PID so the focus guard can track this process tree.
+    if (child.pid !== undefined) {
+      config.onPidAvailable?.(child.pid);
+    }
 
     let timedOut = false;
     let killed = false;

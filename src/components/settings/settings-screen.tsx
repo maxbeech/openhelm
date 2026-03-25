@@ -3,6 +3,7 @@ import { LicenseSection } from "./license-section";
 import { ClaudeCodeSection } from "./claude-code-section";
 import { ExecutionSection } from "./execution-section";
 import { ApplicationSection } from "./application-section";
+import { PermissionsSection } from "./permissions-section";
 import { DataSection } from "./data-section";
 
 export function SettingsScreen() {
@@ -17,6 +18,8 @@ export function SettingsScreen() {
         <ExecutionSection />
         <Separator />
         <ApplicationSection />
+        <Separator />
+        <PermissionsSection />
         <Separator />
         <DataSection />
       </div>

@@ -379,6 +379,49 @@ describe("handleActionApproval — goal+job FK linking", () => {
     const jobAction = updated.pendingActions!.find((a) => a.tool === "create_job")!;
     expect(jobAction.args.goalId).toBe(preExistingGoal.id);
   });
+
+  it("links jobs to correct goals when multiple goals are created in one batch", async () => {
+    const proj = createProject({ name: "Multi-Goal FK", directoryPath: "/tmp/multi-goal-fk" });
+    callLlmViaCliMock.mockResolvedValueOnce(
+      [
+        `I'll set up two goals with jobs.`,
+        `<tool_call>{"tool":"create_goal","args":{"name":"Goal Alpha"}}</tool_call>`,
+        `<tool_call>{"tool":"create_job","args":{"name":"Job A1","prompt":"test a1","goalId":"pending","scheduleType":"once"}}</tool_call>`,
+        `<tool_call>{"tool":"create_job","args":{"name":"Job A2","prompt":"test a2","goalId":"pending","scheduleType":"once"}}</tool_call>`,
+        `<tool_call>{"tool":"create_goal","args":{"name":"Goal Beta"}}</tool_call>`,
+        `<tool_call>{"tool":"create_job","args":{"name":"Job B1","prompt":"test b1","goalId":"pending","scheduleType":"once"}}</tool_call>`,
+      ].join("\n"),
+    );
+
+    const msgs = await handleChatMessage(proj.id, "Create two goals with jobs");
+    const assistantMsg = msgs[1];
+    expect(assistantMsg.pendingActions).toHaveLength(5);
+
+    // Approve all actions sequentially
+    vi.clearAllMocks();
+    const updated = await handleApproveAll(assistantMsg.id, proj.id);
+    expect(updated.pendingActions!.every((a) => a.status === "approved")).toBe(true);
+
+    // Verify goals exist
+    const { listGoals } = await import("../src/db/queries/goals.js");
+    const goals = listGoals({ projectId: proj.id, status: "active" });
+    const goalAlpha = goals.find((g) => g.name === "Goal Alpha")!;
+    const goalBeta = goals.find((g) => g.name === "Goal Beta")!;
+    expect(goalAlpha).toBeDefined();
+    expect(goalBeta).toBeDefined();
+
+    // Verify Job A1 and A2 are linked to Goal Alpha
+    const jobsAlpha = listJobs({ projectId: proj.id, goalId: goalAlpha.id });
+    expect(jobsAlpha.some((j) => j.name === "Job A1")).toBe(true);
+    expect(jobsAlpha.some((j) => j.name === "Job A2")).toBe(true);
+
+    // Verify Job B1 is linked to Goal Beta (NOT Goal Alpha)
+    const jobsBeta = listJobs({ projectId: proj.id, goalId: goalBeta.id });
+    expect(jobsBeta.some((j) => j.name === "Job B1")).toBe(true);
+
+    // Verify Job B1 is NOT linked to Goal Alpha
+    expect(jobsAlpha.some((j) => j.name === "Job B1")).toBe(false);
+  });
 });
 
 describe("handleChatMessage — status events", () => {

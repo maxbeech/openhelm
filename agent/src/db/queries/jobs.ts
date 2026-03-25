@@ -63,6 +63,7 @@ function rowToJob(row: typeof jobs.$inferSelect): Job {
     permissionMode: (row.permissionMode ?? "bypassPermissions") as Job["permissionMode"],
     icon: row.icon ?? null,
     correctionNote: row.correctionNote ?? null,
+    silenceTimeoutMinutes: row.silenceTimeoutMinutes ?? null,
   } as Job;
 }
 
@@ -96,6 +97,7 @@ export function createJob(params: CreateJobParams): Job {
       model: params.model ?? "sonnet",
       modelEffort: params.modelEffort ?? "medium",
       permissionMode: params.permissionMode ?? "bypassPermissions",
+      silenceTimeoutMinutes: params.silenceTimeoutMinutes ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -202,6 +204,7 @@ export function updateJob(params: UpdateJobParams): Job {
       ...(params.permissionMode !== undefined && { permissionMode: params.permissionMode }),
       ...(params.icon !== undefined && { icon: params.icon }),
       ...(params.correctionNote !== undefined && { correctionNote: params.correctionNote }),
+      ...(params.silenceTimeoutMinutes !== undefined && { silenceTimeoutMinutes: params.silenceTimeoutMinutes }),
       nextFireAt,
       updatedAt: now,
     })

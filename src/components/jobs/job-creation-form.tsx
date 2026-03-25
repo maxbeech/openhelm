@@ -40,6 +40,8 @@ export interface JobFormState {
   workingDirectory: string;
   // Correction note (AI-managed, only shown in edit mode)
   correctionNote: string;
+  // Silence timeout override (in minutes; empty = use system default)
+  silenceTimeoutMinutes: string;
   // Legacy cron (kept for existing jobs)
   cronExpression?: string;
 }
@@ -257,6 +259,23 @@ export function JobCreationForm({
             <SelectItem value="dontAsk">Don't ask (deny unless pre-approved)</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+
+      {/* Silence timeout */}
+      <div className="space-y-1.5">
+        <Label htmlFor="job-silence-timeout">Silence timeout (minutes)</Label>
+        <Input
+          id="job-silence-timeout"
+          type="number"
+          min={1}
+          value={form.silenceTimeoutMinutes}
+          onChange={(e) => onFieldChange("silenceTimeoutMinutes", e.target.value)}
+          placeholder="10 (default)"
+          className="h-9"
+        />
+        <p className="text-xs text-muted-foreground">
+          Time without output before a run is killed. Increase for jobs using slow browser or MCP tools.
+        </p>
       </div>
 
       {/* Correction Note — only in edit mode when a note exists */}

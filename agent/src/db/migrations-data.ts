@@ -18,6 +18,8 @@ import sql0013 from "./migrations/0013_add_performance_indexes.sql";
 import sql0014 from "./migrations/0014_rename_to_correction_note.sql";
 import sql0015 from "./migrations/0015_add_memories.sql";
 import sql0016 from "./migrations/0016_add_token_usage.sql";
+import sql0017 from "./migrations/0017_add_silence_timeout.sql";
+import sql0018 from "./migrations/0018_add_credentials.sql";
 
 export interface MigrationEntry {
   idx: number;
@@ -43,4 +45,6 @@ export const MIGRATIONS: MigrationEntry[] = [
   { idx: 14, tag: "0014_rename_to_correction_note", sql: sql0014 },
   { idx: 15, tag: "0015_add_memories", sql: sql0015 },
   { idx: 16, tag: "0016_add_token_usage", sql: sql0016 },
+  { idx: 17, tag: "0017_add_silence_timeout", sql: sql0017 },
+  { idx: 18, tag: "0018_add_credentials", sql: sql0018 },
 ];

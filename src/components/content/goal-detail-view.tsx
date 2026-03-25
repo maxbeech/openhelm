@@ -42,6 +42,13 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
   const [confirmAction, setConfirmAction] = useState<
     "archive" | "delete" | null
   >(null);
+  // Stable display action: keeps the last non-null value so dialog content
+  // doesn't flicker to "Delete" during the exit animation after Archive.
+  const displayAction = useRef<"archive" | "delete">("archive");
+  const openConfirm = (action: "archive" | "delete") => {
+    displayAction.current = action;
+    setConfirmAction(action);
+  };
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [showEditSheet, setShowEditSheet] = useState(false);
   const [tokenStats, setTokenStats] = useState<JobTokenStat[]>([]);
@@ -240,7 +247,7 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setConfirmAction("archive")}
+            onClick={() => openConfirm("archive")}
           >
             <Archive className="size-3.5" />
             Archive
@@ -258,7 +265,7 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
         <Button
           variant="destructive"
           size="sm"
-          onClick={() => setConfirmAction("delete")}
+          onClick={() => openConfirm("delete")}
         >
           <Trash2 className="size-3.5" />
           Delete
@@ -270,14 +277,14 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
         onOpenChange={(open) => {
           if (!open) setConfirmAction(null);
         }}
-        title={confirmAction === "archive" ? "Archive goal" : "Delete goal"}
+        title={displayAction.current === "archive" ? "Archive goal" : "Delete goal"}
         description={
-          confirmAction === "archive"
+          displayAction.current === "archive"
             ? `This will archive "${(goal.name || goal.description).slice(0, 50)}" and all its jobs.`
             : `This will permanently delete "${(goal.name || goal.description).slice(0, 50)}" and all its jobs, runs, and logs.`
         }
-        confirmLabel={confirmAction === "archive" ? "Archive" : "Delete"}
-        variant={confirmAction === "delete" ? "destructive" : "default"}
+        confirmLabel={displayAction.current === "archive" ? "Archive" : "Delete"}
+        variant={displayAction.current === "delete" ? "destructive" : "default"}
         onConfirm={handleConfirm}
         loading={confirmLoading}
       />

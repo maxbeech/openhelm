@@ -853,6 +853,78 @@ describe("Executor session resumption", () => {
   });
 });
 
+describe("Executor global prompt injection", () => {
+  it("appends global_prompt setting to effective prompt", async () => {
+    let capturedPrompt = "";
+    const captureRunner = async (config: RunnerConfig) => {
+      capturedPrompt = config.prompt;
+      config.onLogChunk("stdout", "done");
+      return { exitCode: 0, timedOut: false, killed: false, sessionId: null };
+    };
+
+    setSetting("global_prompt", "Always write tests.");
+
+    const job = createJob({
+      projectId,
+      name: "Global Prompt Job",
+      prompt: "do the thing",
+      scheduleType: "interval",
+      scheduleConfig: { minutes: 10 },
+    });
+    const run = createRun({ jobId: job.id, triggerSource: "manual" });
+
+    queue.enqueue({
+      runId: run.id,
+      jobId: job.id,
+      priority: 0,
+      enqueuedAt: Date.now(),
+    });
+
+    const executor = new Executor(captureRunner);
+    executor.processNext();
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(capturedPrompt).toContain("do the thing");
+    expect(capturedPrompt).toContain("Always write tests.");
+
+    // Clean up
+    setSetting("global_prompt", "");
+  });
+
+  it("does not append global_prompt when setting is empty", async () => {
+    let capturedPrompt = "";
+    const captureRunner = async (config: RunnerConfig) => {
+      capturedPrompt = config.prompt;
+      config.onLogChunk("stdout", "done");
+      return { exitCode: 0, timedOut: false, killed: false, sessionId: null };
+    };
+
+    setSetting("global_prompt", "");
+
+    const job = createJob({
+      projectId,
+      name: "No Global Prompt Job",
+      prompt: "do the thing",
+      scheduleType: "interval",
+      scheduleConfig: { minutes: 10 },
+    });
+    const run = createRun({ jobId: job.id, triggerSource: "manual" });
+
+    queue.enqueue({
+      runId: run.id,
+      jobId: job.id,
+      priority: 0,
+      enqueuedAt: Date.now(),
+    });
+
+    const executor = new Executor(captureRunner);
+    executor.processNext();
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(capturedPrompt).toBe("do the thing");
+  });
+});
+
 describe("Executor concurrency", () => {
   it("defaults to max concurrency of 2", () => {
     const executor = new Executor(mockRunner());
@@ -877,5 +949,97 @@ describe("Executor concurrency", () => {
 
     // Reset
     setSetting("max_concurrent_runs", "1");
+  });
+});
+
+describe("Focus guard PID lifecycle", () => {
+  it("emits focus_guard.addPid when runner reports PID and focus_guard.removePid after completion", async () => {
+    const { emit } = await import("../src/ipc/emitter.js");
+    const mockEmit = vi.mocked(emit);
+    mockEmit.mockClear();
+
+    const FAKE_PID = 99999;
+
+    // Mock runner that fires onPidAvailable before returning
+    const runnerWithPid = async (
+      config: RunnerConfig,
+    ): Promise<ClaudeCodeRunResult> => {
+      config.onPidAvailable?.(FAKE_PID);
+      config.onLogChunk("stdout", "some output");
+      return { exitCode: 0, timedOut: false, killed: false };
+    };
+
+    const job = createJob({
+      projectId,
+      name: "Focus Guard Job",
+      prompt: "do something",
+      scheduleType: "once",
+      scheduleConfig: { fireAt: new Date().toISOString() },
+    });
+    const run = createRun({ jobId: job.id, triggerSource: "manual" });
+
+    queue.enqueue({
+      runId: run.id,
+      jobId: job.id,
+      priority: 0,
+      enqueuedAt: Date.now(),
+    });
+
+    const executor = new Executor(runnerWithPid);
+    executor.processNext();
+
+    await new Promise((r) => setTimeout(r, 200));
+
+    const addPidCall = mockEmit.mock.calls.find(
+      ([event]) => event === "focus_guard.addPid",
+    );
+    expect(addPidCall).toBeDefined();
+    expect((addPidCall![1] as { pid: number }).pid).toBe(FAKE_PID);
+
+    const removePidCall = mockEmit.mock.calls.find(
+      ([event]) => event === "focus_guard.removePid",
+    );
+    expect(removePidCall).toBeDefined();
+    expect((removePidCall![1] as { pid: number }).pid).toBe(FAKE_PID);
+  });
+
+  it("does not emit focus_guard events when runner does not provide a PID", async () => {
+    const { emit } = await import("../src/ipc/emitter.js");
+    const mockEmit = vi.mocked(emit);
+    mockEmit.mockClear();
+
+    // Mock runner that never fires onPidAvailable
+    const runnerNoPid = async (
+      config: RunnerConfig,
+    ): Promise<ClaudeCodeRunResult> => {
+      config.onLogChunk("stdout", "some output");
+      return { exitCode: 0, timedOut: false, killed: false };
+    };
+
+    const job = createJob({
+      projectId,
+      name: "No PID Job",
+      prompt: "do something",
+      scheduleType: "once",
+      scheduleConfig: { fireAt: new Date().toISOString() },
+    });
+    const run = createRun({ jobId: job.id, triggerSource: "manual" });
+
+    queue.enqueue({
+      runId: run.id,
+      jobId: job.id,
+      priority: 0,
+      enqueuedAt: Date.now(),
+    });
+
+    const executor = new Executor(runnerNoPid);
+    executor.processNext();
+
+    await new Promise((r) => setTimeout(r, 200));
+
+    const focusGuardCalls = mockEmit.mock.calls.filter(([event]) =>
+      (event as string).startsWith("focus_guard."),
+    );
+    expect(focusGuardCalls).toHaveLength(0);
   });
 });

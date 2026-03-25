@@ -17,12 +17,12 @@ import { useInboxStore } from "./stores/inbox-store";
 import { useMemoryStore } from "./stores/memory-store";
 import { useChatStore } from "./stores/chat-store";
 import { useUpdaterStore } from "./stores/updater-store";
+import { useCredentialStore } from "./stores/credential-store";
 import { useAgentEvent } from "./hooks/use-agent-event";
-import type { RunStatus, ChatMessage, InboxItem, Memory } from "@openhelm/shared";
+import type { RunStatus, ChatMessage, InboxItem, Memory, Credential } from "@openhelm/shared";
 import {
   notifyInboxItem,
   notifyRunCompleted,
-  ensureNotificationPermission,
 } from "./lib/notifications";
 import { OnboardingWizard } from "./components/onboarding/onboarding-wizard";
 import { AppShell } from "./components/layout/app-shell";
@@ -33,6 +33,7 @@ import { RunDetailView } from "./components/content/run-detail-view";
 import { SettingsScreen } from "./components/settings/settings-screen";
 import { InboxView } from "./components/content/inbox-view";
 import { MemoryView } from "./components/memory/memory-view";
+import { CredentialView } from "./components/credentials/credential-view";
 import { JobCreationSheet } from "./components/jobs/job-creation-sheet";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { NewProjectDialog } from "./components/shared/new-project-dialog";
@@ -108,6 +109,13 @@ export default function App() {
     updateMemoryInStore,
     removeMemoryFromStore,
   } = useMemoryStore();
+
+  const {
+    fetchCount: fetchCredentialCount,
+    addCredentialToStore,
+    updateCredentialInStore,
+    removeCredentialFromStore,
+  } = useCredentialStore();
 
   const [showNewProject, setShowNewProject] = useState(false);
   const [editProjectId, setEditProjectId] = useState<string | null>(null);
@@ -342,6 +350,30 @@ export default function App() {
   useAgentEvent("memory.updated", handleMemoryUpdated);
   useAgentEvent("memory.deleted", handleMemoryDeleted);
 
+  // Credential event handlers
+  const handleCredentialCreated = useCallback(
+    (credential: Credential) => {
+      addCredentialToStore(credential);
+    },
+    [addCredentialToStore],
+  );
+  const handleCredentialUpdated = useCallback(
+    (credential: Credential) => {
+      updateCredentialInStore(credential);
+    },
+    [updateCredentialInStore],
+  );
+  const handleCredentialDeleted = useCallback(
+    (data: { id: string }) => {
+      removeCredentialFromStore(data.id);
+    },
+    [removeCredentialFromStore],
+  );
+
+  useAgentEvent("credential.created", handleCredentialCreated);
+  useAgentEvent("credential.updated", handleCredentialUpdated);
+  useAgentEvent("credential.deleted", handleCredentialDeleted);
+
   // Start agent client
   useEffect(() => {
     const onReady = () => setAgentReady(true);
@@ -434,6 +466,7 @@ export default function App() {
     fetchRuns(activeProjectId);
     fetchMemories(activeProjectId);
     fetchMemoryCount(activeProjectId);
+    fetchCredentialCount(activeProjectId);
     fetchInboxItems(activeProjectId ?? undefined);
     fetchInboxCount(activeProjectId ?? undefined);
     if (activeProjectId) {
@@ -442,21 +475,10 @@ export default function App() {
         .setSetting({ key: "active_project", value: activeProjectId })
         .catch(() => {});
     }
-  }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns, fetchMessages, fetchMemories, fetchMemoryCount, fetchInboxItems, fetchInboxCount]);
+  }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns, fetchMessages, fetchMemories, fetchMemoryCount, fetchCredentialCount, fetchInboxItems, fetchInboxCount]);
 
-  // Request notification permission on startup (only after onboarding, skipped if level is "never")
-  useEffect(() => {
-    if (!agentReady || initialLoading || !onboardingComplete) return;
-    (async () => {
-      try {
-        const level = await api.getSetting("notification_level");
-        if (level?.value === "never") return;
-        await ensureNotificationPermission();
-      } catch (err) {
-        console.error("Failed to request notification permission:", err);
-      }
-    })();
-  }, [agentReady, initialLoading, onboardingComplete]);
+  // Notification permission is now requested during onboarding (Permissions step)
+  // and can be re-requested via Settings > Permissions. No startup prompt needed.
 
   const handleOnboardingComplete = useCallback(
     (projectId: string) => {
@@ -605,6 +627,7 @@ export default function App() {
           <JobDetailView jobId={selectedJobId} />
         )}
         {contentView === "memory" && <MemoryView />}
+        {contentView === "credentials" && <CredentialView />}
         {contentView === "settings" && <SettingsScreen />}
       </AppShell>
 

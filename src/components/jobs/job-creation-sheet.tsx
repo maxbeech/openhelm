@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -39,6 +40,7 @@ const INITIAL_FORM: JobFormState = {
   permissionMode: "bypassPermissions",
   workingDirectory: "",
   correctionNote: "",
+  silenceTimeoutMinutes: "",
 };
 
 function getScheduleConfig(form: JobFormState): ScheduleConfig {
@@ -142,6 +144,9 @@ export function JobCreationSheet({
         model: form.model,
         modelEffort: form.modelEffort,
         permissionMode: form.permissionMode,
+        silenceTimeoutMinutes: form.silenceTimeoutMinutes
+          ? parseInt(form.silenceTimeoutMinutes, 10) || null
+          : null,
       });
       handleOpenChange(false);
       onComplete();
@@ -157,9 +162,9 @@ export function JobCreationSheet({
       <SheetContent side="right" className="flex w-full flex-col sm:max-w-lg">
         <SheetHeader className="border-b border-border pb-4">
           <SheetTitle>Create a Job</SheetTitle>
-          <p className="text-sm text-muted-foreground">
+          <SheetDescription>
             Define a task for Claude Code to run.
-          </p>
+          </SheetDescription>
         </SheetHeader>
 
         <JobCreationForm

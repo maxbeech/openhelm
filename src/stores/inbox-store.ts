@@ -12,6 +12,7 @@ interface InboxState {
   fetchOpenCount: (projectId?: string) => Promise<void>;
   resolveItem: (id: string, action: InboxResolveAction, guidance?: string) => Promise<void>;
   dismissAll: () => Promise<void>;
+  dismissAllForJob: (jobId: string) => Promise<void>;
   addItemToStore: (item: InboxItem) => void;
   updateItemInStore: (item: InboxItem) => void;
 }
@@ -63,6 +64,18 @@ export const useInboxStore = create<InboxState>((set, get) => ({
       items.map((item) => api.resolveInboxItem({ id: item.id, action: "dismiss" })),
     );
     set({ items: [], openCount: 0 });
+  },
+
+  dismissAllForJob: async (jobId: string) => {
+    const { items } = get();
+    const jobItems = items.filter((i) => i.jobId === jobId);
+    await Promise.allSettled(
+      jobItems.map((item) => api.resolveInboxItem({ id: item.id, action: "dismiss" })),
+    );
+    set((s) => ({
+      items: s.items.filter((i) => i.jobId !== jobId),
+      openCount: Math.max(0, s.openCount - jobItems.length),
+    }));
   },
 
   addItemToStore: (item) => {

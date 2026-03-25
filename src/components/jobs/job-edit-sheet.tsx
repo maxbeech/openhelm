@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -92,6 +93,9 @@ function jobToFormState(job: Job): JobFormState {
     permissionMode: job.permissionMode ?? "bypassPermissions",
     workingDirectory: job.workingDirectory ?? "",
     correctionNote: job.correctionNote ?? "",
+    silenceTimeoutMinutes: job.silenceTimeoutMinutes != null
+      ? String(job.silenceTimeoutMinutes)
+      : "",
   };
 }
 
@@ -176,6 +180,9 @@ export function JobEditSheet({
         modelEffort: form.modelEffort,
         permissionMode: form.permissionMode,
         correctionNote: form.correctionNote.trim() || null,
+        silenceTimeoutMinutes: form.silenceTimeoutMinutes
+          ? parseInt(form.silenceTimeoutMinutes, 10) || null
+          : null,
         ...(icon !== job.icon && { icon: icon ?? undefined }),
       });
       handleOpenChange(false);
@@ -199,9 +206,9 @@ export function JobEditSheet({
             />
             <div>
               <SheetTitle>Edit Job</SheetTitle>
-              <p className="text-sm text-muted-foreground">
+              <SheetDescription>
                 Update the job configuration.
-              </p>
+              </SheetDescription>
             </div>
           </div>
         </SheetHeader>

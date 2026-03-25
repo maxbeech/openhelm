@@ -43,7 +43,7 @@ export function handleInteractiveDetected(
     jobId: job.id,
     projectId: job.projectId,
     type: "human_in_loop",
-    title: `"${job.name}" needs your input`,
+    title: `"${job.name}" stalled — no output for extended period`,
     message: reason,
   });
 

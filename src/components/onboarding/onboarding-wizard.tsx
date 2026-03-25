@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { WelcomeStep } from "./steps/welcome-step";
+import { PermissionsStep } from "./steps/permissions-step";
 import { UsageTypeStep } from "./steps/usage-type-step";
 import { EmailStep } from "./steps/email-step";
 import { ClaudeCodeStep } from "./steps/claude-code-step";
@@ -14,6 +15,7 @@ import { needsPayment } from "@/lib/license-utils";
 
 const STEP_LABELS = [
   "Welcome",
+  "Permissions",
   "Email",
   "Usage",
   "Claude Code",
@@ -42,8 +44,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const currentLabel = STEP_LABELS[Math.min(step, STEP_LABELS.length - 1)];
 
   // Last "in-progress" step index (before the complete step)
-  const lastMiddleStep = requiresPayment ? 5 : 4;
-  const isComplete = requiresPayment ? step === 6 : step === 5 && !requiresPayment;
+  const lastMiddleStep = requiresPayment ? 6 : 5;
+  const isComplete = requiresPayment ? step === 7 : step === 6 && !requiresPayment;
 
   const next = () =>
     setStep((s) => {
@@ -81,7 +83,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     if (requiresPayment) {
       next(); // → payment
     } else {
-      setStep(6); // → complete (index 6)
+      setStep(7); // → complete (index 7)
     }
   };
 
@@ -97,7 +99,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       data-tauri-drag-region
       className="no-select flex min-h-screen flex-col items-center justify-center bg-background p-8"
     >
-      {/* Progress bar with navigation arrows (shown on steps 1–5) */}
+      {/* Progress bar with navigation arrows (shown on steps 1–6) */}
       {step > 0 && step < STEP_LABELS.length - 1 && (
         <div data-tauri-drag-region className="fixed top-0 right-0 left-0 p-4">
           <div className="mx-auto max-w-md">
@@ -134,10 +136,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
       <div className="w-full max-w-md">
         {step === 0 && <WelcomeStep onNext={next} />}
-        {step === 1 && <EmailStep onNext={handleEmailNext} />}
-        {step === 2 && <UsageTypeStep userEmail={userEmail} onBack={() => setStep(1)} onNext={handleUsageNext} />}
-        {step === 3 && <ClaudeCodeStep onNext={next} />}
-        {step === 4 && (
+        {step === 1 && <PermissionsStep onNext={next} />}
+        {step === 2 && <EmailStep onNext={handleEmailNext} />}
+        {step === 3 && <UsageTypeStep userEmail={userEmail} onBack={() => setStep(2)} onNext={handleUsageNext} />}
+        {step === 4 && <ClaudeCodeStep onNext={next} />}
+        {step === 5 && (
           <ProjectStep
             onNext={(id) => {
               setProjectId(id);
@@ -145,16 +148,16 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             }}
           />
         )}
-        {step === 5 && requiresPayment && (
+        {step === 6 && requiresPayment && (
           <PaymentStep
             email={userEmail}
             employeeCount={employeeCount}
             onNext={next}
           />
         )}
-        {step === 6 && <CompleteStep onComplete={handleComplete} />}
-        {/* When payment not required, step 5 = complete */}
-        {step === 5 && !requiresPayment && (
+        {step === 7 && <CompleteStep onComplete={handleComplete} />}
+        {/* When payment not required, step 6 = complete */}
+        {step === 6 && !requiresPayment && (
           <CompleteStep onComplete={handleComplete} />
         )}
       </div>

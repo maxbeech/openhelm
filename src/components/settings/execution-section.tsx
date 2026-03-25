@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -10,12 +11,20 @@ import {
 import { Switch } from "@/components/ui/switch";
 import * as api from "@/lib/api";
 
+const DEFAULT_GLOBAL_PROMPT =
+  `- If any tool or external service operation hangs with no progress for more than 3 minutes, abandon that specific operation and try an alternative approach. Do not wait indefinitely for unresponsive tools or services.
+- When your task is fully complete and all results have been reported, stop working immediately. Do not wait for further instructions.
+- If you encounter authentication failures, CAPTCHAs, or access blocks, log what happened and move on to the next item rather than retrying the same approach repeatedly.
+- Prefer completing partial work over getting stuck. If one item in a batch fails, continue with the remaining items and report what succeeded and what failed at the end.`;
+
 export function ExecutionSection() {
   const [maxConcurrent, setMaxConcurrent] = useState("1");
   const [timeout, setTimeout_] = useState("0");
   const [autoCorrect, setAutoCorrect] = useState(true);
   const [maxRetries, setMaxRetries] = useState("2");
   const [wakeEnabled, setWakeEnabled] = useState(false);
+  const [suppressWindows, setSuppressWindows] = useState(true);
+  const [globalPrompt, setGlobalPrompt] = useState("");
 
   useEffect(() => {
     Promise.all([
@@ -24,12 +33,18 @@ export function ExecutionSection() {
       api.getSetting("auto_correction_enabled"),
       api.getSetting("max_correction_retries"),
       api.getSetting("wake_schedule_enabled"),
-    ]).then(([concurrent, to, correction, retries, wake]) => {
+      api.getSetting("focus_guard_enabled"),
+      api.getSetting("global_prompt"),
+    ]).then(([concurrent, to, correction, retries, wake, focusGuard, gp]) => {
       if (concurrent?.value) setMaxConcurrent(concurrent.value);
       if (to?.value) setTimeout_(to.value);
       if (correction?.value) setAutoCorrect(correction.value !== "false");
       if (retries?.value) setMaxRetries(retries.value);
       if (wake?.value) setWakeEnabled(wake.value === "true");
+      // focus_guard_enabled defaults to true; only stored when explicitly disabled
+      if (focusGuard?.value) setSuppressWindows(focusGuard.value !== "false");
+      // Use stored value or seed with default (don't persist yet — only on first blur)
+      setGlobalPrompt(gp?.value ?? DEFAULT_GLOBAL_PROMPT);
     });
   }, []);
 
@@ -162,6 +177,35 @@ export function ExecutionSection() {
             checked={wakeEnabled}
             onCheckedChange={handleWakeToggle}
           />
+        </div>
+        <div className="flex items-center justify-between">
+          <div>
+            <Label className="text-sm">Suppress job windows</Label>
+            <p className="text-xs text-muted-foreground">
+              Automatically hide windows opened by running jobs so they don't
+              steal focus. Hidden windows remain accessible via the Dock.
+            </p>
+          </div>
+          <Switch
+            checked={suppressWindows}
+            onCheckedChange={(checked) => {
+              setSuppressWindows(checked);
+              api.setSetting({ key: "focus_guard_enabled", value: String(checked) });
+            }}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-sm">Global prompt</Label>
+          <Textarea
+            value={globalPrompt}
+            onChange={(e) => setGlobalPrompt(e.target.value)}
+            onBlur={() => api.setSetting({ key: "global_prompt", value: globalPrompt })}
+            rows={6}
+            className="text-xs font-mono"
+          />
+          <p className="text-xs text-muted-foreground">
+            Appended to every job prompt. Use for general behavioral guidelines that should apply across all jobs.
+          </p>
         </div>
       </div>
     </div>

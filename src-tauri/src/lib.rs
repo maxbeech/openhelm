@@ -3,6 +3,9 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandChild;
 
+#[cfg(target_os = "macos")]
+mod focus_guard;
+
 /// Build an extended PATH string so the sidecar's `#!/usr/bin/env node` shebang
 /// finds the correct Node.js binary in release builds.
 ///
@@ -228,6 +231,11 @@ pub fn run() {
             .traffic_light_position(tauri::LogicalPosition::new(16.0_f64, 24.0_f64))
             .build()?;
 
+            // Initialise the focus guard (NSWorkspace notification observer).
+            // Prevents windows spawned by Claude Code job runs from stealing focus.
+            #[cfg(target_os = "macos")]
+            focus_guard::init();
+
             // Resolve the bundled-node-modules resource directory so that
             // better-sqlite3 (and its bindings helper) can be found at runtime.
             // In production the path is inside Contents/Resources/; in dev it
@@ -320,6 +328,43 @@ pub fn run() {
                     match event {
                         CommandEvent::Stdout(line) => {
                             let text = String::from_utf8_lossy(&line);
+                            // Intercept focus_guard protocol events before forwarding to frontend.
+                            // These are internal Rust↔agent messages and must not reach the JS layer.
+                            #[cfg(target_os = "macos")]
+                            if let Ok(parsed) =
+                                serde_json::from_str::<serde_json::Value>(&text)
+                            {
+                                match parsed
+                                    .get("event")
+                                    .and_then(|e| e.as_str())
+                                {
+                                    Some("focus_guard.addPid") => {
+                                        if let Some(pid) =
+                                            parsed["data"]["pid"].as_i64()
+                                        {
+                                            focus_guard::add_pid(pid as i32);
+                                        }
+                                        continue;
+                                    }
+                                    Some("focus_guard.removePid") => {
+                                        if let Some(pid) =
+                                            parsed["data"]["pid"].as_i64()
+                                        {
+                                            focus_guard::remove_pid(pid as i32);
+                                        }
+                                        continue;
+                                    }
+                                    Some("focus_guard.setEnabled") => {
+                                        if let Some(enabled) =
+                                            parsed["data"]["enabled"].as_bool()
+                                        {
+                                            focus_guard::set_enabled(enabled);
+                                        }
+                                        continue;
+                                    }
+                                    _ => {}
+                                }
+                            }
                             let _ = handle.emit("sidecar-stdout", text.to_string());
                         }
                         CommandEvent::Stderr(line) => {

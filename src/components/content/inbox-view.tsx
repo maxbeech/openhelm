@@ -11,11 +11,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RunStatusBadge } from "@/components/shared/status-badge";
 import { TokensChart } from "@/components/shared/tokens-chart";
-import { InboxCard } from "./inbox-card";
+import { AlertGroup } from "./alert-group";
 import { formatTokenCount } from "@/lib/format";
-import type { Run } from "@openhelm/shared";
+import type { InboxItem, Run } from "@openhelm/shared";
 
-const DEFAULT_VISIBLE_ALERTS = 3;
+const DEFAULT_VISIBLE_GROUPS = 3;
 
 export function InboxView() {
   const { items, loading, dismissAll } = useInboxStore();
@@ -47,8 +47,27 @@ export function InboxView() {
   // Recent runs: last 15, across all projects
   const recentRuns = useMemo(() => runs.slice(0, 15), [runs]);
 
-  const visibleItems = showAllAlerts ? items : items.slice(0, DEFAULT_VISIBLE_ALERTS);
-  const hiddenCount = items.length - DEFAULT_VISIBLE_ALERTS;
+  // Group items by jobId, sorted by most recent alert in each group
+  const alertGroups = useMemo(() => {
+    const groupMap = new Map<string, InboxItem[]>();
+    for (const item of items) {
+      const group = groupMap.get(item.jobId) ?? [];
+      group.push(item);
+      groupMap.set(item.jobId, group);
+    }
+    return Array.from(groupMap.entries())
+      .map(([jobId, groupItems]) => ({ jobId, items: groupItems }))
+      .sort((a, b) => {
+        const aTime = new Date(a.items[0].createdAt).getTime();
+        const bTime = new Date(b.items[0].createdAt).getTime();
+        return bTime - aTime;
+      });
+  }, [items]);
+
+  const visibleGroups = showAllAlerts
+    ? alertGroups
+    : alertGroups.slice(0, DEFAULT_VISIBLE_GROUPS);
+  const hiddenGroupCount = alertGroups.length - DEFAULT_VISIBLE_GROUPS;
 
   const handleDismissAll = async () => {
     setDismissingAll(true);
@@ -113,12 +132,12 @@ export function InboxView() {
             </Button>
           )}
         </div>
-        {items.length > 0 ? (
+        {alertGroups.length > 0 ? (
           <div className="space-y-3">
-            {visibleItems.map((item) => (
-              <InboxCard key={item.id} item={item} />
+            {visibleGroups.map((group) => (
+              <AlertGroup key={group.jobId} jobId={group.jobId} items={group.items} />
             ))}
-            {items.length > DEFAULT_VISIBLE_ALERTS && (
+            {alertGroups.length > DEFAULT_VISIBLE_GROUPS && (
               <button
                 className="flex w-full items-center justify-center gap-1.5 rounded-md py-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
                 onClick={() => setShowAllAlerts((v) => !v)}
@@ -131,7 +150,7 @@ export function InboxView() {
                 ) : (
                   <>
                     <ChevronDown className="size-3.5" />
-                    {hiddenCount} more alert{hiddenCount !== 1 ? "s" : ""}
+                    {hiddenGroupCount} more job{hiddenGroupCount !== 1 ? "s" : ""}
                   </>
                 )}
               </button>

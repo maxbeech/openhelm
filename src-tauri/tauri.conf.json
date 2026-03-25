@@ -18,6 +18,9 @@
   },
   "bundle": {
     "active": true,
+    "macOS": {
+      "entitlements": "./Entitlements.plist"
+    },
     "targets": "all",
     "externalBin": ["binaries/agent"],
     "resources": ["bundled-node-modules/**/*", "bundled-node/**/*"],

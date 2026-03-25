@@ -133,11 +133,19 @@ jobs:
               --timestamp --options runtime "$f"
           done
           if [ -f src-tauri/bundled-node/bin/node ]; then
-            echo "Signing bundled Node.js binary (with JIT entitlements for V8)"
+            echo "Signing bundled Node.js binary (with JIT + automation entitlements)"
             codesign --force --sign "$APPLE_SIGNING_IDENTITY" \
               --timestamp --options runtime \
               --entitlements src-tauri/node-entitlements.plist \
               "src-tauri/bundled-node/bin/node"
+          fi
+          AGENT_BIN=$(find src-tauri/binaries -name "agent-*" -type f 2>/dev/null | head -1)
+          if [ -n "$AGENT_BIN" ]; then
+            echo "Signing agent sidecar with automation entitlements"
+            codesign --force --sign "$APPLE_SIGNING_IDENTITY" \
+              --timestamp --options runtime \
+              --entitlements src-tauri/node-entitlements.plist \
+              "$AGENT_BIN"
           fi
 
       - name: Build Tauri app

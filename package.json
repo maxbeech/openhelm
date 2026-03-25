@@ -51,9 +51,13 @@
     "@vitejs/plugin-react": "^4.3.4",
     "eslint": "^9.19.0",
     "jsdom": "^28.1.0",
+    "rollup": "^4.60.0",
     "tailwindcss": "^4.1.8",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
     "vitest": "^4.0.18"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-darwin-arm64": "^4.60.0"
   }
 }

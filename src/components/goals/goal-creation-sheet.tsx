@@ -3,6 +3,7 @@ import { Plus, Loader2 } from "lucide-react";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -105,6 +106,9 @@ export function GoalCreationSheet({
       <SheetContent side="right" className="flex w-full flex-col sm:max-w-lg">
         <SheetHeader className="border-b border-border pb-4">
           <SheetTitle>Create a Goal</SheetTitle>
+          <SheetDescription className="sr-only">
+            Create a new goal and optionally add jobs to run on a schedule.
+          </SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 space-y-4 overflow-auto p-4">

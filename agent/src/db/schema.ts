@@ -66,6 +66,7 @@ export const jobs = sqliteTable("jobs", {
   permissionMode: text("permission_mode").notNull().default("bypassPermissions"),
   icon: text("icon"),
   correctionNote: text("correction_note"),
+  silenceTimeoutMinutes: integer("silence_timeout_minutes"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -207,6 +208,38 @@ export const runMemories = sqliteTable("run_memories", {
   memoryId: text("memory_id")
     .notNull()
     .references(() => memories.id, { onDelete: "cascade" }),
+});
+
+/** Credential metadata — secret values are stored in macOS Keychain, NOT here */
+export const credentials = sqliteTable("credentials", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  type: text("type", { enum: ["token", "username_password"] }).notNull(),
+  /** Auto-generated from name, e.g. OPENHELM_GITHUB_TOKEN */
+  envVarName: text("env_var_name").notNull(),
+  /** When true, value is also injected into prompt context (sent to Anthropic) */
+  allowPromptInjection: integer("allow_prompt_injection", { mode: "boolean" }).notNull().default(false),
+  scopeType: text("scope_type", { enum: ["global", "project", "goal", "job"] }).notNull().default("global"),
+  scopeId: text("scope_id"),
+  isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true),
+  lastUsedAt: text("last_used_at"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+/** Audit trail: which credentials were injected into each run */
+export const runCredentials = sqliteTable("run_credentials", {
+  runId: text("run_id")
+    .notNull()
+    .references(() => runs.id, { onDelete: "cascade" }),
+  credentialId: text("credential_id")
+    .notNull()
+    .references(() => credentials.id, { onDelete: "cascade" }),
+  injectionMethod: text("injection_method", { enum: ["env", "prompt"] }).notNull(),
 });
 
 /** Real-time log chunks captured from Claude Code output */

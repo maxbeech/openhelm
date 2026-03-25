@@ -8,6 +8,7 @@ import {
   invalidatePowerCache,
 } from "../../power/index.js";
 import { removeSudoersEntry } from "../../power/wake-scheduler.js";
+import { emit } from "../emitter.js";
 
 export function registerSettingHandlers() {
   registerHandler("settings.get", (params) => {
@@ -31,6 +32,11 @@ export function registerSettingHandlers() {
       subscribeToNewsletter(p.value).catch((err) =>
         console.error("[settings] newsletter subscribe failed:", err),
       );
+    }
+
+    // Propagate focus guard toggle to the Tauri Rust layer immediately
+    if (p.key === "focus_guard_enabled") {
+      emit("focus_guard.setEnabled", { enabled: p.value !== "false" });
     }
 
     // React to wake scheduling toggle

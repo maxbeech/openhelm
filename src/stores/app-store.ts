@@ -7,6 +7,7 @@ export type ContentView =
   | "job-detail"
   | "inbox"
   | "memory"
+  | "credentials"
   | "settings";
 
 // Backward-compat alias

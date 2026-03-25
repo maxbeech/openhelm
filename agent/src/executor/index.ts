@@ -36,8 +36,11 @@ import { extractMemoriesFromRun } from "../memory/run-extractor.js";
 import { retrieveMemories } from "../memory/retriever.js";
 import { buildMemorySection } from "../memory/prompt-builder.js";
 import { saveRunMemories } from "../db/queries/memories.js";
+import { resolveCredentialsForJob, touchCredential, saveRunCredentials, type RunCredentialEntry } from "../db/queries/credentials.js";
+import { getKeychainItem } from "../keychain/index.js";
+import { createRedactor, extractSecretStrings } from "../credentials/redactor.js";
 import type { InteractiveDetectionType } from "../claude-code/interactive-detector.js";
-import type { RunStatus, ClaudeCodeRunResult, Job } from "@openhelm/shared";
+import type { RunStatus, ClaudeCodeRunResult, Job, Credential, CredentialValue } from "@openhelm/shared";
 import { captureAgentError, addAgentBreadcrumb } from "../sentry.js";
 import {
   isPowerManagementEnabled,
@@ -262,6 +265,13 @@ export class Executor {
         snapshotRunCorrectionNote(runId, job.correctionNote);
       }
       effectivePrompt = job.prompt;
+
+      // Inject global prompt (applies to all jobs; user-configurable in Settings)
+      const globalPromptSetting = getSetting("global_prompt");
+      if (globalPromptSetting?.value) {
+        effectivePrompt += `\n\n---\n\nGeneral Guidelines:\n${globalPromptSetting.value}`;
+      }
+
       if (job.correctionNote) {
         effectivePrompt += `\n\n---\n\nCorrection Note (from a previous run failure — may no longer apply):\n${job.correctionNote}\n\nAddress these issues if still relevant.`;
       }
@@ -284,6 +294,77 @@ export class Executor {
       }
     }
 
+    // ── Credential injection ──
+    // All credentials are always injected as environment variables so Claude Code
+    // can use them via shell commands. A hint section is appended to the prompt
+    // listing the env var names (without values) so Claude Code knows they exist.
+    // If allowPromptInjection is true, the actual value is also appended to the
+    // prompt and will be sent to Anthropic's servers.
+    const additionalEnv: Record<string, string> = {};
+    const credentialAudit: RunCredentialEntry[] = [];
+    const allSecrets: string[] = [];
+
+    if (!isResumable) {
+      try {
+        const applicableCreds = resolveCredentialsForJob(jobId);
+        const credentialHints: string[] = [];
+
+        for (const cred of applicableCreds) {
+          let raw: string | null = null;
+          try {
+            raw = await getKeychainItem(cred.id);
+          } catch (err) {
+            console.error(`[executor] keychain read failed for credential "${cred.name}" (non-fatal):`, err);
+            continue;
+          }
+          if (!raw) continue;
+
+          const value = JSON.parse(raw) as CredentialValue;
+          allSecrets.push(...extractSecretStrings(value));
+
+          // Always inject as environment variable(s)
+          if (value.type === "username_password") {
+            additionalEnv[cred.envVarName + "_USERNAME"] = value.username;
+            additionalEnv[cred.envVarName + "_PASSWORD"] = value.password;
+            credentialHints.push(
+              `- $${cred.envVarName}_USERNAME / $${cred.envVarName}_PASSWORD — "${cred.name}" (username & password)`,
+            );
+          } else {
+            additionalEnv[cred.envVarName] = value.value;
+            credentialHints.push(`- $${cred.envVarName} — "${cred.name}" (token)`);
+          }
+          credentialAudit.push({ credentialId: cred.id, injectionMethod: "env" });
+
+          // Optionally also inject value into prompt context
+          if (cred.allowPromptInjection) {
+            const valueStr = value.type === "username_password"
+              ? `Username: ${value.username}, Password: ${value.password}`
+              : value.value;
+            effectivePrompt += `\n\n---\n\nCredential "${cred.name}": ${valueStr}`;
+            credentialAudit.push({ credentialId: cred.id, injectionMethod: "prompt" });
+          }
+
+          touchCredential(cred.id);
+        }
+
+        // Always append a hints section so Claude Code knows which env vars exist
+        if (credentialHints.length > 0) {
+          effectivePrompt +=
+            `\n\n---\n\nAvailable Credentials (set as environment variables — use in shell commands):\n` +
+            credentialHints.join("\n");
+          console.error(`[executor] injected ${applicableCreds.length} credentials into run ${runId}`);
+        }
+      } catch (err) {
+        console.error("[executor] credential resolution error (non-fatal):", err);
+      }
+    }
+
+    // Create redactor for log output
+    const redact = createRedactor(allSecrets);
+
+    // Track the Claude Code process PID so the focus guard can suppress child windows.
+    let claudePid: number | undefined;
+
     // Execute via ClaudeCodeRunner
     const result = await this.runnerFn(
       {
@@ -291,14 +372,25 @@ export class Executor {
         workingDirectory: job.workingDirectory ?? project.directoryPath,
         prompt: effectivePrompt,
         timeoutMs,
+        silenceTimeoutMs: job.silenceTimeoutMinutes
+          ? job.silenceTimeoutMinutes * 60_000
+          : undefined,
         model: job.model ?? undefined,
         modelEffort: (job.modelEffort as "low" | "medium" | "high") ?? undefined,
         permissionMode: (job.permissionMode as "default" | "acceptEdits" | "dontAsk" | "bypassPermissions") ?? undefined,
         resumeSessionId,
+        additionalEnv: Object.keys(additionalEnv).length > 0 ? additionalEnv : undefined,
+        onPidAvailable: (pid) => {
+          claudePid = pid;
+          // Notify the Tauri focus guard (intercepted in Rust before reaching the frontend)
+          emit("focus_guard.addPid", { pid });
+        },
         onLogChunk: (stream, text) => {
+          // Redact any credential values from logs
+          const safeText = redact(text);
           // DB insert BEFORE IPC emit (ordering invariant)
-          const log = createRunLog({ runId, stream, text });
-          emit("run.log", { runId, sequence: log.sequence, stream, text });
+          const log = createRunLog({ runId, stream, text: safeText });
+          emit("run.log", { runId, sequence: log.sequence, stream, text: safeText });
         },
         onInteractiveDetected: (reason, type) => {
           emit("run.interactiveDetected", { runId, reason, type });
@@ -308,6 +400,20 @@ export class Executor {
       },
       controller.signal,
     );
+
+    // Release the focus guard for this process tree now that the run has finished.
+    if (claudePid !== undefined) {
+      emit("focus_guard.removePid", { pid: claudePid });
+    }
+
+    // Save credential audit trail
+    if (credentialAudit.length > 0) {
+      try {
+        saveRunCredentials(runId, credentialAudit);
+      } catch (err) {
+        console.error("[executor] credential audit save error (non-fatal):", err);
+      }
+    }
 
     // Remove from active runs
     this.activeRuns.delete(runId);
@@ -497,7 +603,7 @@ export class Executor {
               jobId: failedJob.id,
               projectId: failedJob.projectId,
               type: "human_in_loop",
-              title: `"${failedJob.name}" failed — auto-retry unavailable`,
+              title: `"${failedJob.name}" failed — auto-analysis unavailable`,
               message: scResult.reason,
             });
             emit("inbox.created", item);

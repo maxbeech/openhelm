@@ -84,6 +84,13 @@ rl.on("close", () => {
 
 // 5. Signal readiness
 emit("agent.ready", { version: "0.1.0" });
+
+// 5b. Sync focus guard enabled state to the Tauri Rust layer.
+// Default is enabled; only emit when the user has explicitly disabled it.
+const focusGuardSetting = getSetting("focus_guard_enabled");
+if (focusGuardSetting?.value === "false") {
+  emit("focus_guard.setEnabled", { enabled: false });
+}
 console.error(`[agent] ready, listening for IPC on stdin (${elapsed()})`);
 
 // 6. Auto-detect Claude Code CLI in background (non-blocking)

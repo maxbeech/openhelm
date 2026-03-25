@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { AlertTriangle, Hand } from "lucide-react";
+import { AlertTriangle, Clock } from "lucide-react";
 import { useInboxStore } from "@/stores/inbox-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useRunStore } from "@/stores/run-store";
@@ -119,7 +119,7 @@ export function InboxCard({ item }: { item: InboxItem }) {
             {isFailure ? (
               <AlertTriangle className="mt-0.5 size-5 shrink-0 text-destructive" />
             ) : (
-              <Hand className="mt-0.5 size-5 shrink-0 text-amber-500" />
+              <Clock className="mt-0.5 size-5 shrink-0 text-amber-500" />
             )}
             <div className="min-w-0 flex-1">
               <span className="block text-sm font-medium break-words">{item.title}</span>

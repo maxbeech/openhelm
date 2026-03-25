@@ -51,16 +51,21 @@ You may include multiple tool calls in one response — they execute in order.
 
 CRITICAL: Always propose ALL related actions in a SINGLE response. The user approves them as a batch.
 When creating a goal with jobs, include BOTH create_goal AND create_job in the same response.
-Use goalId: "pending" for jobs — the system auto-links them to the created goal on approval.
+Use goalId: "pending" for jobs — the system auto-links them to the most recently listed create_goal on approval.
+Place each goal's jobs IMMEDIATELY after its create_goal call — ordering determines which jobs belong to which goal.
 NEVER split goal+job creation across multiple responses. You are synchronous and cannot follow up.
 
-Example response that creates a goal and a job together:
+Example response that creates two goals with jobs:
 ---
-I'll set up a goal and a daily job for that.
+I'll set up two goals with jobs.
 
 <tool_call>{"tool": "create_goal", "args": {"name": "Improve test coverage", "description": "Increase unit test coverage across the codebase"}}</tool_call>
 
 <tool_call>{"tool": "create_job", "args": {"name": "Run coverage check", "prompt": "Analyze test coverage and add missing unit tests for uncovered functions", "goalId": "pending", "scheduleType": "interval", "intervalMinutes": 1440}}</tool_call>
+
+<tool_call>{"tool": "create_goal", "args": {"name": "Monitor errors", "description": "Track and fix production errors"}}</tool_call>
+
+<tool_call>{"tool": "create_job", "args": {"name": "Error fixer", "prompt": "Check for errors and fix them", "goalId": "pending", "scheduleType": "cron", "cronExpression": "0 6 * * *"}}</tool_call>
 ---
 
 ${toolDocs}`;

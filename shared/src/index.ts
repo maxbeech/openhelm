@@ -133,6 +133,7 @@ export interface Job {
   permissionMode: PermissionMode;
   icon: string | null;
   correctionNote: string | null;
+  silenceTimeoutMinutes: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -207,7 +208,9 @@ export type SettingKey =
   | "license_verified_at"
   | "scheduler_paused"
   | "update_pending"
-  | "onboarding_complete";
+  | "onboarding_complete"
+  | "global_prompt"
+  | "focus_guard_enabled";
 
 export interface Setting {
   key: SettingKey;
@@ -260,6 +263,7 @@ export interface CreateJobParams {
   model?: string;
   modelEffort?: "low" | "medium" | "high";
   permissionMode?: PermissionMode;
+  silenceTimeoutMinutes?: number | null;
 }
 
 export interface UpdateJobParams {
@@ -278,6 +282,7 @@ export interface UpdateJobParams {
   permissionMode?: PermissionMode;
   icon?: string;
   correctionNote?: string | null;
+  silenceTimeoutMinutes?: number | null;
 }
 
 // Runs
@@ -712,6 +717,63 @@ export interface MemoryRetrievalContext {
   jobId?: string;
   query: string;
   maxResults?: number;
+}
+
+// ─── Credential Types ───
+
+/** Two credential types: a single token/key value, or a username+password pair */
+export type CredentialType = "token" | "username_password";
+export type CredentialScope = "global" | "project" | "goal" | "job";
+
+export interface Credential {
+  id: string;
+  name: string;
+  type: CredentialType;
+  /** Auto-generated from name, e.g. OPENHELM_GITHUB_TOKEN */
+  envVarName: string;
+  /** When true, the value is also injected into the prompt context (sent to Anthropic) */
+  allowPromptInjection: boolean;
+  scopeType: CredentialScope;
+  scopeId: string | null;
+  isEnabled: boolean;
+  lastUsedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CredentialValue =
+  | { type: "token"; value: string }
+  | { type: "username_password"; username: string; password: string };
+
+/** Credential with its secret value (only returned on explicit reveal) */
+export interface CredentialWithValue extends Credential {
+  value: CredentialValue | null;
+}
+
+export interface CreateCredentialParams {
+  name: string;
+  type: CredentialType;
+  /** Whether the value may also be injected into the prompt (default: false) */
+  allowPromptInjection?: boolean;
+  value: CredentialValue;
+  scopeType?: CredentialScope;
+  scopeId?: string;
+}
+
+export interface UpdateCredentialParams {
+  id: string;
+  name?: string;
+  allowPromptInjection?: boolean;
+  value?: CredentialValue;
+  scopeType?: CredentialScope;
+  scopeId?: string;
+  isEnabled?: boolean;
+}
+
+export interface ListCredentialsParams {
+  projectId?: string;
+  scopeType?: CredentialScope;
+  type?: CredentialType;
 }
 
 // ─── Data Import/Export Types ───

@@ -226,4 +226,45 @@ describe("job queries", () => {
     expect(deleteJob(job.id)).toBe(true);
     expect(getJob(job.id)).toBeNull();
   });
+
+  it("should create a job with silenceTimeoutMinutes", () => {
+    const job = createJob({
+      projectId,
+      name: "Browser Job",
+      prompt: "Browse the web",
+      scheduleType: "manual",
+      scheduleConfig: {},
+      silenceTimeoutMinutes: 20,
+    });
+
+    expect(job.silenceTimeoutMinutes).toBe(20);
+  });
+
+  it("should default silenceTimeoutMinutes to null when not specified", () => {
+    const job = createJob({
+      projectId,
+      name: "Default Silence Job",
+      prompt: "test",
+      scheduleType: "manual",
+      scheduleConfig: {},
+    });
+
+    expect(job.silenceTimeoutMinutes).toBeNull();
+  });
+
+  it("should update silenceTimeoutMinutes", () => {
+    const job = createJob({
+      projectId,
+      name: "Update Silence Job",
+      prompt: "test",
+      scheduleType: "manual",
+      scheduleConfig: {},
+    });
+
+    const updated = updateJob({ id: job.id, silenceTimeoutMinutes: 30 });
+    expect(updated.silenceTimeoutMinutes).toBe(30);
+
+    const cleared = updateJob({ id: job.id, silenceTimeoutMinutes: null });
+    expect(cleared.silenceTimeoutMinutes).toBeNull();
+  });
 });

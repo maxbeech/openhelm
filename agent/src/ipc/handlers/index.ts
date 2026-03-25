@@ -11,6 +11,8 @@ import { registerMemoryHandlers } from "./memories.js";
 import { registerDataHandlers } from "./data.js";
 import { registerPowerHandlers } from "./power.js";
 import { registerLicenseHandlers } from "./license.js";
+import { registerPermissionHandlers } from "./permissions.js";
+import { registerCredentialHandlers } from "./credentials.js";
 
 /** Register all domain IPC handlers */
 export function registerAllHandlers() {
@@ -27,4 +29,6 @@ export function registerAllHandlers() {
   registerDataHandlers();
   registerPowerHandlers();
   registerLicenseHandlers();
+  registerPermissionHandlers();
+  registerCredentialHandlers();
 }

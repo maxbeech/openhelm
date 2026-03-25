@@ -82,17 +82,23 @@ describe("WelcomeStep", () => {
     });
   });
 
-  it("calls ensureNotificationPermission when selecting a non-never level", () => {
+  it("does not call ensureNotificationPermission from WelcomeStep (moved to PermissionsStep)", () => {
+    // Permission request was moved to the dedicated PermissionsStep so it only
+    // fires once, intentionally, rather than being triggered on every radio change.
     render(<WelcomeStep onNext={() => {}} />);
     const finishRadio = screen.getByRole("radio", { name: /everything/i });
     fireEvent.click(finishRadio);
-    expect(ensureNotificationPermission).toHaveBeenCalled();
+    expect(ensureNotificationPermission).not.toHaveBeenCalled();
   });
 
-  it("does not call ensureNotificationPermission when selecting 'never'", () => {
+  it("persists notification_level on 'Let's get started' click", () => {
     render(<WelcomeStep onNext={() => {}} />);
-    const neverRadio = screen.getByRole("radio", { name: /never/i });
-    fireEvent.click(neverRadio);
-    expect(ensureNotificationPermission).not.toHaveBeenCalled();
+    const finishRadio = screen.getByRole("radio", { name: /everything/i });
+    fireEvent.click(finishRadio);
+    fireEvent.click(screen.getByRole("button", { name: /let's get started/i }));
+    expect(api.setSetting).toHaveBeenCalledWith({
+      key: "notification_level",
+      value: "on_finish",
+    });
   });
 });

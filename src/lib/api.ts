@@ -9,6 +9,8 @@ import type {
   SettingKey,
   InboxItem,
   Memory,
+  Credential,
+  CredentialWithValue,
   CreateProjectParams,
   UpdateProjectParams,
   CreateGoalParams,
@@ -26,6 +28,9 @@ import type {
   CreateMemoryParams,
   UpdateMemoryParams,
   ListMemoriesParams,
+  CreateCredentialParams,
+  UpdateCredentialParams,
+  ListCredentialsParams,
   ClaudeCodeDetectionResult,
   DetectClaudeCodeParams,
   VerifyClaudeCodeParams,
@@ -374,6 +379,40 @@ export function listMemoriesForRun(runId: string): Promise<Memory[]> {
   return agentClient.request<Memory[]>("memories.listForRun", { runId });
 }
 
+// ─── Credentials ───
+
+export function listCredentials(params?: ListCredentialsParams): Promise<Credential[]> {
+  return agentClient.request<Credential[]>("credentials.list", params);
+}
+
+export function listAllCredentials(): Promise<Credential[]> {
+  return agentClient.request<Credential[]>("credentials.listAll");
+}
+
+export function getCredentialValue(id: string): Promise<CredentialWithValue> {
+  return agentClient.request<CredentialWithValue>("credentials.getValue", { id });
+}
+
+export function createCredential(params: CreateCredentialParams): Promise<Credential> {
+  return agentClient.request<Credential>("credentials.create", params);
+}
+
+export function updateCredential(params: UpdateCredentialParams): Promise<Credential> {
+  return agentClient.request<Credential>("credentials.update", params);
+}
+
+export function deleteCredential(id: string): Promise<{ deleted: boolean }> {
+  return agentClient.request<{ deleted: boolean }>("credentials.delete", { id });
+}
+
+export function countCredentials(projectId?: string): Promise<{ count: number }> {
+  return agentClient.request<{ count: number }>("credentials.count", { projectId });
+}
+
+export function countAllCredentials(): Promise<{ count: number }> {
+  return agentClient.request<{ count: number }>("credentials.countAll");
+}
+
 // ─── Data Import/Export ───
 
 export function getExportStats(): Promise<import("@openhelm/shared").ExportStatsResult> {
@@ -407,6 +446,16 @@ export function listAllMemoryTags(): Promise<string[]> {
 
 export function countAllMemories(): Promise<{ count: number }> {
   return agentClient.request<{ count: number }>("memories.countAll");
+}
+
+// ── Permissions ──────────────────────────────────────────────────────────────
+
+export function requestTerminalAccess(): Promise<{ granted: boolean; error?: string }> {
+  return agentClient.request<{ granted: boolean; error?: string }>("permissions.requestTerminalAccess");
+}
+
+export function checkTerminalAccess(): Promise<{ granted: boolean }> {
+  return agentClient.request<{ granted: boolean }>("permissions.checkTerminalAccess");
 }
 
 // ── Power management ──────────────────────────────────────────────────────────

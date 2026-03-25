@@ -33,6 +33,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockInvoke.mockResolvedValue(undefined);
   vi.mocked(api.setSetting).mockResolvedValue({} as never);
+  // Simulate Tauri WebView environment so sendNativeNotification proceeds past its guard
+  (window as Record<string, unknown>).__TAURI_INTERNALS__ = {};
 });
 
 describe("notifyInboxItem", () => {
@@ -63,12 +65,12 @@ describe("notifyInboxItem", () => {
     expect(mockInvoke).toHaveBeenCalledWith("send_notification", expect.anything());
   });
 
-  it("uses 'Input Required' title for human_in_loop items", async () => {
+  it("uses 'Run Stalled' title for human_in_loop items", async () => {
     vi.mocked(api.getSetting).mockResolvedValue({ value: "alerts_only" } as never);
     await notifyInboxItem({ ...baseItem, type: "human_in_loop" });
     expect(mockInvoke).toHaveBeenCalledWith(
       "send_notification",
-      expect.objectContaining({ title: "Input Required" }),
+      expect.objectContaining({ title: "Run Stalled" }),
     );
   });
 });

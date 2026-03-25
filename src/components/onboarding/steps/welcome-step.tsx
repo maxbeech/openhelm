@@ -5,7 +5,6 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import * as api from "@/lib/api";
 import { setAnalyticsEnabled } from "@/lib/sentry";
-import { ensureNotificationPermission } from "@/lib/notifications";
 import logo from "@/assets/logo.svg";
 import type { NotificationLevel } from "@openhelm/shared";
 
@@ -26,9 +25,6 @@ export function WelcomeStep({ onNext }: { onNext: () => void }) {
     const level = value as NotificationLevel;
     setNotifLevel(level);
     api.setSetting({ key: "notification_level", value: level }).catch(() => {});
-    if (level !== "never") {
-      ensureNotificationPermission().catch(() => {});
-    }
   };
 
   return (
@@ -112,9 +108,6 @@ export function WelcomeStep({ onNext }: { onNext: () => void }) {
           api
             .setSetting({ key: "notification_level", value: notifLevel })
             .catch(() => {});
-          if (notifLevel !== "never") {
-            ensureNotificationPermission().catch(() => {});
-          }
           onNext();
         }}
         size="lg"

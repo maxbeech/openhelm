@@ -27,6 +27,8 @@ async function getNotificationLevel(): Promise<NotificationLevel> {
  * modern macOS versions.
  */
 async function sendNativeNotification(title: string, body: string): Promise<void> {
+  // Guard: Tauri invoke is only available inside the Tauri WebView, not in browser dev mode.
+  if (!("__TAURI_INTERNALS__" in window)) return;
   const { invoke } = await import("@tauri-apps/api/core");
   console.log("[notifications] invoke send_notification", { title, body });
   await invoke("send_notification", { title, body });
@@ -40,7 +42,7 @@ export async function notifyInboxItem(item: InboxItem): Promise<void> {
     const title =
       item.type === "permanent_failure"
         ? "Run Failed Permanently"
-        : "Input Required";
+        : "Run Stalled";
     await sendNativeNotification(title, item.title);
   } catch (err) {
     console.error("[notifications] notifyInboxItem invoke failed:", err);

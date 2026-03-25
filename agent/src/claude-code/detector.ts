@@ -277,7 +277,9 @@ export async function checkClaudeCodeHealth(): Promise<ClaudeCodeHealthResult> {
       const stdout = stdoutChunks.join("").trim();
       const stderr = stderrChunks.join("").trim();
 
-      if (stdout.length > 0) {
+      // Exit code 0 = process completed successfully; treat as healthy even
+      // if stdout is empty (can happen in dev/nested-session environments).
+      if (code === 0 || stdout.length > 0) {
         resolve({ healthy: true, authenticated: true });
         return;
       }

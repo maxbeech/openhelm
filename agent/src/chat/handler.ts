@@ -226,12 +226,18 @@ export async function handleActionApproval(
   // Mark approved
   let updated = pending.map((a) => a.callId === callId ? { ...a, status: "approved" as const } : a);
 
-  // When a goal is created, link sibling create_job actions to the real goal ID.
-  // The LLM may have used a placeholder goalId that doesn't exist in the DB.
+  // When a goal is created, link its sibling create_job actions to the real goal ID.
+  // Jobs are linked by ordering: jobs after this goal but before the next goal belong to it.
   if (action.tool === "create_goal" && result.result && !result.error) {
     const createdGoalId = (result.result as { id: string }).id;
-    updated = updated.map((a) => {
-      if (a.tool === "create_job" && a.status === "pending" && a.args.goalId) {
+    const thisIdx = updated.findIndex((a) => a.callId === callId);
+    // Find the next create_goal action after this one (if any)
+    const nextGoalIdx = updated.findIndex((a, i) => i > thisIdx && a.tool === "create_goal");
+    const endIdx = nextGoalIdx === -1 ? updated.length : nextGoalIdx;
+
+    updated = updated.map((a, i) => {
+      // Only update jobs between this goal and the next goal
+      if (i > thisIdx && i < endIdx && a.tool === "create_job" && a.status === "pending" && a.args.goalId) {
         const existing = getGoal(a.args.goalId as string);
         if (!existing) {
           return { ...a, args: { ...a.args, goalId: createdGoalId } };
