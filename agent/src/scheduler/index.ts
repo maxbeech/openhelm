@@ -11,8 +11,8 @@
 
 import { jobQueue } from "./queue.js";
 import { computeNextFireAt } from "./schedule.js";
-import { listDueJobs, updateJobNextFireAt } from "../db/queries/jobs.js";
-import { createRun, listDeferredDueRuns, listRuns, updateRun } from "../db/queries/runs.js";
+import { listDueJobs, updateJobNextFireAt, disableJob } from "../db/queries/jobs.js";
+import { createRun, listDeferredDueRuns, listRuns, updateRun, getSystemTokenUsageForGoal, getUserTokenUsageForGoal } from "../db/queries/runs.js";
 import { emit } from "../ipc/emitter.js";
 import { isPowerManagementEnabled, scheduleWake } from "../power/index.js";
 
@@ -69,6 +69,26 @@ export class Scheduler {
       // ── 1. Enqueue due jobs (scheduled runs) ──
       const dueJobs = listDueJobs();
       for (const job of dueJobs) {
+        // Budget guard for system jobs: skip if over 20% of goal's user token usage
+        if (job.source === "system" && job.goalId) {
+          const systemUsage = getSystemTokenUsageForGoal(job.goalId);
+          const userUsage = getUserTokenUsageForGoal(job.goalId);
+          // Only enforce budget if user jobs have meaningful usage (>1000 tokens)
+          if (userUsage > 1000 && systemUsage > userUsage * 0.2) {
+            console.error(
+              `[scheduler] system job ${job.id} budget exceeded (${systemUsage}/${userUsage * 0.2}) — disabling`,
+            );
+            disableJob(job.id);
+            emit("inbox.created", {
+              type: "autopilot_limit",
+              jobId: job.id,
+              title: `System job "${job.name}" paused — token budget exceeded`,
+              message: `System jobs for this goal have used ${systemUsage} tokens, exceeding 20% of user job usage (${userUsage} tokens). The job has been disabled.`,
+            });
+            continue;
+          }
+        }
+
         const run = createRun({
           jobId: job.id,
           triggerSource: "scheduled",

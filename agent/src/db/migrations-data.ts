@@ -20,6 +20,7 @@ import sql0015 from "./migrations/0015_add_memories.sql";
 import sql0016 from "./migrations/0016_add_token_usage.sql";
 import sql0017 from "./migrations/0017_add_silence_timeout.sql";
 import sql0018 from "./migrations/0018_add_credentials.sql";
+import sql0019 from "./migrations/0019_add_autopilot.sql";
 
 export interface MigrationEntry {
   idx: number;
@@ -47,4 +48,5 @@ export const MIGRATIONS: MigrationEntry[] = [
   { idx: 16, tag: "0016_add_token_usage", sql: sql0016 },
   { idx: 17, tag: "0017_add_silence_timeout", sql: sql0017 },
   { idx: 18, tag: "0018_add_credentials", sql: sql0018 },
+  { idx: 19, tag: "0019_add_autopilot", sql: sql0019 },
 ];

@@ -20,8 +20,6 @@ const DEFAULT_GLOBAL_PROMPT =
 export function ExecutionSection() {
   const [maxConcurrent, setMaxConcurrent] = useState("1");
   const [timeout, setTimeout_] = useState("0");
-  const [autoCorrect, setAutoCorrect] = useState(true);
-  const [maxRetries, setMaxRetries] = useState("2");
   const [wakeEnabled, setWakeEnabled] = useState(false);
   const [suppressWindows, setSuppressWindows] = useState(true);
   const [globalPrompt, setGlobalPrompt] = useState("");
@@ -30,20 +28,14 @@ export function ExecutionSection() {
     Promise.all([
       api.getSetting("max_concurrent_runs"),
       api.getSetting("run_timeout_minutes"),
-      api.getSetting("auto_correction_enabled"),
-      api.getSetting("max_correction_retries"),
       api.getSetting("wake_schedule_enabled"),
       api.getSetting("focus_guard_enabled"),
       api.getSetting("global_prompt"),
-    ]).then(([concurrent, to, correction, retries, wake, focusGuard, gp]) => {
+    ]).then(([concurrent, to, wake, focusGuard, gp]) => {
       if (concurrent?.value) setMaxConcurrent(concurrent.value);
       if (to?.value) setTimeout_(to.value);
-      if (correction?.value) setAutoCorrect(correction.value !== "false");
-      if (retries?.value) setMaxRetries(retries.value);
       if (wake?.value) setWakeEnabled(wake.value === "true");
-      // focus_guard_enabled defaults to true; only stored when explicitly disabled
       if (focusGuard?.value) setSuppressWindows(focusGuard.value !== "false");
-      // Use stored value or seed with default (don't persist yet — only on first blur)
       setGlobalPrompt(gp?.value ?? DEFAULT_GLOBAL_PROMPT);
     });
   }, []);
@@ -121,50 +113,6 @@ export function ExecutionSection() {
             The silence timeout (10 min) catches stuck processes independently.
           </p>
         </div>
-        <div className="flex items-center justify-between">
-          <div>
-            <Label className="text-sm">Auto-correct failed runs</Label>
-            <p className="text-xs text-muted-foreground">
-              When a run fails, analyze the error and automatically retry with
-              correction context.
-            </p>
-          </div>
-          <Switch
-            checked={autoCorrect}
-            onCheckedChange={(checked) => {
-              setAutoCorrect(checked);
-              api.setSetting({
-                key: "auto_correction_enabled",
-                value: String(checked),
-              });
-            }}
-          />
-        </div>
-        {autoCorrect && (
-          <div className="space-y-1.5">
-            <Label className="text-sm">Max correction retries</Label>
-            <Select
-              value={maxRetries}
-              onValueChange={(v) => {
-                setMaxRetries(v);
-                api.setSetting({ key: "max_correction_retries", value: v });
-              }}
-            >
-              <SelectTrigger className="w-24">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1">1</SelectItem>
-                <SelectItem value="2">2</SelectItem>
-                <SelectItem value="3">3</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              How many times to retry a failed run with correction guidance.
-              Default: 2 (original + up to 2 corrections = 3 total attempts).
-            </p>
-          </div>
-        )}
         <div className="flex items-center justify-between">
           <div>
             <Label className="text-sm">Wake Mac for scheduled jobs</Label>

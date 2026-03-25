@@ -2,6 +2,7 @@ import { Separator } from "@/components/ui/separator";
 import { LicenseSection } from "./license-section";
 import { ClaudeCodeSection } from "./claude-code-section";
 import { ExecutionSection } from "./execution-section";
+import { AutopilotSection } from "./autopilot-section";
 import { ApplicationSection } from "./application-section";
 import { PermissionsSection } from "./permissions-section";
 import { DataSection } from "./data-section";
@@ -16,6 +17,8 @@ export function SettingsScreen() {
         <ClaudeCodeSection />
         <Separator />
         <ExecutionSection />
+        <Separator />
+        <AutopilotSection />
         <Separator />
         <ApplicationSection />
         <Separator />

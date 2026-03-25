@@ -58,6 +58,8 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
     () => jobs.filter((j) => j.goalId === goalId),
     [jobs, goalId],
   );
+  const userJobs = useMemo(() => goalJobs.filter((j) => j.source !== "system"), [goalJobs]);
+  const systemJobs = useMemo(() => goalJobs.filter((j) => j.source === "system"), [goalJobs]);
 
   const getLastRunForJob = (jobId: string) =>
     runs.find((r) => r.jobId === jobId);
@@ -163,7 +165,7 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
       {/* Jobs table */}
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-sm font-medium">
-          Jobs ({goalJobs.length})
+          Jobs ({userJobs.length})
         </h3>
         <Button size="sm" variant="outline" onClick={onNewJob}>
           <Plus className="size-3.5" />
@@ -171,64 +173,25 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
         </Button>
       </div>
 
-      {goalJobs.length === 0 ? (
+      {userJobs.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">
           No jobs yet. Add a job to start working towards this goal.
         </p>
       ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-xs text-muted-foreground">
-              <th className="px-3 py-2 font-medium">Name</th>
-              <th className="px-3 py-2 font-medium">Schedule</th>
-              <th className="px-3 py-2 font-medium">Last Run</th>
-              <th className="px-3 py-2 font-medium text-right">Total Tokens</th>
-              <th className="px-3 py-2 font-medium text-right">Avg/Run</th>
-            </tr>
-          </thead>
-          <tbody>
-            {goalJobs.map((job) => {
-              const lastRun = getLastRunForJob(job.id);
-              const stat = tokenStats.find((s) => s.jobId === job.id);
-              const totalTokens = stat ? stat.totalInputTokens + stat.totalOutputTokens : null;
-              const avgTokens = stat && stat.runCount > 0
-                ? Math.round(totalTokens! / stat.runCount)
-                : null;
-              return (
-                <tr
-                  key={job.id}
-                  onClick={() => selectJob(job.id)}
-                  className="cursor-pointer border-b border-border transition-colors hover:bg-accent/50"
-                >
-                  <td className="px-3 py-2.5 font-medium">{job.name}</td>
-                  <td className="px-3 py-2.5 text-xs text-muted-foreground">
-                    {formatSchedule(job.scheduleType, job.scheduleConfig)}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    {lastRun ? (
-                      <div className="flex items-center gap-1.5">
-                        <RunStatusBadge status={lastRun.status} />
-                        <span className="text-xs text-muted-foreground">
-                          {formatRelativeTime(lastRun.createdAt)}
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        Never
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-muted-foreground">
-                    {formatTokenCount(totalTokens)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-muted-foreground">
-                    {formatTokenCount(avgTokens)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <JobsTable jobs={userJobs} tokenStats={tokenStats} getLastRunForJob={getLastRunForJob} selectJob={selectJob} />
+      )}
+
+      {/* System Jobs section */}
+      {systemJobs.length > 0 && (
+        <>
+          <div className="mb-4 mt-6 flex items-center gap-2">
+            <h3 className="text-sm font-medium text-muted-foreground">
+              System Jobs ({systemJobs.length})
+            </h3>
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">Autopilot</span>
+          </div>
+          <JobsTable jobs={systemJobs} tokenStats={tokenStats} getLastRunForJob={getLastRunForJob} selectJob={selectJob} />
+        </>
       )}
 
       <Separator className="my-6" />
@@ -296,5 +259,72 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
         onComplete={() => {}}
       />
     </div>
+  );
+}
+
+/** Shared table for both user and system jobs */
+function JobsTable({
+  jobs: tableJobs,
+  tokenStats,
+  getLastRunForJob,
+  selectJob,
+}: {
+  jobs: import("@openhelm/shared").Job[];
+  tokenStats: JobTokenStat[];
+  getLastRunForJob: (jobId: string) => import("@openhelm/shared").Run | undefined;
+  selectJob: (jobId: string) => void;
+}) {
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="border-b border-border text-left text-xs text-muted-foreground">
+          <th className="px-3 py-2 font-medium">Name</th>
+          <th className="px-3 py-2 font-medium">Schedule</th>
+          <th className="px-3 py-2 font-medium">Last Run</th>
+          <th className="px-3 py-2 font-medium text-right">Total Tokens</th>
+          <th className="px-3 py-2 font-medium text-right">Avg/Run</th>
+        </tr>
+      </thead>
+      <tbody>
+        {tableJobs.map((job) => {
+          const lastRun = getLastRunForJob(job.id);
+          const stat = tokenStats.find((s) => s.jobId === job.id);
+          const totalTokens = stat ? stat.totalInputTokens + stat.totalOutputTokens : null;
+          const avgTokens = stat && stat.runCount > 0
+            ? Math.round(totalTokens! / stat.runCount)
+            : null;
+          return (
+            <tr
+              key={job.id}
+              onClick={() => selectJob(job.id)}
+              className="cursor-pointer border-b border-border transition-colors hover:bg-accent/50"
+            >
+              <td className="px-3 py-2.5 font-medium">{job.name}</td>
+              <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                {formatSchedule(job.scheduleType, job.scheduleConfig)}
+              </td>
+              <td className="px-3 py-2.5">
+                {lastRun ? (
+                  <div className="flex items-center gap-1.5">
+                    <RunStatusBadge status={lastRun.status} />
+                    <span className="text-xs text-muted-foreground">
+                      {formatRelativeTime(lastRun.createdAt)}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Never</span>
+                )}
+              </td>
+              <td className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-muted-foreground">
+                {formatTokenCount(totalTokens)}
+              </td>
+              <td className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-muted-foreground">
+                {formatTokenCount(avgTokens)}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }

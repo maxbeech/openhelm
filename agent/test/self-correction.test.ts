@@ -76,8 +76,8 @@ function makeSignal(overrides: Partial<FailureSignal> = {}): FailureSignal {
 }
 
 describe("attemptSelfCorrection", () => {
-  it("skips when auto-correction is disabled", async () => {
-    setSetting("auto_correction_enabled", "false");
+  it("skips when autopilot mode is off", async () => {
+    setSetting("autopilot_mode", "off");
 
     const job = createJob({
       projectId,
@@ -92,12 +92,12 @@ describe("attemptSelfCorrection", () => {
     const result = await attemptSelfCorrection(run.id, job, fn);
 
     expect(result.attempted).toBe(false);
-    expect(result.reason).toContain("disabled");
+    expect(result.reason).toContain("Autopilot is off");
     expect(items).toHaveLength(0);
     expect(mockAnalyze).not.toHaveBeenCalled();
 
     // Re-enable for other tests
-    deleteSetting("auto_correction_enabled");
+    deleteSetting("autopilot_mode");
   });
 
   it("skips when max correction depth reached (default 2) and sets shouldTriage", async () => {

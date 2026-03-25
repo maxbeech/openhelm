@@ -67,6 +67,8 @@ export const jobs = sqliteTable("jobs", {
   icon: text("icon"),
   correctionNote: text("correction_note"),
   silenceTimeoutMinutes: integer("silence_timeout_minutes"),
+  source: text("source").notNull().default("user"),
+  systemCategory: text("system_category"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -160,7 +162,7 @@ export const inboxItems = sqliteTable("inbox_items", {
   projectId: text("project_id")
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
-  type: text("type", { enum: ["permanent_failure", "human_in_loop"] }).notNull(),
+  type: text("type", { enum: ["permanent_failure", "human_in_loop", "autopilot_limit"] }).notNull(),
   status: text("status", { enum: ["open", "resolved", "dismissed"] })
     .notNull()
     .default("open"),
@@ -208,6 +210,26 @@ export const runMemories = sqliteTable("run_memories", {
   memoryId: text("memory_id")
     .notNull()
     .references(() => memories.id, { onDelete: "cascade" }),
+});
+
+/** Autopilot proposals: pending system job proposals awaiting user approval */
+export const autopilotProposals = sqliteTable("autopilot_proposals", {
+  id: text("id").primaryKey(),
+  goalId: text("goal_id")
+    .notNull()
+    .references(() => goals.id, { onDelete: "cascade" }),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  status: text("status", { enum: ["pending", "approved", "rejected", "expired"] })
+    .notNull()
+    .default("pending"),
+  plannedJobs: text("planned_jobs").notNull(), // JSON: PlannedSystemJob[]
+  reason: text("reason").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  resolvedAt: text("resolved_at"),
 });
 
 /** Credential metadata — secret values are stored in macOS Keychain, NOT here */

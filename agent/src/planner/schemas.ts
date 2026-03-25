@@ -114,6 +114,31 @@ export const MEMORY_EXTRACTION_SCHEMA = {
   required: ["memories"],
 } as const;
 
+const SYSTEM_JOB_SCHEMA = {
+  type: "object",
+  properties: {
+    name: { type: "string" },
+    description: { type: "string" },
+    prompt: { type: "string" },
+    rationale: { type: "string" },
+    systemCategory: { type: "string" },
+    scheduleType: { type: "string", enum: ["cron", "interval"] },
+    scheduleConfig: { type: "object" },
+  },
+  required: ["name", "description", "prompt", "rationale", "systemCategory", "scheduleType", "scheduleConfig"],
+} as const;
+
+export const SYSTEM_JOB_GENERATION_SCHEMA = {
+  type: "object",
+  properties: {
+    jobs: {
+      type: "array",
+      items: SYSTEM_JOB_SCHEMA,
+    },
+  },
+  required: ["jobs"],
+} as const;
+
 export const PROMPT_ASSESSMENT_SCHEMA = {
   type: "object",
   properties: {

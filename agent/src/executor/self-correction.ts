@@ -65,10 +65,10 @@ export async function attemptSelfCorrection(
   enqueueFn: (item: QueueItem) => void,
   failureSignal?: FailureSignal,
 ): Promise<SelfCorrectionResult> {
-  // 1. Check setting (default enabled)
-  const setting = getSetting("auto_correction_enabled");
-  if (setting?.value === "false") {
-    return { attempted: false, reason: "Auto-correction disabled in settings" };
+  // 1. Check autopilot mode (default full_auto — self-correction enabled)
+  const autopilotMode = getSetting("autopilot_mode");
+  if (autopilotMode?.value === "off") {
+    return { attempted: false, reason: "Autopilot is off — self-correction disabled" };
   }
 
   // 2. Check correction chain depth — respect max retries setting

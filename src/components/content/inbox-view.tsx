@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Target, Briefcase, Play, AlertTriangle, Inbox, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
+import { useMemo, useState, useEffect, useCallback } from "react";
+import { Target, Briefcase, Play, AlertTriangle, Inbox, ChevronDown, ChevronUp, RotateCcw, Bot, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useInboxStore } from "@/stores/inbox-store";
 import { useGoalStore } from "@/stores/goal-store";
@@ -13,7 +13,8 @@ import { RunStatusBadge } from "@/components/shared/status-badge";
 import { TokensChart } from "@/components/shared/tokens-chart";
 import { AlertGroup } from "./alert-group";
 import { formatTokenCount } from "@/lib/format";
-import type { InboxItem, Run } from "@openhelm/shared";
+import * as api from "@/lib/api";
+import type { InboxItem, Run, AutopilotProposal } from "@openhelm/shared";
 
 const DEFAULT_VISIBLE_GROUPS = 3;
 
@@ -27,6 +28,30 @@ export function InboxView() {
   const { triggerRun } = useRunStore();
   const [showAllAlerts, setShowAllAlerts] = useState(false);
   const [dismissingAll, setDismissingAll] = useState(false);
+  const [proposals, setProposals] = useState<AutopilotProposal[]>([]);
+
+  const fetchProposals = useCallback(async () => {
+    try {
+      const list = await api.listAutopilotProposals({ status: "pending" });
+      setProposals(list);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { fetchProposals(); }, [fetchProposals]);
+
+  const handleApproveProposal = async (id: string) => {
+    try {
+      await api.approveAutopilotProposal({ id });
+      setProposals((p) => p.filter((pr) => pr.id !== id));
+    } catch { /* ignore */ }
+  };
+
+  const handleRejectProposal = async (id: string) => {
+    try {
+      await api.rejectAutopilotProposal(id);
+      setProposals((p) => p.filter((pr) => pr.id !== id));
+    } catch { /* ignore */ }
+  };
 
   const activeGoalCount = useMemo(
     () => goals.filter((g) => g.status === "active").length,
@@ -104,6 +129,47 @@ export function InboxView() {
           />
         </div>
       </section>
+
+      {/* Autopilot Proposals */}
+      {proposals.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Bot className="size-4 text-primary" />
+            <h3 className="text-sm font-semibold text-muted-foreground">Proposed System Jobs</h3>
+            <Badge className="ml-1 text-[10px]">{proposals.length}</Badge>
+          </div>
+          {proposals.map((proposal) => {
+            const goal = goals.find((g) => g.id === proposal.goalId);
+            return (
+              <div key={proposal.id} className="rounded-lg border border-border p-3">
+                <p className="mb-2 text-sm font-medium">
+                  {goal?.name ?? "Unknown Goal"}
+                </p>
+                <ul className="mb-3 space-y-1">
+                  {proposal.plannedJobs.map((sj, i) => (
+                    <li key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Bot className="size-3 shrink-0" />
+                      {sj.name}
+                      <span className="rounded bg-muted px-1 py-0.5 text-[10px]">{sj.systemCategory}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mb-3 text-xs text-muted-foreground">{proposal.reason}</p>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="default" className="h-7 gap-1 text-xs" onClick={() => handleApproveProposal(proposal.id)}>
+                    <Check className="size-3" />
+                    Approve
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={() => handleRejectProposal(proposal.id)}>
+                    <X className="size-3" />
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      )}
 
       {/* Alerts section — always visible, cross-project */}
       <section>

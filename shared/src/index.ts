@@ -115,6 +115,9 @@ export type PermissionMode =
   | "dontAsk"
   | "bypassPermissions";
 
+export type JobSource = "user" | "system";
+export type AutopilotMode = "full_auto" | "approval_required" | "off";
+
 export interface Job {
   id: string;
   goalId: string | null;
@@ -134,6 +137,8 @@ export interface Job {
   icon: string | null;
   correctionNote: string | null;
   silenceTimeoutMinutes: number | null;
+  source: JobSource;
+  systemCategory: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -210,7 +215,8 @@ export type SettingKey =
   | "update_pending"
   | "onboarding_complete"
   | "global_prompt"
-  | "focus_guard_enabled";
+  | "focus_guard_enabled"
+  | "autopilot_mode";
 
 export interface Setting {
   key: SettingKey;
@@ -264,6 +270,8 @@ export interface CreateJobParams {
   modelEffort?: "low" | "medium" | "high";
   permissionMode?: PermissionMode;
   silenceTimeoutMinutes?: number | null;
+  source?: JobSource;
+  systemCategory?: string;
 }
 
 export interface UpdateJobParams {
@@ -554,6 +562,11 @@ export interface PlannedJob {
   scheduleConfig: ScheduleConfig;
 }
 
+/** A system job planned by the autopilot system */
+export interface PlannedSystemJob extends PlannedJob {
+  systemCategory: string;
+}
+
 /** A complete generated plan */
 export interface GeneratedPlan {
   jobs: PlannedJob[];
@@ -608,9 +621,39 @@ export interface AssessAndGenerateParams {
   goalDescription: string;
 }
 
+// ─── Autopilot Types ───
+
+export type AutopilotProposalStatus = "pending" | "approved" | "rejected" | "expired";
+
+export interface AutopilotProposal {
+  id: string;
+  goalId: string;
+  projectId: string;
+  status: AutopilotProposalStatus;
+  plannedJobs: PlannedSystemJob[];
+  reason: string;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+export interface ListAutopilotProposalsParams {
+  projectId?: string;
+  status?: AutopilotProposalStatus;
+}
+
+export interface ApproveAutopilotProposalParams {
+  id: string;
+  /** Optional per-job modifications before approval */
+  modifications?: Partial<PlannedSystemJob>[];
+}
+
+export interface RegenerateSystemJobsParams {
+  goalId: string;
+}
+
 // ─── Inbox Types ───
 
-export type InboxItemType = "permanent_failure" | "human_in_loop";
+export type InboxItemType = "permanent_failure" | "human_in_loop" | "autopilot_limit";
 export type InboxItemStatus = "open" | "resolved" | "dismissed";
 
 export interface InboxItem {

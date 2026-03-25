@@ -263,3 +263,49 @@ export function getJobTokenStats(params: GetJobTokenStatsParams): JobTokenStat[]
     runCount: Number(r.runCount),
   }));
 }
+
+/**
+ * Get total token usage for system jobs belonging to a goal.
+ * Used by the autopilot guardrail to enforce the 20% budget cap.
+ */
+export function getSystemTokenUsageForGoal(goalId: string): number {
+  const db = getDb();
+  const row = db
+    .select({
+      total: sql<number>`COALESCE(SUM(${runs.inputTokens}), 0) + COALESCE(SUM(${runs.outputTokens}), 0)`,
+    })
+    .from(runs)
+    .innerJoin(jobs, eq(runs.jobId, jobs.id))
+    .where(
+      and(
+        eq(jobs.goalId, goalId),
+        eq(jobs.source, "system"),
+        inArray(runs.status, [...TERMINAL_STATUSES]),
+      ),
+    )
+    .get();
+  return Number(row?.total ?? 0);
+}
+
+/**
+ * Get total token usage for user jobs belonging to a goal.
+ * Used alongside getSystemTokenUsageForGoal for budget ratio check.
+ */
+export function getUserTokenUsageForGoal(goalId: string): number {
+  const db = getDb();
+  const row = db
+    .select({
+      total: sql<number>`COALESCE(SUM(${runs.inputTokens}), 0) + COALESCE(SUM(${runs.outputTokens}), 0)`,
+    })
+    .from(runs)
+    .innerJoin(jobs, eq(runs.jobId, jobs.id))
+    .where(
+      and(
+        eq(jobs.goalId, goalId),
+        eq(jobs.source, "user"),
+        inArray(runs.status, [...TERMINAL_STATUSES]),
+      ),
+    )
+    .get();
+  return Number(row?.total ?? 0);
+}

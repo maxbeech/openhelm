@@ -5,6 +5,7 @@ import { UsageTypeStep } from "./steps/usage-type-step";
 import { EmailStep } from "./steps/email-step";
 import { ClaudeCodeStep } from "./steps/claude-code-step";
 import { ProjectStep } from "./steps/project-step";
+import { AutopilotStep } from "./steps/autopilot-step";
 import { PaymentStep } from "./steps/payment-step";
 import { CompleteStep } from "./steps/complete-step";
 import { Progress } from "@/components/ui/progress";
@@ -20,6 +21,7 @@ const STEP_LABELS = [
   "Usage",
   "Claude Code",
   "Project",
+  "Autopilot",
   "Payment",
   "Complete",
 ] as const;
@@ -44,8 +46,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const currentLabel = STEP_LABELS[Math.min(step, STEP_LABELS.length - 1)];
 
   // Last "in-progress" step index (before the complete step)
-  const lastMiddleStep = requiresPayment ? 6 : 5;
-  const isComplete = requiresPayment ? step === 7 : step === 6 && !requiresPayment;
+  const lastMiddleStep = requiresPayment ? 7 : 6;
+  const isComplete = requiresPayment ? step === 8 : step === 7 && !requiresPayment;
 
   const next = () =>
     setStep((s) => {
@@ -80,11 +82,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
   const handleProjectNext = (id: string) => {
     setProjectId(id);
-    if (requiresPayment) {
-      next(); // → payment
-    } else {
-      setStep(7); // → complete (index 7)
-    }
+    next(); // → autopilot step
+  };
+
+  const handleAutopilotNext = () => {
+    next(); // → payment (step 7) when required, or → complete (step 7) otherwise
   };
 
   const handleComplete = (autoUpdate: boolean) => {
@@ -148,16 +150,17 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             }}
           />
         )}
-        {step === 6 && requiresPayment && (
+        {step === 6 && <AutopilotStep onNext={handleAutopilotNext} />}
+        {step === 7 && requiresPayment && (
           <PaymentStep
             email={userEmail}
             employeeCount={employeeCount}
             onNext={next}
           />
         )}
-        {step === 7 && <CompleteStep onComplete={handleComplete} />}
-        {/* When payment not required, step 6 = complete */}
-        {step === 6 && !requiresPayment && (
+        {step === 8 && <CompleteStep onComplete={handleComplete} />}
+        {/* When payment not required, step 7 = complete */}
+        {step === 7 && !requiresPayment && (
           <CompleteStep onComplete={handleComplete} />
         )}
       </div>

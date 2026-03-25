@@ -11,6 +11,10 @@ import type {
   Memory,
   Credential,
   CredentialWithValue,
+  AutopilotProposal,
+  AutopilotMode,
+  ListAutopilotProposalsParams,
+  ApproveAutopilotProposalParams,
   CreateProjectParams,
   UpdateProjectParams,
   CreateGoalParams,
@@ -526,4 +530,44 @@ export function createPortalSession(): Promise<CustomerPortalResult> {
 
 export function verifyLicense(): Promise<LicenseStatus> {
   return agentClient.request<LicenseStatus>("license.verify");
+}
+
+// ─── Autopilot ───
+
+export function getAutopilotMode(): Promise<{ mode: AutopilotMode }> {
+  return agentClient.request<{ mode: AutopilotMode }>("autopilot.getMode");
+}
+
+export function listAutopilotProposals(
+  params?: ListAutopilotProposalsParams,
+): Promise<AutopilotProposal[]> {
+  return agentClient.request<AutopilotProposal[]>("autopilot.listProposals", params ?? {});
+}
+
+export function approveAutopilotProposal(
+  params: ApproveAutopilotProposalParams,
+): Promise<{ proposal: AutopilotProposal; jobIds: string[] }> {
+  return agentClient.request<{ proposal: AutopilotProposal; jobIds: string[] }>(
+    "autopilot.approveProposal",
+    params,
+  );
+}
+
+export function rejectAutopilotProposal(id: string): Promise<AutopilotProposal> {
+  return agentClient.request<AutopilotProposal>("autopilot.rejectProposal", { id });
+}
+
+export function regenerateSystemJobs(goalId: string): Promise<{ success: boolean }> {
+  return agentClient.request<{ success: boolean }>("autopilot.regenerateSystemJobs", { goalId });
+}
+
+export function listSystemJobsForGoal(goalId: string): Promise<Job[]> {
+  return agentClient.request<Job[]>("autopilot.listSystemJobsForGoal", { goalId });
+}
+
+export function generateAutopilotForGoal(
+  goalId: string,
+  projectId: string,
+): Promise<{ success: boolean }> {
+  return agentClient.request<{ success: boolean }>("autopilot.generateForGoal", { goalId, projectId });
 }

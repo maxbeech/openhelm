@@ -64,6 +64,8 @@ function rowToJob(row: typeof jobs.$inferSelect): Job {
     icon: row.icon ?? null,
     correctionNote: row.correctionNote ?? null,
     silenceTimeoutMinutes: row.silenceTimeoutMinutes ?? null,
+    source: (row.source ?? "user") as Job["source"],
+    systemCategory: row.systemCategory ?? null,
   } as Job;
 }
 
@@ -98,6 +100,8 @@ export function createJob(params: CreateJobParams): Job {
       modelEffort: params.modelEffort ?? "medium",
       permissionMode: params.permissionMode ?? "bypassPermissions",
       silenceTimeoutMinutes: params.silenceTimeoutMinutes ?? null,
+      source: params.source ?? "user",
+      systemCategory: params.systemCategory ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -327,6 +331,30 @@ export function unarchiveJobsForGoal(goalId: string): void {
       updatedAt: new Date().toISOString(),
     })
     .where(and(eq(jobs.goalId, goalId), eq(jobs.isArchived, true)))
+    .run();
+}
+
+/** List system jobs for a specific goal */
+export function listSystemJobsForGoal(goalId: string): Job[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(jobs)
+    .where(and(eq(jobs.goalId, goalId), eq(jobs.source, "system")))
+    .all();
+  return rows.map(rowToJob);
+}
+
+/** Disable all system jobs (used when autopilot mode is set to "off") */
+export function disableAllSystemJobs(): void {
+  const db = getDb();
+  db.update(jobs)
+    .set({
+      isEnabled: false,
+      nextFireAt: null,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(jobs.source, "system"))
     .run();
 }
 

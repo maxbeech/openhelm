@@ -99,7 +99,7 @@ export function CredentialCreateDialog({ open, onOpenChange, projectId, onSave }
               <p className="text-xs font-medium text-amber-300">Credential Security Notice</p>
               <p className="text-xs text-amber-200/70">
                 Values are encrypted in macOS Keychain. However, OpenHelm cannot fully control how Claude Code
-                handles credentials at runtime — Claude Code may read environment variables via shell commands.
+                handles credentials at runtime. Claude Code may read environment variables via shell commands.
                 You use this feature at your own risk.
               </p>
             </div>
@@ -166,8 +166,8 @@ export function CredentialCreateDialog({ open, onOpenChange, projectId, onSave }
                 <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-red-400" />
                 <p className="text-[11px] text-red-300/80">
                   <strong>Elevated risk:</strong> The credential value will be included in the prompt text and{" "}
-                  <strong>sent to Anthropic's servers</strong>. Only enable if Claude Code needs to type or paste
-                  the value directly (e.g. filling a login form).
+                  <strong>sent to Anthropic's servers</strong>. Enable at your own risk if Claude Code needs to
+                  type or paste the value directly.
                 </p>
               </div>
             ) : (

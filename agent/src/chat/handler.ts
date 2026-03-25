@@ -21,6 +21,7 @@ import { parseLlmResponse, buildTextResponse } from "./response-parser.js";
 import { isWriteTool, describeAction } from "./tools.js";
 import { executeReadTool, executeWriteTool } from "./tool-executor.js";
 import { emit } from "../ipc/emitter.js";
+import { generateAndHandleSystemJobs } from "../autopilot/index.js";
 import type {
   ChatMessage, ChatContext, ChatToolCall, ChatToolResult, PendingAction,
 } from "@openhelm/shared";
@@ -293,6 +294,9 @@ export async function handleApproveAll(
     current = await handleActionApproval(messageId, callId, projectId);
   }
 
+  // Trigger autopilot system job generation for any goals that were created
+  triggerAutopilotForCreatedGoals(pending, projectId);
+
   return current;
 }
 
@@ -318,4 +322,31 @@ export function handleRejectAll(messageId: string): ChatMessage {
   }
 
   return updatedMsg;
+}
+
+/**
+ * After approving all chat actions, trigger autopilot for any created goals.
+ * Finds create_goal actions that have sibling create_job actions (meaning
+ * the goal now has jobs) and triggers system job generation.
+ */
+function triggerAutopilotForCreatedGoals(
+  actions: PendingAction[],
+  projectId: string,
+): void {
+  const goalActions = actions.filter((a) => a.tool === "create_goal" && a.status === "approved");
+  const jobActions = actions.filter((a) => a.tool === "create_job" && a.status === "approved");
+
+  if (goalActions.length === 0 || jobActions.length === 0) return;
+
+  // For each created goal, check if it has associated jobs
+  for (const ga of goalActions) {
+    const goalId = ga.args.goalId as string | undefined;
+    if (!goalId) continue;
+    const hasJobs = jobActions.some((ja) => ja.args.goalId === goalId);
+    if (hasJobs) {
+      generateAndHandleSystemJobs(goalId, projectId).catch((err) =>
+        console.error("[chat] autopilot generation failed:", err),
+      );
+    }
+  }
 }

@@ -159,15 +159,15 @@ export function CredentialEditDialog({ open, onOpenChange, credential, projectId
                 <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-red-400" />
                 <p className="text-[11px] text-red-300/80">
                   <strong>Elevated risk:</strong> The credential value will be included in the prompt text and{" "}
-                  <strong>sent to Anthropic's servers</strong>. Only enable if Claude Code needs to type or paste
-                  the value directly.
+                  <strong>sent to Anthropic's servers</strong>. Enable at your own risk if Claude Code needs to
+                  type or paste the value directly.
                 </p>
               </div>
             ) : (
               <div className="flex gap-2 rounded-md border border-green-500/20 bg-green-500/5 p-2.5">
                 <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-green-400" />
                 <p className="text-[11px] text-green-300/80">
-                  Env var only — value is <strong>not automatically sent to Anthropic</strong>, but Claude Code
+                  Env var only. Value is <strong>not automatically sent to Anthropic</strong>, but Claude Code
                   can still read it via shell commands.
                 </p>
               </div>

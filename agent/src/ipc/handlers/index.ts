@@ -13,6 +13,7 @@ import { registerPowerHandlers } from "./power.js";
 import { registerLicenseHandlers } from "./license.js";
 import { registerPermissionHandlers } from "./permissions.js";
 import { registerCredentialHandlers } from "./credentials.js";
+import { registerAutopilotHandlers } from "./autopilot.js";
 
 /** Register all domain IPC handlers */
 export function registerAllHandlers() {
@@ -31,4 +32,5 @@ export function registerAllHandlers() {
   registerLicenseHandlers();
   registerPermissionHandlers();
   registerCredentialHandlers();
+  registerAutopilotHandlers();
 }

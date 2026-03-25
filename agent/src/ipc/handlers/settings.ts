@@ -9,6 +9,8 @@ import {
 } from "../../power/index.js";
 import { removeSudoersEntry } from "../../power/wake-scheduler.js";
 import { emit } from "../emitter.js";
+import { disableAllSystemJobs } from "../../db/queries/jobs.js";
+import { expireAllPendingProposals } from "../../db/queries/autopilot-proposals.js";
 
 export function registerSettingHandlers() {
   registerHandler("settings.get", (params) => {
@@ -37,6 +39,15 @@ export function registerSettingHandlers() {
     // Propagate focus guard toggle to the Tauri Rust layer immediately
     if (p.key === "focus_guard_enabled") {
       emit("focus_guard.setEnabled", { enabled: p.value !== "false" });
+    }
+
+    // React to autopilot mode change — disable system jobs when switched off
+    if (p.key === "autopilot_mode" && p.value === "off") {
+      disableAllSystemJobs();
+      expireAllPendingProposals();
+      emit("autopilot.modeChanged", { mode: "off" });
+    } else if (p.key === "autopilot_mode") {
+      emit("autopilot.modeChanged", { mode: p.value });
     }
 
     // React to wake scheduling toggle

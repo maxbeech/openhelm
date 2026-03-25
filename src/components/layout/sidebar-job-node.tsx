@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Bot } from "lucide-react";
 import { NodeIcon } from "@/components/shared/node-icon";
 import type {
   Job,
@@ -112,6 +113,9 @@ export function SidebarJobNode({
         >
           {job.name}
         </span>
+        {job.source === "system" && (
+          <Bot className="size-3 shrink-0 text-muted-foreground/60" />
+        )}
         <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] leading-none text-muted-foreground">
           {job.model || "sonnet"}
         </span>
