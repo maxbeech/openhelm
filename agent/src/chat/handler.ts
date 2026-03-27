@@ -293,6 +293,7 @@ export function handleActionRejection(messageId: string, callId: string): ChatMe
   const pending = msg.pendingActions ?? [];
   const action = pending.find((a) => a.callId === callId);
   if (!action) throw new Error(`Action not found: ${callId}`);
+  if (action.status !== "pending") throw new Error(`Action already resolved: ${callId}`);
 
   const updated = pending.map((a) => a.callId === callId ? { ...a, status: "rejected" as const } : a);
   const updatedMsg = updateMessagePendingActions(messageId, updated);

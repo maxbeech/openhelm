@@ -108,10 +108,8 @@ export const useAppStore = create<AppState>((set) => ({
     const clearSelections = view === "home" || view === "settings" || view === "dashboard" || view === "memory";
     set({
       contentView: view,
-      selectedGoalId: clearSelections ? null : undefined,
-      selectedJobId: clearSelections ? null : undefined,
-      selectedRunId: clearSelections ? null : undefined,
-    } as Partial<AppState>);
+      ...(clearSelections && { selectedGoalId: null, selectedJobId: null, selectedRunId: null }),
+    });
   },
 
   // Backward-compat: maps old page names to new navigation

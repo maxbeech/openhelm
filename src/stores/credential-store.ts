@@ -78,6 +78,7 @@ export const useCredentialStore = create<CredentialState>((set) => ({
       await api.createCredential(params);
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
+      throw err;
     }
   },
 
@@ -86,6 +87,7 @@ export const useCredentialStore = create<CredentialState>((set) => ({
       await api.updateCredential(params);
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
+      throw err;
     }
   },
 
@@ -94,6 +96,7 @@ export const useCredentialStore = create<CredentialState>((set) => ({
       await api.deleteCredential(id);
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
+      throw err;
     }
   },
 

@@ -44,6 +44,8 @@ export function GoalEditSheet({
       setName(goal.name);
       setDescription(goal.description ?? "");
       setIcon(goal.icon);
+      // Reset credentials so the CredentialMultiPicker re-loads for this goal's scope.
+      setCredentialIds([]);
       setNameTouched(false);
       setError(null);
       setSaving(false);

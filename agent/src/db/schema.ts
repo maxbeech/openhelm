@@ -267,15 +267,19 @@ export const credentialScopeBindings = sqliteTable(
 );
 
 /** Audit trail: which credentials were injected into each run */
-export const runCredentials = sqliteTable("run_credentials", {
-  runId: text("run_id")
-    .notNull()
-    .references(() => runs.id, { onDelete: "cascade" }),
-  credentialId: text("credential_id")
-    .notNull()
-    .references(() => credentials.id, { onDelete: "cascade" }),
-  injectionMethod: text("injection_method", { enum: ["env", "prompt"] }).notNull(),
-});
+export const runCredentials = sqliteTable(
+  "run_credentials",
+  {
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    credentialId: text("credential_id")
+      .notNull()
+      .references(() => credentials.id, { onDelete: "cascade" }),
+    injectionMethod: text("injection_method", { enum: ["env", "prompt"] }).notNull(),
+  },
+  (t) => [{ primaryKey: [t.runId, t.credentialId, t.injectionMethod] }],
+);
 
 /** Real-time log chunks captured from Claude Code output */
 export const runLogs = sqliteTable("run_logs", {

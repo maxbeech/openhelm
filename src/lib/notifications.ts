@@ -55,6 +55,9 @@ export async function notifyRunCompleted(
   summary?: string | null,
 ): Promise<void> {
   const level = await getNotificationLevel();
+  // "on_finish" fires for every run completion.
+  // "alerts_only" is handled by notifyDashboardItem (permanent_failure/stall only) — skip here.
+  // "never" skips all notifications.
   if (level !== "on_finish") return;
   try {
     const title =

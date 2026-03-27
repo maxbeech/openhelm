@@ -55,15 +55,18 @@ function existingEnvVarNames(excludeId?: string): string[] {
 
 function writeBindings(credentialId: string, scopes: CredentialScopeBinding[]): void {
   const db = getDb();
-  db.delete(credentialScopeBindings)
-    .where(eq(credentialScopeBindings.credentialId, credentialId))
-    .run();
-  for (const s of scopes) {
-    db.insert(credentialScopeBindings)
-      .values({ credentialId, scopeType: s.scopeType, scopeId: s.scopeId })
-      .onConflictDoNothing()
+  // Wrap delete + re-insert in a transaction so a crash mid-way doesn't leave the credential unbound.
+  db.transaction((tx) => {
+    tx.delete(credentialScopeBindings)
+      .where(eq(credentialScopeBindings.credentialId, credentialId))
       .run();
-  }
+    for (const s of scopes) {
+      tx.insert(credentialScopeBindings)
+        .values({ credentialId, scopeType: s.scopeType, scopeId: s.scopeId })
+        .onConflictDoNothing()
+        .run();
+    }
+  });
 }
 
 // ─── CRUD ─────────────────────────────────────────────────────────────────────

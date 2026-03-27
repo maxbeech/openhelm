@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { getDb } from "../init.js";
 import { dashboardItems } from "../schema.js";
 import type {
@@ -98,10 +98,10 @@ export function countOpenDashboardItems(projectId?: string): number {
     conditions.push(eq(dashboardItems.projectId, projectId));
   }
 
-  const rows = db
-    .select()
+  const row = db
+    .select({ count: sql<number>`count(*)` })
     .from(dashboardItems)
     .where(and(...conditions))
-    .all();
-  return rows.length;
+    .get();
+  return row?.count ?? 0;
 }

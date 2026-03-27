@@ -60,21 +60,32 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 
   dismissAll: async () => {
     const { items } = get();
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       items.map((item) => api.resolveDashboardItem({ id: item.id, action: "dismiss" })),
     );
-    set({ items: [], openCount: 0 });
+    // Only remove items whose dismiss call succeeded; leave failures in store.
+    const dismissedIds = new Set(
+      items.filter((_, i) => results[i].status === "fulfilled").map((item) => item.id),
+    );
+    set((s) => ({
+      items: s.items.filter((item) => !dismissedIds.has(item.id)),
+      openCount: Math.max(0, s.openCount - dismissedIds.size),
+    }));
   },
 
   dismissAllForJob: async (jobId: string) => {
     const { items } = get();
     const jobItems = items.filter((i) => i.jobId === jobId);
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       jobItems.map((item) => api.resolveDashboardItem({ id: item.id, action: "dismiss" })),
     );
+    // Only remove items whose dismiss call succeeded; leave failures in store.
+    const dismissedIds = new Set(
+      jobItems.filter((_, i) => results[i].status === "fulfilled").map((item) => item.id),
+    );
     set((s) => ({
-      items: s.items.filter((i) => i.jobId !== jobId),
-      openCount: Math.max(0, s.openCount - jobItems.length),
+      items: s.items.filter((item) => !dismissedIds.has(item.id)),
+      openCount: Math.max(0, s.openCount - dismissedIds.size),
     }));
   },
 

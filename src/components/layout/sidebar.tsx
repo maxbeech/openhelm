@@ -51,7 +51,7 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
       {/* Logo row — h-12 header; click-to-drag via Tauri IPC */}
       <div
         data-tauri-drag-region
-        onMouseDown={() => { getCurrentWindow().startDragging(); }}
+        onMouseDown={() => { getCurrentWindow().startDragging().catch(() => {}); }}
         className="flex h-12 shrink-0 items-center border-b border-sidebar-border pl-[96px] pr-4"
       >
         <img src={logoSvg} alt="OpenHelm" className="pointer-events-none size-6" />

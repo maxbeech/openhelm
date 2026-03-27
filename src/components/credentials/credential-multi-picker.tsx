@@ -30,22 +30,21 @@ export function CredentialMultiPicker({ value, onChange, existingScope }: Props)
   const [search, setSearch] = useState("");
   const [initialized, setInitialized] = useState(false);
 
-  // Load all credentials and pre-select those already bound to this scope
+  // Load all credentials and pre-select those already bound to this scope.
+  // Re-runs when the scope changes (e.g. edit sheet opened for a different goal).
   useEffect(() => {
     fetchCredentials(null);
-    if (existingScope && !initialized) {
+    if (existingScope) {
       fetchForScope(existingScope).then((bound) => {
-        if (bound.length > 0) {
-          onChange(bound.map((c) => c.id));
-        }
+        onChange(bound.map((c) => c.id));
         setInitialized(true);
       });
     } else {
       setInitialized(true);
     }
-  // Only run on mount
+  // existingScope is an inline object — use primitive fields as deps to avoid infinite loops.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [existingScope?.scopeType, existingScope?.scopeId]);
 
   const lc = search.toLowerCase();
   const filtered = useMemo(

@@ -51,10 +51,11 @@ export function CredentialCreateDialog({ open, onOpenChange, projectId, onSave }
   const [password, setPassword] = useState("");
   const [scopes, setScopes] = useState<CredentialScopeBinding[]>([]);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const reset = useCallback(() => {
     setName(""); setType("username_password"); setAllowPromptInjection(false);
-    setValue(""); setUsername(""); setPassword(""); setScopes([]);
+    setValue(""); setUsername(""); setPassword(""); setScopes([]); setSaveError(null);
   }, []);
 
   const envVarPreview = useMemo(() => previewEnvVarName(name), [name]);
@@ -69,12 +70,15 @@ export function CredentialCreateDialog({ open, onOpenChange, projectId, onSave }
       ? { type: "username_password", username, password }
       : { type: "token", value };
 
+    setSaveError(null);
     try {
       await onSave({ name: name.trim(), type, allowPromptInjection, value: credValue, scopes });
-    } finally {
       reset();
-      setSaving(false);
       onOpenChange(false);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to create credential");
+    } finally {
+      setSaving(false);
     }
   }, [canSave, name, type, allowPromptInjection, value, username, password, scopes, onSave, reset, onOpenChange]);
 
@@ -216,6 +220,7 @@ export function CredentialCreateDialog({ open, onOpenChange, projectId, onSave }
         </div>
 
         <DialogFooter className="shrink-0">
+          {saveError && <p className="mr-auto text-xs text-destructive">{saveError}</p>}
           <Button variant="ghost" onClick={() => { reset(); onOpenChange(false); }}>Cancel</Button>
           <Button onClick={handleSave} disabled={!canSave || saving}>
             {saving ? "Creating..." : "Create"}

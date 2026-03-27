@@ -104,9 +104,10 @@ export class Executor {
       return true;
     }
 
-    // Check if it's currently running
+    // Check if it's currently running — delete first to prevent double-cancel if called again
     const controller = this.activeRuns.get(runId);
     if (controller) {
+      this.activeRuns.delete(runId);
       controller.abort();
       if (isPowerManagementEnabled()) {
         onRunFinished();

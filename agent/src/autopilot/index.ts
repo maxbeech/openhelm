@@ -18,11 +18,18 @@ import { generateSystemJobs } from "../planner/system-jobs.js";
 import { emit } from "../ipc/emitter.js";
 import type { AutopilotMode } from "@openhelm/shared";
 
+const VALID_AUTOPILOT_MODES: AutopilotMode[] = ["full_auto", "approval_required", "off"];
+
 /** Get the current autopilot mode (defaults to full_auto if not set) */
 export function getAutopilotMode(): AutopilotMode {
   const setting = getSetting("autopilot_mode");
   if (!setting?.value) return "full_auto";
-  return setting.value as AutopilotMode;
+  // Validate against the known union — unrecognised values default to "off" (safe).
+  if (VALID_AUTOPILOT_MODES.includes(setting.value as AutopilotMode)) {
+    return setting.value as AutopilotMode;
+  }
+  console.error(`[autopilot] unrecognised autopilot_mode value "${setting.value}", defaulting to "off"`);
+  return "off";
 }
 
 /**

@@ -12,6 +12,7 @@ import { emit } from "../ipc/emitter.js";
 export function triagePermanentFailure(
   runId: string,
   reason: string,
+  fromStatus: string = "failed",
 ): void {
   const run = getRun(runId);
   if (!run) {
@@ -25,12 +26,12 @@ export function triagePermanentFailure(
     return;
   }
 
-  // Promote failed → permanent_failure
+  // Promote → permanent_failure
   updateRun({ id: runId, status: "permanent_failure" });
   emit("run.statusChanged", {
     runId,
     status: "permanent_failure",
-    previousStatus: "failed",
+    previousStatus: fromStatus,
   });
 
   // Create dashboard item

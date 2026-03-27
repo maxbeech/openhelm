@@ -7,11 +7,14 @@ import {
   jobs,
   runs,
   runLogs,
+  runCredentials,
   conversations,
   messages,
   dashboardItems,
   memories,
   runMemories,
+  credentials,
+  credentialScopeBindings,
 } from "../schema.js";
 import type {
   Project,
@@ -157,6 +160,7 @@ export function getExportStats(): ExportStatsResult {
 export function clearAllData(): void {
   const db = getDb();
   db.delete(runMemories).run();
+  db.delete(runCredentials).run();
   db.delete(runLogs).run();
   db.delete(dashboardItems).run();
   db.delete(messages).run();
@@ -165,6 +169,8 @@ export function clearAllData(): void {
   db.delete(runs).run();
   db.delete(jobs).run();
   db.delete(goals).run();
+  db.delete(credentialScopeBindings).run();
+  db.delete(credentials).run();
   db.delete(projects).run();
   db.delete(settings).run();
 }

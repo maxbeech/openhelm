@@ -121,6 +121,10 @@ export function runClaudeCodePrint(config: PrintConfig): Promise<PrintResult> {
       if (!resolved) {
         resolved = true;
         child.kill("SIGTERM");
+        // Give the process 5 s to handle SIGTERM gracefully; force-kill if still running.
+        setTimeout(() => {
+          if (child.exitCode === null) child.kill("SIGKILL");
+        }, 5000);
         reject(new PrintError(`Claude Code timed out after ${timeoutMs}ms`, null));
       }
     }, timeoutMs);

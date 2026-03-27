@@ -39,6 +39,7 @@ export function CredentialEditDialog({ open, onOpenChange, credential, projectId
   const [scopes, setScopes] = useState<CredentialScopeBinding[]>([]);
   const [isEnabled, setIsEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (credential) {
@@ -57,12 +58,18 @@ export function CredentialEditDialog({ open, onOpenChange, credential, projectId
   const handleSave = useCallback(async () => {
     if (!canSave || !credential) return;
     setSaving(true);
+    setSaveError(null);
 
-    // Only send value if the user typed something new
+    // Only send value if the user typed something new.
+    // For username_password, require BOTH fields — a partial update would blank the other field.
     let credValue: CredentialValue | undefined;
     if (credential.type === "username_password") {
-      if (username.trim() || password.trim()) {
+      if (username.trim() && password.trim()) {
         credValue = { type: "username_password", username, password };
+      } else if (username.trim() || password.trim()) {
+        setSaveError("Please fill in both username and password to update credentials.");
+        setSaving(false);
+        return;
       }
     } else {
       if (value.trim()) {
@@ -79,9 +86,11 @@ export function CredentialEditDialog({ open, onOpenChange, credential, projectId
         scopes,
         isEnabled,
       });
+      onOpenChange(false);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save credential");
     } finally {
       setSaving(false);
-      onOpenChange(false);
     }
   }, [canSave, credential, name, allowPromptInjection, value, username, password, scopes, isEnabled, onSave, onOpenChange]);
 
@@ -215,6 +224,7 @@ export function CredentialEditDialog({ open, onOpenChange, credential, projectId
         </div>
 
         <DialogFooter className="shrink-0">
+          {saveError && <p className="mr-auto text-xs text-destructive">{saveError}</p>}
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSave} disabled={!canSave || saving}>
             {saving ? "Saving..." : "Save"}

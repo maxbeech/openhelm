@@ -21,20 +21,28 @@ import type {
 export function registerChatHandlers() {
   // chat.send returns immediately — messages and errors arrive via events.
   // This prevents frontend IPC timeouts on long-running LLM tool loops.
+  //
+  // IMPORTANT: handleChatMessage is deferred via setImmediate so its synchronous
+  // preamble (DB reads/writes via better-sqlite3) runs AFTER send(response) has
+  // already been written to stdout. Without this deferral, a SQLite busy-wait in
+  // the sync preamble would block the Node.js main thread before the IPC response
+  // is sent, causing the frontend to time out after REQUEST_TIMEOUT_MS (4 min).
   registerHandler("chat.send", (params) => {
     const p = params as SendChatMessageParams;
     if (!p?.projectId) throw new Error("projectId is required");
     if (!p?.content?.trim()) throw new Error("content is required");
 
-    handleChatMessage(p.projectId, p.content.trim(), p.context, p.model, p.modelEffort, p.permissionMode)
-      .catch((err) => {
-        console.error("[chat] send failed:", err);
-        emit("chat.error", {
-          projectId: p.projectId,
-          error: err instanceof Error ? err.message : String(err),
+    setImmediate(() => {
+      handleChatMessage(p.projectId, p.content.trim(), p.context, p.model, p.modelEffort, p.permissionMode)
+        .catch((err) => {
+          console.error("[chat] send failed:", err);
+          emit("chat.error", {
+            projectId: p.projectId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          emit("chat.status", { status: "done", projectId: p.projectId });
         });
-        emit("chat.status", { status: "done", projectId: p.projectId });
-      });
+    });
 
     return { started: true };
   });
