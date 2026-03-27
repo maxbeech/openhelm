@@ -76,8 +76,8 @@ describe("fetchMessages", () => {
 });
 
 describe("sendMessage", () => {
-  it("calls API and clears sending on success", async () => {
-    vi.mocked(api.sendChatMessage).mockResolvedValue(undefined as any);
+  it("calls API and keeps sending true (cleared by events)", async () => {
+    vi.mocked(api.sendChatMessage).mockResolvedValue({ started: true });
 
     await useChatStore.getState().sendMessage("project-1", "Hello");
 
@@ -89,15 +89,15 @@ describe("sendMessage", () => {
       modelEffort: "medium",
       permissionMode: "plan",
     });
-    expect(useChatStore.getState().sending).toBe(false);
+    // sending stays true — cleared when assistant message or chat.error event arrives
+    expect(useChatStore.getState().sending).toBe(true);
   });
 
-  it("sets error and rethrows on failure", async () => {
+  it("sets error and clears sending on transport failure", async () => {
     vi.mocked(api.sendChatMessage).mockRejectedValue(new Error("send failed"));
 
-    await expect(
-      useChatStore.getState().sendMessage("project-1", "Hi"),
-    ).rejects.toThrow("send failed");
+    await useChatStore.getState().sendMessage("project-1", "Hi");
+
     expect(useChatStore.getState().error).toBeTruthy();
     expect(useChatStore.getState().sending).toBe(false);
   });

@@ -6,7 +6,7 @@ import type { JobTokenStat } from "@openhelm/shared";
 import { cn } from "@/lib/utils";
 
 type Mode = "total" | "avg";
-type Period = "7d" | "30d" | "90d" | "all";
+type Period = "12h" | "1d" | "7d" | "30d" | "90d" | "all";
 
 interface TokensChartProps {
   /** Scope to a specific project */
@@ -17,18 +17,21 @@ interface TokensChartProps {
   compact?: boolean;
 }
 
-const PERIOD_DAYS: Record<Period, number | null> = {
-  "7d": 7,
-  "30d": 30,
-  "90d": 90,
+// Values in hours; null means "all time"
+const PERIOD_HOURS: Record<Period, number | null> = {
+  "12h": 12,
+  "1d": 24,
+  "7d": 7 * 24,
+  "30d": 30 * 24,
+  "90d": 90 * 24,
   "all": null,
 };
 
 function periodToFrom(period: Period): string | undefined {
-  const days = PERIOD_DAYS[period];
-  if (days == null) return undefined;
+  const hours = PERIOD_HOURS[period];
+  if (hours == null) return undefined;
   const d = new Date();
-  d.setDate(d.getDate() - days);
+  d.setTime(d.getTime() - hours * 60 * 60 * 1000);
   return d.toISOString();
 }
 
@@ -44,7 +47,7 @@ const BAR_COLORS = [
 ];
 
 export function TokensChart({ projectId, jobIds, compact = false }: TokensChartProps) {
-  const [mode, setMode] = useState<Mode>("total");
+  const [mode, setMode] = useState<Mode>("avg");
   const [period, setPeriod] = useState<Period>("30d");
   const [stats, setStats] = useState<JobTokenStat[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,8 +90,9 @@ export function TokensChart({ projectId, jobIds, compact = false }: TokensChartP
     return stat.runCount > 0 ? Math.round(total / stat.runCount) : 0;
   };
 
-  const maxValue = stats.length > 0 ? Math.max(...stats.map(getValue), 1) : 1;
-  const hasData = stats.some((s) => getValue(s) > 0);
+  const sortedStats = [...stats].sort((a, b) => getValue(b) - getValue(a));
+  const maxValue = sortedStats.length > 0 ? Math.max(...sortedStats.map(getValue), 1) : 1;
+  const hasData = sortedStats.some((s) => getValue(s) > 0);
 
   return (
     <div className={cn("rounded-lg border border-border bg-card", compact ? "p-3" : "p-4")}>
@@ -97,26 +101,26 @@ export function TokensChart({ projectId, jobIds, compact = false }: TokensChartP
         {/* Mode toggle */}
         <div className="flex items-center rounded-md border border-border text-[11px]">
           <button
-            onClick={() => setMode("total")}
-            className={cn(
-              "rounded-l-md px-2 py-1 transition-colors",
-              mode === "total"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Total
-          </button>
-          <button
             onClick={() => setMode("avg")}
             className={cn(
-              "rounded-r-md px-2 py-1 transition-colors",
+              "rounded-l-md px-2 py-1 transition-colors",
               mode === "avg"
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
             Avg/Run
+          </button>
+          <button
+            onClick={() => setMode("total")}
+            className={cn(
+              "rounded-r-md px-2 py-1 transition-colors",
+              mode === "total"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            Total
           </button>
         </div>
 
@@ -125,7 +129,7 @@ export function TokensChart({ projectId, jobIds, compact = false }: TokensChartP
 
         {/* Period toggle */}
         <div className="flex items-center rounded-md border border-border text-[11px]">
-          {(["7d", "30d", "90d", "all"] as Period[]).map((p, i, arr) => (
+          {(["12h", "1d", "7d", "30d", "90d", "all"] as Period[]).map((p, i, arr) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
@@ -138,7 +142,7 @@ export function TokensChart({ projectId, jobIds, compact = false }: TokensChartP
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {p === "all" ? "All" : p}
+              {p === "all" ? "All" : p === "1d" ? "1d" : p}
             </button>
           ))}
         </div>
@@ -163,7 +167,7 @@ export function TokensChart({ projectId, jobIds, compact = false }: TokensChartP
         </p>
       ) : (
         <div className="space-y-2">
-          {stats.map((stat, i) => {
+          {sortedStats.map((stat, i) => {
             const value = getValue(stat);
             const pct = maxValue > 0 ? (value / maxValue) * 100 : 0;
             const color = BAR_COLORS[i % BAR_COLORS.length];

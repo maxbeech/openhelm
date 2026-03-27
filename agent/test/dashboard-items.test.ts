@@ -4,12 +4,12 @@ import { createProject } from "../src/db/queries/projects.js";
 import { createJob } from "../src/db/queries/jobs.js";
 import { createRun } from "../src/db/queries/runs.js";
 import {
-  createInboxItem,
-  getInboxItem,
-  listInboxItems,
-  resolveInboxItem,
-  countOpenInboxItems,
-} from "../src/db/queries/inbox-items.js";
+  createDashboardItem,
+  getDashboardItem,
+  listDashboardItems,
+  resolveDashboardItem,
+  countOpenDashboardItems,
+} from "../src/db/queries/dashboard-items.js";
 
 let cleanup: () => void;
 let projectId: string;
@@ -21,14 +21,14 @@ let runId2: string;
 
 beforeAll(() => {
   cleanup = setupTestDb();
-  const project = createProject({ name: "Inbox Test", directoryPath: "/tmp/inbox" });
+  const project = createProject({ name: "Dashboard Test", directoryPath: "/tmp/dashboard" });
   projectId = project.id;
-  const project2 = createProject({ name: "Inbox Test 2", directoryPath: "/tmp/inbox2" });
+  const project2 = createProject({ name: "Dashboard Test 2", directoryPath: "/tmp/dashboard2" });
   projectId2 = project2.id;
 
   const job = createJob({
     projectId,
-    name: "Inbox Job",
+    name: "Dashboard Job",
     prompt: "test",
     scheduleType: "manual",
     scheduleConfig: {},
@@ -37,7 +37,7 @@ beforeAll(() => {
 
   const job2 = createJob({
     projectId: projectId2,
-    name: "Inbox Job 2",
+    name: "Dashboard Job 2",
     prompt: "test2",
     scheduleType: "manual",
     scheduleConfig: {},
@@ -53,9 +53,9 @@ beforeAll(() => {
 
 afterAll(() => cleanup());
 
-describe("inbox items CRUD", () => {
-  it("creates an inbox item", () => {
-    const item = createInboxItem({
+describe("dashboard items CRUD", () => {
+  it("creates a dashboard item", () => {
+    const item = createDashboardItem({
       runId,
       jobId,
       projectId,
@@ -71,8 +71,8 @@ describe("inbox items CRUD", () => {
     expect(item.resolvedAt).toBeNull();
   });
 
-  it("gets an inbox item by id", () => {
-    const item = createInboxItem({
+  it("gets a dashboard item by id", () => {
+    const item = createDashboardItem({
       runId,
       jobId,
       projectId,
@@ -81,18 +81,18 @@ describe("inbox items CRUD", () => {
       message: "Claude asked a question",
     });
 
-    const found = getInboxItem(item.id);
+    const found = getDashboardItem(item.id);
     expect(found).not.toBeNull();
     expect(found!.type).toBe("human_in_loop");
     expect(found!.title).toBe("Needs input");
   });
 
   it("returns null for non-existent item", () => {
-    expect(getInboxItem("nonexistent")).toBeNull();
+    expect(getDashboardItem("nonexistent")).toBeNull();
   });
 
-  it("lists inbox items ordered by createdAt DESC", () => {
-    const items = listInboxItems();
+  it("lists dashboard items ordered by createdAt DESC", () => {
+    const items = listDashboardItems();
     expect(items.length).toBeGreaterThanOrEqual(2);
     // Most recent first
     const dates = items.map((i) => new Date(i.createdAt).getTime());
@@ -102,7 +102,7 @@ describe("inbox items CRUD", () => {
   });
 
   it("filters by projectId", () => {
-    createInboxItem({
+    createDashboardItem({
       runId: runId2,
       jobId: jobId2,
       projectId: projectId2,
@@ -111,20 +111,20 @@ describe("inbox items CRUD", () => {
       message: "broke",
     });
 
-    const p1Items = listInboxItems({ projectId });
-    const p2Items = listInboxItems({ projectId: projectId2 });
+    const p1Items = listDashboardItems({ projectId });
+    const p2Items = listDashboardItems({ projectId: projectId2 });
 
     expect(p1Items.every((i) => i.projectId === projectId)).toBe(true);
     expect(p2Items.every((i) => i.projectId === projectId2)).toBe(true);
   });
 
   it("filters by status", () => {
-    const openItems = listInboxItems({ status: "open" });
+    const openItems = listDashboardItems({ status: "open" });
     expect(openItems.every((i) => i.status === "open")).toBe(true);
   });
 
-  it("resolves an inbox item", () => {
-    const item = createInboxItem({
+  it("resolves a dashboard item", () => {
+    const item = createDashboardItem({
       runId,
       jobId,
       projectId,
@@ -133,23 +133,23 @@ describe("inbox items CRUD", () => {
       message: "will be dismissed",
     });
 
-    const resolved = resolveInboxItem(item.id, "dismissed");
+    const resolved = resolveDashboardItem(item.id, "dismissed");
     expect(resolved.status).toBe("dismissed");
     expect(resolved.resolvedAt).not.toBeNull();
   });
 
-  it("counts open inbox items", () => {
-    const total = countOpenInboxItems();
+  it("counts open dashboard items", () => {
+    const total = countOpenDashboardItems();
     expect(total).toBeGreaterThanOrEqual(1);
 
-    const forProject = countOpenInboxItems(projectId);
+    const forProject = countOpenDashboardItems(projectId);
     expect(forProject).toBeGreaterThanOrEqual(1);
     expect(forProject).toBeLessThanOrEqual(total);
   });
 
   it("count decreases when item is resolved", () => {
-    const before = countOpenInboxItems(projectId);
-    const item = createInboxItem({
+    const before = countOpenDashboardItems(projectId);
+    const item = createDashboardItem({
       runId,
       jobId,
       projectId,
@@ -157,8 +157,8 @@ describe("inbox items CRUD", () => {
       title: "Count test",
       message: "test",
     });
-    expect(countOpenInboxItems(projectId)).toBe(before + 1);
-    resolveInboxItem(item.id, "resolved");
-    expect(countOpenInboxItems(projectId)).toBe(before);
+    expect(countOpenDashboardItems(projectId)).toBe(before + 1);
+    resolveDashboardItem(item.id, "resolved");
+    expect(countOpenDashboardItems(projectId)).toBe(before);
   });
 });

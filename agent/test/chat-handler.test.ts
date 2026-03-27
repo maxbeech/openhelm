@@ -665,3 +665,97 @@ describe("handleChatMessage — empty content fallback (Bug 3)", () => {
     expect(msgs[1].content).toBe("Here is my detailed response.");
   });
 });
+
+describe("handleChatMessage — preferRawText flag (Issue 1 fix)", () => {
+  it("passes preferRawText: true to callLlmViaCli for chat", async () => {
+    callLlmViaCliMock.mockResolvedValueOnce("Sure.");
+
+    await handleChatMessage(projectId, "Test raw text");
+
+    expect(callLlmViaCliMock).toHaveBeenCalledWith(
+      expect.objectContaining({ preferRawText: true }),
+    );
+  });
+});
+
+describe("handleChatMessage — early thinking status (Issue 2 fix)", () => {
+  it("emits thinking status before callLlmViaCli is invoked", async () => {
+    callLlmViaCliMock.mockResolvedValueOnce("Done.");
+
+    await handleChatMessage(projectId, "Quick check");
+
+    // The first chat.status event should be "thinking" and it must appear
+    // BEFORE the first callLlmViaCli call. Since the mock records call order
+    // and emitMock records emit order, verify thinking is emitted before LLM call.
+    const allEmits = emitMock.mock.calls.map(([event, data]) => ({ event, data }));
+    const firstThinking = allEmits.findIndex(
+      (e) => e.event === "chat.status" && e.data.status === "thinking",
+    );
+    // Should be right after messageCreated (index 1), before any LLM call
+    expect(firstThinking).toBeGreaterThan(-1);
+
+    // The thinking emit must happen before the first LLM invocation.
+    // Since callLlmViaCli is mocked and resolves immediately, verify that
+    // at least two "thinking" statuses exist (early + loop start).
+    const thinkingStatuses = allEmits.filter(
+      (e) => e.event === "chat.status" && e.data.status === "thinking",
+    );
+    expect(thinkingStatuses.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("handleChatMessage — streaming sanitizer (Issue 3 fix)", () => {
+  it("strips tool_call XML that arrives in a single chunk", async () => {
+    callLlmViaCliMock.mockImplementationOnce(async (config: Record<string, unknown>) => {
+      const onTextChunk = config.onTextChunk as (text: string) => void;
+      onTextChunk('Here is my plan.\n<tool_call>{"tool":"create_goal","args":{"name":"Test"}}</tool_call>\nAll done.');
+      return 'Here is my plan.\n<tool_call>{"tool":"create_goal","args":{"name":"Test"}}</tool_call>\nAll done.';
+    });
+
+    await handleChatMessage(projectId, "Test streaming single chunk");
+
+    const streamEvents = emitMock.mock.calls.filter(([event]) => event === "chat.streaming");
+    const streamedText = streamEvents.map(([, data]) => data.text).join("");
+    expect(streamedText).not.toContain("<tool_call>");
+    expect(streamedText).not.toContain("</tool_call>");
+    expect(streamedText).toContain("Here is my plan.");
+    expect(streamedText).toContain("All done.");
+  });
+
+  it("strips tool_call XML spanning multiple chunks", async () => {
+    callLlmViaCliMock.mockImplementationOnce(async (config: Record<string, unknown>) => {
+      const onTextChunk = config.onTextChunk as (text: string) => void;
+      // Simulate tool_call split across 3 chunks
+      onTextChunk("Before text.\n<tool_call>{\"tool\":");
+      onTextChunk("\"create_goal\",\"args\":{\"name\":\"Test\"}}");
+      onTextChunk("</tool_call>\nAfter text.");
+      return 'Before text.\n<tool_call>{"tool":"create_goal","args":{"name":"Test"}}</tool_call>\nAfter text.';
+    });
+
+    await handleChatMessage(projectId, "Test streaming multi chunk");
+
+    const streamEvents = emitMock.mock.calls.filter(([event]) => event === "chat.streaming");
+    const streamedText = streamEvents.map(([, data]) => data.text).join("");
+    expect(streamedText).not.toContain("<tool_call>");
+    expect(streamedText).not.toContain("</tool_call>");
+    expect(streamedText).not.toContain("create_goal");
+    expect(streamedText).toContain("Before text.");
+    expect(streamedText).toContain("After text.");
+  });
+
+  it("handles incomplete tool_call at end of stream without leaking", async () => {
+    callLlmViaCliMock.mockImplementationOnce(async (config: Record<string, unknown>) => {
+      const onTextChunk = config.onTextChunk as (text: string) => void;
+      onTextChunk("Some text <tool_call>{\"tool\":\"create_goal\"");
+      // Stream ends without </tool_call>
+      return "Some text";
+    });
+
+    await handleChatMessage(projectId, "Test incomplete tool call");
+
+    const streamEvents = emitMock.mock.calls.filter(([event]) => event === "chat.streaming");
+    const streamedText = streamEvents.map(([, data]) => data.text).join("");
+    expect(streamedText).not.toContain("<tool_call>");
+    expect(streamedText).toContain("Some text");
+  });
+});

@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useCallback } from "react";
-import { Target, Briefcase, Play, AlertTriangle, Inbox, ChevronDown, ChevronUp, RotateCcw, Bot, Check, X } from "lucide-react";
+import { Target, Briefcase, Play, AlertTriangle, LayoutDashboard, ChevronDown, ChevronUp, RotateCcw, Bot, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useInboxStore } from "@/stores/inbox-store";
+import { useDashboardStore } from "@/stores/dashboard-store";
 import { useGoalStore } from "@/stores/goal-store";
 import { useJobStore } from "@/stores/job-store";
 import { useRunStore } from "@/stores/run-store";
@@ -14,12 +14,12 @@ import { TokensChart } from "@/components/shared/tokens-chart";
 import { AlertGroup } from "./alert-group";
 import { formatTokenCount } from "@/lib/format";
 import * as api from "@/lib/api";
-import type { InboxItem, Run, AutopilotProposal } from "@openhelm/shared";
+import type { DashboardItem, Run, AutopilotProposal } from "@openhelm/shared";
 
 const DEFAULT_VISIBLE_GROUPS = 3;
 
-export function InboxView() {
-  const { items, loading, dismissAll } = useInboxStore();
+export function DashboardView() {
+  const { items, loading, dismissAll } = useDashboardStore();
   const { goals } = useGoalStore();
   const { jobs } = useJobStore();
   const { runs } = useRunStore();
@@ -74,7 +74,7 @@ export function InboxView() {
 
   // Group items by jobId, sorted by most recent alert in each group
   const alertGroups = useMemo(() => {
-    const groupMap = new Map<string, InboxItem[]>();
+    const groupMap = new Map<string, DashboardItem[]>();
     for (const item of items) {
       const group = groupMap.get(item.jobId) ?? [];
       group.push(item);
@@ -264,7 +264,7 @@ export function InboxView() {
       {/* Empty state when everything is clear and nothing to show */}
       {items.length === 0 && recentRuns.length === 0 && (
         <div className="py-8 text-center">
-          <Inbox className="mx-auto mb-3 size-10 text-muted-foreground/30" />
+          <LayoutDashboard className="mx-auto mb-3 size-10 text-muted-foreground/30" />
           <p className="text-sm text-muted-foreground">
             All clear — no alerts or activity yet.
           </p>

@@ -11,6 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { FolderOpen, Trash2 } from "lucide-react";
 import { useProjectStore } from "@/stores/project-store";
+import { CredentialMultiPicker } from "@/components/credentials/credential-multi-picker";
+import { setCredentialScopesForEntity } from "@/lib/api";
 import type { Project } from "@openhelm/shared";
 
 interface EditProjectDialogProps {
@@ -31,6 +33,7 @@ export function EditProjectDialog({
   const [name, setName] = useState(project.name);
   const [directoryPath, setDirectoryPath] = useState(project.directoryPath);
   const [description, setDescription] = useState(project.description ?? "");
+  const [credentialIds, setCredentialIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -67,6 +70,7 @@ export function EditProjectDialog({
         directoryPath: directoryPath.trim(),
         description: description.trim() || undefined,
       });
+      await setCredentialScopesForEntity({ scopeType: "project", scopeId: project.id, credentialIds });
       onSaved(updated);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save project");
@@ -140,11 +144,20 @@ export function EditProjectDialog({
             />
           </div>
 
+          <div className="space-y-1.5">
+            <Label>Credentials (optional)</Label>
+            <CredentialMultiPicker
+              value={credentialIds}
+              onChange={setCredentialIds}
+              existingScope={{ scopeType: "project", scopeId: project.id }}
+            />
+          </div>
+
           {error && <p className="text-sm text-destructive">{error}</p>}
 
           <Button
             onClick={handleSave}
-            disabled={!name.trim() || !directoryPath.trim() || !isDirty || saving}
+            disabled={!name.trim() || !directoryPath.trim() || saving}
             className="w-full"
           >
             {saving ? "Saving..." : "Save changes"}

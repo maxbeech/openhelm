@@ -6,7 +6,7 @@ import { registerSettingHandlers } from "./settings.js";
 import { registerClaudeCodeHandlers } from "./claude-code.js";
 import { registerSchedulerHandlers } from "./scheduler.js";
 import { registerChatHandlers } from "./chat.js";
-import { registerInboxHandlers } from "./inbox.js";
+import { registerDashboardHandlers } from "./dashboard.js";
 import { registerMemoryHandlers } from "./memories.js";
 import { registerDataHandlers } from "./data.js";
 import { registerPowerHandlers } from "./power.js";
@@ -25,7 +25,7 @@ export function registerAllHandlers() {
   registerClaudeCodeHandlers();
   registerSchedulerHandlers();
   registerChatHandlers();
-  registerInboxHandlers();
+  registerDashboardHandlers();
   registerMemoryHandlers();
   registerDataHandlers();
   registerPowerHandlers();

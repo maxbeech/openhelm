@@ -1,4 +1,4 @@
-import type { InboxItem, NotificationLevel, RunStatus } from "@openhelm/shared";
+import type { DashboardItem, NotificationLevel, RunStatus } from "@openhelm/shared";
 import * as api from "./api";
 
 async function getNotificationLevel(): Promise<NotificationLevel> {
@@ -34,10 +34,10 @@ async function sendNativeNotification(title: string, body: string): Promise<void
   await invoke("send_notification", { title, body });
 }
 
-export async function notifyInboxItem(item: InboxItem): Promise<void> {
+export async function notifyDashboardItem(item: DashboardItem): Promise<void> {
   const level = await getNotificationLevel();
   if (level === "never") return;
-  // Both "on_finish" and "alerts_only" send inbox alert notifications
+  // Both "on_finish" and "alerts_only" send dashboard alert notifications
   try {
     const title =
       item.type === "permanent_failure"
@@ -45,7 +45,7 @@ export async function notifyInboxItem(item: InboxItem): Promise<void> {
         : "Run Stalled";
     await sendNativeNotification(title, item.title);
   } catch (err) {
-    console.error("[notifications] notifyInboxItem invoke failed:", err);
+    console.error("[notifications] notifyDashboardItem invoke failed:", err);
   }
 }
 

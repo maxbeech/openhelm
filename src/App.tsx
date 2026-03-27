@@ -3,6 +3,7 @@ import logoSvg from "./assets/logo.svg";
 import { RefreshCw } from "lucide-react";
 import { agentClient } from "./lib/agent-client";
 import * as api from "./lib/api";
+import { friendlyError } from "./lib/utils";
 import { initFrontendSentry, setAnalyticsEnabled } from "./lib/sentry";
 import { AppErrorBoundary } from "./components/shared/error-boundary";
 
@@ -13,15 +14,15 @@ import { useProjectStore } from "./stores/project-store";
 import { useGoalStore } from "./stores/goal-store";
 import { useJobStore } from "./stores/job-store";
 import { useRunStore } from "./stores/run-store";
-import { useInboxStore } from "./stores/inbox-store";
+import { useDashboardStore } from "./stores/dashboard-store";
 import { useMemoryStore } from "./stores/memory-store";
 import { useChatStore } from "./stores/chat-store";
 import { useUpdaterStore } from "./stores/updater-store";
 import { useCredentialStore } from "./stores/credential-store";
 import { useAgentEvent } from "./hooks/use-agent-event";
-import type { RunStatus, ChatMessage, InboxItem, Memory, Credential } from "@openhelm/shared";
+import type { RunStatus, ChatMessage, DashboardItem, Memory, Credential } from "@openhelm/shared";
 import {
-  notifyInboxItem,
+  notifyDashboardItem,
   notifyRunCompleted,
 } from "./lib/notifications";
 import { OnboardingWizard } from "./components/onboarding/onboarding-wizard";
@@ -31,7 +32,7 @@ import { GoalDetailView } from "./components/content/goal-detail-view";
 import { JobDetailView } from "./components/content/job-detail-view";
 import { RunDetailView } from "./components/content/run-detail-view";
 import { SettingsScreen } from "./components/settings/settings-screen";
-import { InboxView } from "./components/content/inbox-view";
+import { DashboardView } from "./components/content/dashboard-view";
 import { MemoryView } from "./components/memory/memory-view";
 import { CredentialView } from "./components/credentials/credential-view";
 import { JobCreationSheet } from "./components/jobs/job-creation-sheet";
@@ -97,11 +98,11 @@ export default function App() {
     clearStreamingText,
   } = useChatStore();
   const {
-    fetchItems: fetchInboxItems,
-    fetchOpenCount: fetchInboxCount,
-    addItemToStore: addInboxItem,
-    updateItemInStore: updateInboxItem,
-  } = useInboxStore();
+    fetchItems: fetchDashboardItems,
+    fetchOpenCount: fetchDashboardCount,
+    addItemToStore: addDashboardItem,
+    updateItemInStore: updateDashboardItem,
+  } = useDashboardStore();
   const {
     fetchMemories,
     fetchCount: fetchMemoryCount,
@@ -245,9 +246,10 @@ export default function App() {
       } else {
         addMessageToStore(data);
       }
-      // Assistant message arrived — clear the streaming preview
+      // Assistant message arrived — clear streaming preview and sending state
       if (data.role === "assistant") {
         clearStreamingText();
+        useChatStore.setState({ sending: false });
       }
     },
     [addMessageToStore, updateMessageInStore, clearStreamingText],
@@ -299,32 +301,47 @@ export default function App() {
     [activeProjectId, fetchGoals, fetchJobs, fetchRuns],
   );
 
+  const handleChatError = useCallback(
+    (data: { projectId?: string; error: string }) => {
+      const currentProject = useAppStore.getState().activeProjectId;
+      if (data.projectId && data.projectId !== currentProject) return;
+      useChatStore.setState({
+        error: friendlyError(new Error(data.error), "Chat failed"),
+        sending: false,
+        statusText: null,
+        streamingText: "",
+      });
+    },
+    [],
+  );
+
   useAgentEvent("chat.messageCreated", handleChatMessageCreated);
   useAgentEvent("chat.status", handleChatStatus);
   useAgentEvent("chat.streaming", handleChatStreaming);
+  useAgentEvent("chat.error", handleChatError);
   useAgentEvent("chat.actionResolved", handleChatActionResolved);
 
-  // Inbox event handlers — respect active project filter
-  const handleInboxCreated = useCallback(
-    (item: InboxItem) => {
+  // Dashboard event handlers — respect active project filter
+  const handleDashboardCreated = useCallback(
+    (item: DashboardItem) => {
       // Only add to store if it matches the current project filter
       if (!activeProjectId || item.projectId === activeProjectId) {
-        addInboxItem(item);
+        addDashboardItem(item);
       }
-      notifyInboxItem(item);
+      notifyDashboardItem(item);
     },
-    [activeProjectId, addInboxItem],
+    [activeProjectId, addDashboardItem],
   );
 
-  const handleInboxResolved = useCallback(
-    (item: InboxItem) => {
-      updateInboxItem(item);
+  const handleDashboardResolved = useCallback(
+    (item: DashboardItem) => {
+      updateDashboardItem(item);
     },
-    [updateInboxItem],
+    [updateDashboardItem],
   );
 
-  useAgentEvent("inbox.created", handleInboxCreated);
-  useAgentEvent("inbox.resolved", handleInboxResolved);
+  useAgentEvent("dashboard.created", handleDashboardCreated);
+  useAgentEvent("dashboard.resolved", handleDashboardResolved);
 
   // Memory event handlers
   const handleMemoryCreated = useCallback(
@@ -425,9 +442,9 @@ export default function App() {
             activeProj?.id ?? (projectsList.length === 1 ? projectsList[0].id : null),
           );
         }
-        // Fetch cross-project inbox right away
-        fetchInboxItems();
-        fetchInboxCount();
+        // Fetch cross-project dashboard right away
+        fetchDashboardItems();
+        fetchDashboardCount();
         // Configure Sentry analytics opt-out (read after projects load)
         try {
           const s = await api.getSetting("analytics_enabled");
@@ -453,7 +470,7 @@ export default function App() {
         setInitialLoading(false);
       }
     })();
-  }, [agentReady, fetchProjects, setOnboardingComplete, setActiveProjectId, fetchInboxItems, fetchInboxCount, setShouldCheckUpdates]);
+  }, [agentReady, fetchProjects, setOnboardingComplete, setActiveProjectId, fetchDashboardItems, fetchDashboardCount, setShouldCheckUpdates]);
 
   // Fetch data when project filter changes (null = All Projects)
   useEffect(() => {
@@ -467,15 +484,15 @@ export default function App() {
     fetchMemories(activeProjectId);
     fetchMemoryCount(activeProjectId);
     fetchCredentialCount(activeProjectId);
-    fetchInboxItems(activeProjectId ?? undefined);
-    fetchInboxCount(activeProjectId ?? undefined);
+    fetchDashboardItems(activeProjectId ?? undefined);
+    fetchDashboardCount(activeProjectId ?? undefined);
     if (activeProjectId) {
       fetchMessages(activeProjectId);
       api
         .setSetting({ key: "active_project", value: activeProjectId })
         .catch(() => {});
     }
-  }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns, fetchMessages, fetchMemories, fetchMemoryCount, fetchCredentialCount, fetchInboxItems, fetchInboxCount]);
+  }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns, fetchMessages, fetchMemories, fetchMemoryCount, fetchCredentialCount, fetchDashboardItems, fetchDashboardCount]);
 
   // Notification permission is now requested during onboarding (Permissions step)
   // and can be re-requested via Settings > Permissions. No startup prompt needed.
@@ -583,9 +600,9 @@ export default function App() {
   }
 
   const hasGoals = goals.length > 0;
-  // Show welcome only when on inbox view, no goals, no chat activity, and a specific project is selected
+  // Show welcome only when on dashboard view, no goals, no chat activity, and a specific project is selected
   const showWelcome =
-    contentView === "inbox" &&
+    contentView === "dashboard" &&
     !hasGoals &&
     chatMessages.length === 0 &&
     !chatSending &&
@@ -603,13 +620,13 @@ export default function App() {
           selectedRunId ? <RunDetailView runId={selectedRunId} /> : undefined
         }
       >
-        {contentView === "inbox" &&
+        {contentView === "dashboard" &&
           (showWelcome ? (
             <WelcomeView projectId={activeProjectId!} />
           ) : (
-            <InboxView />
+            <DashboardView />
           ))}
-        {contentView === "home" && <InboxView />}
+        {contentView === "home" && <DashboardView />}
         {contentView === "goal-detail" && selectedGoalId && (
           <GoalDetailView
             goalId={selectedGoalId}

@@ -52,7 +52,9 @@ export function ChatMessageList({ messages, sending, projectId }: ChatMessageLis
             <div className="flex flex-col items-start">
               <div className="max-w-[85%] rounded-xl bg-muted px-3 py-2 text-sm text-foreground opacity-80">
                 <div className="markdown-content break-words leading-relaxed">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {streamingText.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, "")}
+                  </ReactMarkdown>
                 </div>
                 {/* Blinking cursor to signal live generation */}
                 <span className="inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-foreground/50" />

@@ -24,7 +24,7 @@ import {
 import { attemptSelfCorrection, type FailureSignal } from "./self-correction.js";
 import { triagePermanentFailure } from "./failure-triage.js";
 import { handleInteractiveDetected } from "./hitl-handler.js";
-import { createInboxItem } from "../db/queries/inbox-items.js";
+import { createDashboardItem } from "../db/queries/dashboard-items.js";
 import { getProject } from "../db/queries/projects.js";
 import { createRunLog } from "../db/queries/run-logs.js";
 import { getSetting, deleteSetting } from "../db/queries/settings.js";
@@ -595,10 +595,10 @@ export class Executor {
           triagePermanentFailure(runId, scResult.analysisReason ?? scResult.reason);
         } else if (scResult.analysisError) {
           // LLM failed but this is NOT "confirmed unfixable" — notify user, keep as "failed"
-          console.error(`[executor] self-correction: LLM analysis failed, creating inbox item`);
+          console.error(`[executor] self-correction: LLM analysis failed, creating dashboard item`);
           const failedJob = getJob(job.id);
           if (failedJob) {
-            const item = createInboxItem({
+            const item = createDashboardItem({
               runId,
               jobId: failedJob.id,
               projectId: failedJob.projectId,
@@ -606,7 +606,7 @@ export class Executor {
               title: `"${failedJob.name}" failed — auto-analysis unavailable`,
               message: scResult.reason,
             });
-            emit("inbox.created", item);
+            emit("dashboard.created", item);
           }
         } else if (scResult.shouldTriage) {
           // Corrective run itself failed — escalate to permanent failure
@@ -688,7 +688,7 @@ export class Executor {
     }
   }
 
-  /** Mark a run as permanent_failure with a log message + inbox item */
+  /** Mark a run as permanent_failure with a log message + dashboard item */
   private failPermanently(
     runId: string,
     fromStatus: RunStatus,
@@ -704,12 +704,12 @@ export class Executor {
       previousStatus: fromStatus,
     });
 
-    // Create inbox item for pre-flight failures
+    // Create dashboard item for pre-flight failures
     const run = getRun(runId);
     if (run) {
       const job = getJob(run.jobId);
       if (job) {
-        const item = createInboxItem({
+        const item = createDashboardItem({
           runId,
           jobId: job.id,
           projectId: job.projectId,
@@ -717,7 +717,7 @@ export class Executor {
           title: `"${job.name}" failed permanently`,
           message,
         });
-        emit("inbox.created", item);
+        emit("dashboard.created", item);
       }
     }
   }

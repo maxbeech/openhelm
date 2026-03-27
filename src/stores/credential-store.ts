@@ -7,6 +7,7 @@ import type {
   CredentialWithValue,
   CreateCredentialParams,
   UpdateCredentialParams,
+  ListCredentialsByScopeParams,
 } from "@openhelm/shared";
 
 interface CredentialState {
@@ -18,6 +19,7 @@ interface CredentialState {
   filterScope: CredentialScope | null;
 
   fetchCredentials: (projectId: string | null) => Promise<void>;
+  fetchForScope: (params: ListCredentialsByScopeParams) => Promise<Credential[]>;
   fetchCount: (projectId: string | null) => Promise<void>;
   createCredential: (params: CreateCredentialParams) => Promise<void>;
   updateCredential: (params: UpdateCredentialParams) => Promise<void>;
@@ -49,6 +51,14 @@ export const useCredentialStore = create<CredentialState>((set) => ({
       set({ credentials, loading: false });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err), loading: false });
+    }
+  },
+
+  fetchForScope: async (params: ListCredentialsByScopeParams) => {
+    try {
+      return await api.listCredentialsByScope(params);
+    } catch {
+      return [];
     }
   },
 

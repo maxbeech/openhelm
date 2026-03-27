@@ -3,13 +3,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ShieldAlert, AlertTriangle } from "lucide-react";
 import { useGoalStore } from "@/stores/goal-store";
 import { useJobStore } from "@/stores/job-store";
 import { useProjectStore } from "@/stores/project-store";
-import type { Credential, CredentialScope, CredentialValue } from "@openhelm/shared";
+import { ScopeMultiSelect } from "./scope-multi-select";
+import type { Credential, CredentialValue, CredentialScopeBinding } from "@openhelm/shared";
 
 interface Props {
   open: boolean;
@@ -21,10 +21,9 @@ interface Props {
     name?: string;
     allowPromptInjection?: boolean;
     value?: CredentialValue;
-    scopeType?: CredentialScope;
-    scopeId?: string;
+    scopes?: CredentialScopeBinding[] | null;
     isEnabled?: boolean;
-  }) => void;
+  }) => void | Promise<void>;
 }
 
 export function CredentialEditDialog({ open, onOpenChange, credential, projectId, onSave }: Props) {
@@ -34,12 +33,10 @@ export function CredentialEditDialog({ open, onOpenChange, credential, projectId
 
   const [name, setName] = useState("");
   const [allowPromptInjection, setAllowPromptInjection] = useState(false);
-  const [updateValue, setUpdateValue] = useState(false);
   const [value, setValue] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [scopeType, setScopeType] = useState<CredentialScope>("global");
-  const [scopeId, setScopeId] = useState("");
+  const [scopes, setScopes] = useState<CredentialScopeBinding[]>([]);
   const [isEnabled, setIsEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -47,51 +44,57 @@ export function CredentialEditDialog({ open, onOpenChange, credential, projectId
     if (credential) {
       setName(credential.name);
       setAllowPromptInjection(credential.allowPromptInjection);
-      setScopeType(credential.scopeType);
-      setScopeId(credential.scopeId ?? "");
+      setScopes(credential.scopes ?? []);
       setIsEnabled(credential.isEnabled);
-      setUpdateValue(false);
       setValue("");
       setUsername("");
       setPassword("");
     }
   }, [credential]);
 
-  const canSave = credential && name.trim() && (scopeType === "global" || scopeId);
+  const canSave = credential && name.trim();
 
   const handleSave = useCallback(async () => {
     if (!canSave || !credential) return;
     setSaving(true);
 
+    // Only send value if the user typed something new
     let credValue: CredentialValue | undefined;
-    if (updateValue) {
-      credValue = credential.type === "username_password"
-        ? { type: "username_password", username, password }
-        : { type: "token", value };
+    if (credential.type === "username_password") {
+      if (username.trim() || password.trim()) {
+        credValue = { type: "username_password", username, password };
+      }
+    } else {
+      if (value.trim()) {
+        credValue = { type: "token", value };
+      }
     }
 
-    onSave({
-      id: credential.id,
-      name: name.trim(),
-      allowPromptInjection,
-      value: credValue,
-      scopeType,
-      scopeId: scopeType !== "global" ? scopeId : undefined,
-      isEnabled,
-    });
-    setSaving(false);
-    onOpenChange(false);
-  }, [canSave, credential, name, allowPromptInjection, updateValue, value, username, password, scopeType, scopeId, isEnabled, onSave, onOpenChange]);
+    try {
+      await onSave({
+        id: credential.id,
+        name: name.trim(),
+        allowPromptInjection,
+        value: credValue,
+        scopes,
+        isEnabled,
+      });
+    } finally {
+      setSaving(false);
+      onOpenChange(false);
+    }
+  }, [canSave, credential, name, allowPromptInjection, value, username, password, scopes, isEnabled, onSave, onOpenChange]);
 
   if (!credential) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-lg">
+        <DialogHeader className="shrink-0">
           <DialogTitle>Edit Credential</DialogTitle>
         </DialogHeader>
 
+        <div className="flex-1 overflow-y-auto">
         <div className="space-y-4">
           {/* Risk notice — always shown */}
           <div className="flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
@@ -125,21 +128,19 @@ export function CredentialEditDialog({ open, onOpenChange, credential, projectId
             <Switch checked={isEnabled} onCheckedChange={setIsEnabled} />
           </div>
 
-          {/* Update value */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Update Value</Label>
-              <Switch checked={updateValue} onCheckedChange={setUpdateValue} />
-            </div>
-            {updateValue && (
-              credential.type === "username_password" ? (
-                <div className="space-y-2">
-                  <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" />
-                  <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" />
-                </div>
-              ) : (
-                <Input type="password" value={value} onChange={(e) => setValue(e.target.value)} placeholder="New value" />
-              )
+          {/* Value — leave empty to keep existing */}
+          <div>
+            <Label>Value</Label>
+            <p className="text-[11px] text-muted-foreground mb-1.5">
+              Leave empty to keep the current value.
+            </p>
+            {credential.type === "username_password" ? (
+              <div className="space-y-2">
+                <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="New username (unchanged if empty)" />
+                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="New password (unchanged if empty)" />
+              </div>
+            ) : (
+              <Input type="password" value={value} onChange={(e) => setValue(e.target.value)} placeholder="New value (unchanged if empty)" />
             )}
           </div>
 
@@ -149,27 +150,48 @@ export function CredentialEditDialog({ open, onOpenChange, credential, projectId
               <div>
                 <Label>Allow prompt access</Label>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Also inject credential value into prompt context
+                  Also inject credential value into the prompt text
                 </p>
               </div>
               <Switch checked={allowPromptInjection} onCheckedChange={setAllowPromptInjection} />
             </div>
+
             {allowPromptInjection ? (
-              <div className="flex gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-2.5">
-                <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-red-400" />
-                <p className="text-[11px] text-red-300/80">
-                  <strong>Elevated risk:</strong> The credential value will be included in the prompt text and{" "}
-                  <strong>sent to Anthropic's servers</strong>. Enable at your own risk if Claude Code needs to
-                  type or paste the value directly.
-                </p>
+              <div className="space-y-2">
+                <div className="flex gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-2.5">
+                  <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-red-400" />
+                  <p className="text-[11px] text-red-300/80">
+                    <strong>Elevated risk:</strong> The credential value will be included in the prompt text and{" "}
+                    <strong>sent to Anthropic&apos;s servers</strong>. Enable only if Claude Code needs to
+                    type or paste the value directly.
+                  </p>
+                </div>
+                <div className="rounded-md border border-border bg-muted/30 p-2.5 space-y-1">
+                  <p className="text-[11px] font-medium text-foreground/80">Use prompt access when Claude needs to:</p>
+                  <ul className="space-y-0.5 text-[11px] text-muted-foreground list-disc list-inside">
+                    <li>Log in to a website by typing a password into a form</li>
+                    <li>Paste an API key directly into a config file as literal text</li>
+                    <li>Reference the value by name in shell commands it writes</li>
+                  </ul>
+                </div>
               </div>
             ) : (
-              <div className="flex gap-2 rounded-md border border-green-500/20 bg-green-500/5 p-2.5">
-                <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-green-400" />
-                <p className="text-[11px] text-green-300/80">
-                  Env var only. Value is <strong>not automatically sent to Anthropic</strong>, but Claude Code
-                  can still read it via shell commands.
-                </p>
+              <div className="space-y-2">
+                <div className="flex gap-2 rounded-md border border-green-500/20 bg-green-500/5 p-2.5">
+                  <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-green-400" />
+                  <p className="text-[11px] text-green-300/80">
+                    Env var only. Value is <strong>not automatically sent to Anthropic</strong>, but Claude Code
+                    can still read it via shell commands.
+                  </p>
+                </div>
+                <div className="rounded-md border border-border bg-muted/30 p-2.5 space-y-1">
+                  <p className="text-[11px] font-medium text-foreground/80">Environment variable is enough when:</p>
+                  <ul className="space-y-0.5 text-[11px] text-muted-foreground list-disc list-inside">
+                    <li>Your code reads it via <code className="text-[10px]">process.env.OPENHELM_*</code></li>
+                    <li>A CLI tool picks it up automatically (e.g. <code className="text-[10px]">AWS_ACCESS_KEY_ID</code>)</li>
+                    <li>Claude calls an API using the env var without needing to know its value</li>
+                  </ul>
+                </div>
               </div>
             )}
           </div>
@@ -177,47 +199,22 @@ export function CredentialEditDialog({ open, onOpenChange, credential, projectId
           {/* Scope */}
           <div>
             <Label className="mb-2 block">Scope</Label>
-            <Select value={scopeType} onValueChange={(v) => { setScopeType(v as CredentialScope); setScopeId(""); }}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="global">All Projects</SelectItem>
-                <SelectItem value="project">Specific Project</SelectItem>
-                <SelectItem value="goal">Specific Goal</SelectItem>
-                <SelectItem value="job">Specific Job</SelectItem>
-              </SelectContent>
-            </Select>
-            {scopeType === "project" && (
-              <Select value={scopeId} onValueChange={setScopeId}>
-                <SelectTrigger className="mt-2"><SelectValue placeholder="Choose project..." /></SelectTrigger>
-                <SelectContent>
-                  {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            )}
-            {scopeType === "goal" && (
-              <Select value={scopeId} onValueChange={setScopeId}>
-                <SelectTrigger className="mt-2"><SelectValue placeholder="Choose goal..." /></SelectTrigger>
-                <SelectContent>
-                  {goals.filter((g) => !projectId || g.projectId === projectId).map((g) => (
-                    <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            {scopeType === "job" && (
-              <Select value={scopeId} onValueChange={setScopeId}>
-                <SelectTrigger className="mt-2"><SelectValue placeholder="Choose job..." /></SelectTrigger>
-                <SelectContent>
-                  {jobs.filter((j) => !projectId || j.projectId === projectId).map((j) => (
-                    <SelectItem key={j.id} value={j.id}>{j.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
+            <p className="text-[11px] text-muted-foreground mb-2">
+              Leave empty to use globally, or select specific projects, goals, or jobs.
+            </p>
+            <ScopeMultiSelect
+              projects={projects}
+              goals={goals}
+              jobs={jobs}
+              value={scopes}
+              onChange={setScopes}
+            />
           </div>
         </div>
 
-        <DialogFooter>
+        </div>
+
+        <DialogFooter className="shrink-0">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSave} disabled={!canSave || saving}>
             {saving ? "Saving..." : "Save"}

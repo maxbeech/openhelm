@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/tooltip";
 import type { Goal, ScheduleType, PermissionMode } from "@openhelm/shared";
 import { ScheduleConfigForm } from "./schedule-config-form";
+import { CredentialMultiPicker } from "@/components/credentials/credential-multi-picker";
+import type { ListCredentialsByScopeParams } from "@openhelm/shared";
 
 export interface JobFormState {
   name: string;
@@ -42,6 +44,8 @@ export interface JobFormState {
   correctionNote: string;
   // Silence timeout override (in minutes; empty = use system default)
   silenceTimeoutMinutes: string;
+  // Credential IDs to associate with this job
+  credentialIds: string[];
   // Legacy cron (kept for existing jobs)
   cronExpression?: string;
 }
@@ -60,8 +64,12 @@ interface JobCreationFormProps {
   projectDirectory: string;
   onFieldChange: (field: keyof JobFormState, value: string | number | number[]) => void;
   onFieldBlur: (field: string) => void;
+  /** Called when the user adds/removes a credential via the picker */
+  onCredentialsChange: (ids: string[]) => void;
   error: string | null;
   isEditing?: boolean;
+  /** When editing, the existing job ID — used to pre-load bound credentials */
+  existingJobId?: string;
 }
 
 export function JobCreationForm({
@@ -71,9 +79,13 @@ export function JobCreationForm({
   projectDirectory,
   onFieldChange,
   onFieldBlur,
+  onCredentialsChange,
   error,
   isEditing,
+  existingJobId,
 }: JobCreationFormProps) {
+  const existingScope: ListCredentialsByScopeParams | undefined =
+    existingJobId ? { scopeType: "job", scopeId: existingJobId } : undefined;
   return (
     <div className="flex-1 space-y-4 overflow-auto p-4">
       {/* Name */}
@@ -276,6 +288,16 @@ export function JobCreationForm({
         <p className="text-xs text-muted-foreground">
           Time without output before a run is killed. Increase for jobs using slow browser or MCP tools.
         </p>
+      </div>
+
+      {/* Credentials */}
+      <div className="space-y-1.5">
+        <Label>Credentials (optional)</Label>
+        <CredentialMultiPicker
+          value={form.credentialIds}
+          onChange={onCredentialsChange}
+          existingScope={existingScope}
+        />
       </div>
 
       {/* Correction Note — only in edit mode when a note exists */}

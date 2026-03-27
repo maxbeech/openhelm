@@ -43,6 +43,12 @@ export interface PrintConfig {
    * Switches output to --output-format stream-json automatically.
    */
   onToolUse?: (toolName: string) => void;
+  /**
+   * When true, extract text from raw assistant message blocks instead of
+   * the result event summary.  Chat mode needs this so that <tool_call>
+   * XML blocks survive for parsing by response-parser.ts.
+   */
+  preferRawText?: boolean;
 }
 
 export interface PrintResult {
@@ -128,7 +134,7 @@ export function runClaudeCodePrint(config: PrintConfig): Promise<PrintResult> {
       if (useStreamJson) {
         // For jsonSchema calls, the assistant text blocks contain the structured
         // JSON response; the result event's "result" field is just a prose summary.
-        text = extractResultFromStreamJson(stdoutChunks, !!config.jsonSchema);
+        text = extractResultFromStreamJson(stdoutChunks, !!config.jsonSchema || !!config.preferRawText);
       } else {
         text = stdoutChunks.join("\n");
       }

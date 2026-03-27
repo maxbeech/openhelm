@@ -3,7 +3,7 @@ import { setupTestDb } from "./helpers.js";
 import { createProject } from "../src/db/queries/projects.js";
 import { createJob } from "../src/db/queries/jobs.js";
 import { createRun, updateRun } from "../src/db/queries/runs.js";
-import { listInboxItems } from "../src/db/queries/inbox-items.js";
+import { listDashboardItems } from "../src/db/queries/dashboard-items.js";
 
 // Mock the emitter
 vi.mock("../src/ipc/emitter.js", () => ({
@@ -52,10 +52,10 @@ describe("handleInteractiveDetected", () => {
     expect(controller.signal.aborted).toBe(true);
   });
 
-  it("creates a human_in_loop inbox item", () => {
+  it("creates a human_in_loop dashboard item", () => {
     const job = createJob({
       projectId,
-      name: "HITL Inbox Job",
+      name: "HITL Dashboard Job",
       prompt: "test",
       scheduleType: "manual",
       scheduleConfig: {},
@@ -66,15 +66,15 @@ describe("handleInteractiveDetected", () => {
     const controller = new AbortController();
     handleInteractiveDetected(run.id, "Asked a question", controller);
 
-    const items = listInboxItems({ projectId });
+    const items = listDashboardItems({ projectId });
     const match = items.find((i) => i.runId === run.id);
     expect(match).toBeDefined();
     expect(match!.type).toBe("human_in_loop");
-    expect(match!.title).toContain("HITL Inbox Job");
+    expect(match!.title).toContain("HITL Dashboard Job");
     expect(match!.message).toBe("Asked a question");
   });
 
-  it("emits inbox.created event", () => {
+  it("emits dashboard.created event", () => {
     const job = createJob({
       projectId,
       name: "HITL Event Job",
@@ -88,7 +88,7 @@ describe("handleInteractiveDetected", () => {
     const controller = new AbortController();
     handleInteractiveDetected(run.id, "reason", controller);
 
-    expect(mockEmit).toHaveBeenCalledWith("inbox.created", expect.objectContaining({
+    expect(mockEmit).toHaveBeenCalledWith("dashboard.created", expect.objectContaining({
       runId: run.id,
       type: "human_in_loop",
     }));

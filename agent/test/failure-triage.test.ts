@@ -3,7 +3,7 @@ import { setupTestDb } from "./helpers.js";
 import { createProject } from "../src/db/queries/projects.js";
 import { createJob } from "../src/db/queries/jobs.js";
 import { createRun, getRun, updateRun } from "../src/db/queries/runs.js";
-import { listInboxItems } from "../src/db/queries/inbox-items.js";
+import { listDashboardItems } from "../src/db/queries/dashboard-items.js";
 
 // Mock the emitter
 vi.mock("../src/ipc/emitter.js", () => ({
@@ -54,10 +54,10 @@ describe("triagePermanentFailure", () => {
     expect(updated!.status).toBe("permanent_failure");
   });
 
-  it("creates an inbox item", () => {
+  it("creates a dashboard item", () => {
     const job = createJob({
       projectId,
-      name: "Triage Inbox Job",
+      name: "Triage Dashboard Job",
       prompt: "test",
       scheduleType: "manual",
       scheduleConfig: {},
@@ -68,14 +68,14 @@ describe("triagePermanentFailure", () => {
 
     triagePermanentFailure(run.id, "Bad config");
 
-    const items = listInboxItems({ projectId });
+    const items = listDashboardItems({ projectId });
     const match = items.find((i) => i.runId === run.id);
     expect(match).toBeDefined();
     expect(match!.type).toBe("permanent_failure");
-    expect(match!.title).toContain("Triage Inbox Job");
+    expect(match!.title).toContain("Triage Dashboard Job");
   });
 
-  it("emits run.statusChanged and inbox.created events", () => {
+  it("emits run.statusChanged and dashboard.created events", () => {
     const job = createJob({
       projectId,
       name: "Event Job",
@@ -94,7 +94,7 @@ describe("triagePermanentFailure", () => {
       status: "permanent_failure",
       previousStatus: "failed",
     }));
-    expect(mockEmit).toHaveBeenCalledWith("inbox.created", expect.objectContaining({
+    expect(mockEmit).toHaveBeenCalledWith("dashboard.created", expect.objectContaining({
       runId: run.id,
       type: "permanent_failure",
     }));

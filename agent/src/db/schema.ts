@@ -151,7 +151,7 @@ export const messages = sqliteTable("messages", {
 });
 
 /** Actionable items surfaced to the user (permanent failures, HITL prompts) */
-export const inboxItems = sqliteTable("inbox_items", {
+export const dashboardItems = sqliteTable("inbox_items", {
   id: text("id").primaryKey(),
   runId: text("run_id")
     .notNull()
@@ -252,6 +252,19 @@ export const credentials = sqliteTable("credentials", {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+/** Many-to-many: a credential bound to one or more project/goal/job scopes */
+export const credentialScopeBindings = sqliteTable(
+  "credential_scope_bindings",
+  {
+    credentialId: text("credential_id")
+      .notNull()
+      .references(() => credentials.id, { onDelete: "cascade" }),
+    scopeType: text("scope_type", { enum: ["project", "goal", "job"] }).notNull(),
+    scopeId: text("scope_id").notNull(),
+  },
+  (t) => [{ primaryKey: [t.credentialId, t.scopeType, t.scopeId] }],
+);
 
 /** Audit trail: which credentials were injected into each run */
 export const runCredentials = sqliteTable("run_credentials", {

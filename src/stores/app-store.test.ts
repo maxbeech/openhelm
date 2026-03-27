@@ -4,7 +4,7 @@ import { useAppStore } from "./app-store";
 describe("AppStore", () => {
   beforeEach(() => {
     useAppStore.setState({
-      contentView: "inbox",
+      contentView: "dashboard",
       selectedGoalId: null,
       selectedJobId: null,
       selectedRunId: null,
@@ -75,11 +75,11 @@ describe("AppStore", () => {
     expect(useAppStore.getState().contentView).toBe("settings");
   });
 
-  it("setContentView to inbox clears selections", () => {
+  it("setContentView to dashboard clears selections", () => {
     useAppStore.getState().selectGoal("g1");
-    useAppStore.getState().setContentView("inbox");
+    useAppStore.getState().setContentView("dashboard");
     const s = useAppStore.getState();
-    expect(s.contentView).toBe("inbox");
+    expect(s.contentView).toBe("dashboard");
     expect(s.selectedGoalId).toBeNull();
     expect(s.selectedJobId).toBeNull();
     expect(s.selectedRunId).toBeNull();
@@ -142,7 +142,7 @@ describe("AppStore", () => {
     expect(useAppStore.getState().agentReady).toBe(true);
   });
 
-  it("defaults to inbox content view", () => {
-    expect(useAppStore.getState().contentView).toBe("inbox");
+  it("defaults to dashboard content view", () => {
+    expect(useAppStore.getState().contentView).toBe("dashboard");
   });
 });

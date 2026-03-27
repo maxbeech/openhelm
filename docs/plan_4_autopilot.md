@@ -13,7 +13,7 @@ OpenHelm's Autopilot feature adds a strategic autonomy layer on top of the exist
 ```
 Autopilot Mode (master switch)
 ├── OFF → no self-correction, no system jobs, fully manual
-├── APPROVAL REQUIRED → self-correction ON, system job proposals need inbox approval
+├── APPROVAL REQUIRED → self-correction ON, system job proposals need dashboard approval
 └── FULL AUTO → self-correction ON, system jobs created & run automatically
 ```
 
@@ -87,7 +87,7 @@ In the scheduler tick (`agent/src/scheduler/index.ts`), before enqueuing a syste
 2. Sum total user job token usage for the goal
 3. If user usage > 1,000 tokens AND system usage > 20% of user usage:
    - Disable the system job (`isEnabled = false`)
-   - Create an `autopilot_limit` inbox item notifying the user
+   - Create an `autopilot_limit` dashboard item notifying the user
 
 This prevents system jobs from consuming a disproportionate share of the goal's token budget.
 
@@ -98,7 +98,7 @@ System jobs cannot trigger generation of more system jobs. Enforced by:
 - Self-correction (tactical retries) IS still allowed on system jobs — they're real jobs
 
 ### Escalation
-When limits are hit, an `autopilot_limit` inbox item is created with usage statistics.
+When limits are hit, an `autopilot_limit` dashboard item is created with usage statistics.
 
 ---
 
@@ -158,8 +158,8 @@ New step 6 (`src/components/onboarding/steps/autopilot-step.tsx`) added before p
 - System jobs displayed under "System Jobs (N)" subsection with an "Autopilot" badge
 - Both sections use a shared `JobsTable` helper component
 
-### Inbox View
-`src/components/content/inbox-view.tsx`:
+### Dashboard View
+`src/components/content/dashboard-view.tsx`:
 - Proposals section displayed above alerts when pending proposals exist
 - Shows proposal cards with job list, Approve (check icon), and Dismiss (X icon) buttons
 - On approve: calls `approveAutopilotProposal`, reloads proposals
@@ -205,7 +205,7 @@ export interface AutopilotProposal {
 - `agent/test/autopilot.test.ts`
 
 ### Modified files (18)
-- `agent/src/db/schema.ts` — `source`/`systemCategory` on jobs, `autopilotProposals` table, `autopilot_limit` inbox type
+- `agent/src/db/schema.ts` — `source`/`systemCategory` on jobs, `autopilotProposals` table, `autopilot_limit` dashboard item type
 - `agent/src/db/migrations-data.ts` — register migration 0019
 - `agent/src/db/queries/jobs.ts` — `rowToJob`, `createJob`, `listSystemJobsForGoal`, `disableAllSystemJobs`
 - `agent/src/db/queries/runs.ts` — `getSystemTokenUsageForGoal`, `getUserTokenUsageForGoal`
@@ -223,4 +223,4 @@ export interface AutopilotProposal {
 - `src/components/onboarding/onboarding-wizard.tsx` — add autopilot step (9 steps total)
 - `src/components/layout/sidebar-job-node.tsx` — Bot icon for system jobs
 - `src/components/content/goal-detail-view.tsx` — system jobs subsection
-- `src/components/content/inbox-view.tsx` — proposals section
+- `src/components/content/dashboard-view.tsx` — proposals section

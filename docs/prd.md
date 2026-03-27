@@ -31,7 +31,7 @@ OpenHelm is a local-first desktop application (macOS first, with Linux and Windo
 
 - **Goal-to-job planning**: Type a goal in plain English. The system generates a structured plan of one-off and recurring Claude Code jobs, which you review and approve before anything runs.
 - **Scheduling and execution**: Jobs run on a schedule via a persistent background agent. No cron knowledge required.
-- **Run monitoring and triage**: Every run has a status, a log, and an outcome. Failures are automatically triaged and either self-corrected or escalated to your inbox with suggested actions.
+- **Run monitoring and triage**: Every run has a status, a log, and an outcome. Failures are automatically triaged and either self-corrected or escalated to your dashboard with suggested actions.
 - **A memory system**: The platform maintains a structured, project-aware memory so that every future job benefits from what past jobs have learned.
 
 The project hierarchy mirrors how founders actually think:
@@ -102,7 +102,7 @@ The temptation with this product is to build everything in the plan before shipp
 
 The core value hypothesis is: **"If I tell OpenHelm what I want to achieve, it will generate a sensible set of Claude Code jobs, and running them will produce real value."**
 
-Everything else — memory, inbox, self-correction, audio, templates — is in service of that. Ship it without those things first.
+Everything else — memory, dashboard, self-correction, audio, templates — is in service of that. Ship it without those things first.
 
 ### MVP Feature Set (6–8 weeks)
 
@@ -121,7 +121,7 @@ Everything else — memory, inbox, self-correction, audio, templates — is in s
 
 - Memory system
 - Self-correction on failure
-- Inbox / notification system
+- Dashboard / notification system
 - Audio
 - Templates
 - Team/collaboration features
@@ -160,8 +160,8 @@ The review screen should show:
 
 - **Memory system** (see Section 9 for full design)
 - **Failure triage**: at end of each run, automatically classify as success / fixable failure / permanent failure. For fixable failures, generate and run a corrective job automatically. For permanent failures, escalate.
-- **Inbox tab**: cards for permanent failures with actions — Try again, Ignore, Do something different (free text)
-- **Human-in-the-loop prompts**: if Claude Code gets stuck mid-run (needs credentials, is uncertain), surface this in the inbox immediately rather than letting the run hang
+- **Dashboard tab**: cards for permanent failures with actions — Try again, Ignore, Do something different (free text)
+- **Human-in-the-loop prompts**: if Claude Code gets stuck mid-run (needs credentials, is uncertain), surface this in the dashboard immediately rather than letting the run hang
 - **Prompt assistance**: 1–4 clarifying questions with multiple-choice + free-text answers for goals and manually-created jobs
 - **Run timeout and watchdog**: automatically detect and kill hung Claude Code processes
 - **Notifications**: macOS native notifications for permanent failures and human-in-the-loop requests
@@ -237,7 +237,7 @@ Memory
   id, project_id, goal_id (nullable), job_id (nullable), content,
   tags (JSON), created_at, updated_at, last_accessed_at
 
-InboxItem
+DashboardItem
   id, run_id, type (permanent_failure | human_in_loop), status (open | resolved | ignored),
   message, created_at, resolved_at
 ```
@@ -282,7 +282,7 @@ Claude Code may pause mid-run waiting for interactive input (e.g. asking for cre
 - Stdout containing a `?` character followed by no further output for 60 seconds
 - Known interactive prompt patterns (maintain a small list)
 
-When detected: pause the run, create an InboxItem of type `human_in_loop`, and notify the user. The run is held open (not timed out) until the user responds or explicitly cancels.
+When detected: pause the run, create a DashboardItem of type `human_in_loop`, and notify the user. The run is held open (not timed out) until the user responds or explicitly cancels.
 
 ---
 
@@ -299,7 +299,7 @@ The common mistake is making the hosted tier too weak so as not to "cannibalise"
 The hosted tier should offer things that are genuinely hard to do yourself:
 
 - **Managed infrastructure**: no need to keep your own machine running for scheduled jobs — OpenHelm's cloud runs your jobs even when your laptop is closed
-- **Team workspaces**: shared projects, goals, run history, and inbox across multiple collaborators
+- **Team workspaces**: shared projects, goals, run history, and dashboard across multiple collaborators
 - **Run history retention**: the OSS version stores logs locally; the hosted tier retains them for 90 days with search
 - **Priority support**: response within 24 hours
 - **Usage analytics**: per-project Claude Code quota consumption, run success rates, time saved estimates
@@ -310,7 +310,7 @@ The hosted tier should offer things that are genuinely hard to do yourself:
 |---|---|---|
 | OSS / Self-hosted | Free | Full feature set, runs locally, community support |
 | Solo | £12/month | Cloud-hosted agent (runs when laptop is off), 90-day log retention, email support |
-| Team | £35/month per seat (min 2) | Solo + shared team workspace, team inbox, usage analytics |
+| Team | £35/month per seat (min 2) | Solo + shared team workspace, team dashboard, usage analytics |
 | Enterprise | Custom | Team + SSO, audit logs, SLA, dedicated support |
 
 **Why £12 and not £19?** Impulse-purchase territory. The decision to try the paid tier should take less than 10 seconds. Friction at the pricing decision kills conversion from a product with a good free tier.
@@ -418,7 +418,7 @@ Sidebar:
   [Project selector — dropdown at top]
   
   Navigation:
-  · Inbox            (badge for unread items)
+  · Dashboard        (badge for unread items)
   · Goals
   · Jobs
   · Runs
@@ -437,7 +437,7 @@ Main area: context-dependent
 
 **Run detail**: full log output (stdout/stderr, colour-coded), start/end time, exit code, and — crucially — an AI-generated plain-English summary of what Claude Code did and what the outcome means. This summary is generated automatically after each run and stored.
 
-**Inbox**: a card feed. Each card has a type badge, a description, and 2–3 action buttons. Cards are never automatically dismissed — the user must act on them. Unresolved cards show a count in the sidebar.
+**Dashboard**: a card feed. Each card has a type badge, a description, and 2–3 action buttons. Cards are never automatically dismissed — the user must act on them. Unresolved cards show a count in the sidebar.
 
 **Memory view**: a searchable, filterable list of all memories for the current project. Inline edit and delete. Tags shown as chips.
 
@@ -520,7 +520,7 @@ Once there are 500+ active users, the community becomes a distribution channel. 
 ### Risk 6: The product tries to do too much before finding PMF
 **Likelihood**: High (this is the default failure mode for ambitious products)
 **Impact**: High (18 months of building, no users)
-**Mitigation**: The roadmap above is explicitly phased. v1 ships without memory, inbox, self-correction, or audio. Treat any feature that isn't in v1 as a hypothesis, not a commitment.
+**Mitigation**: The roadmap above is explicitly phased. v1 ships without memory, dashboard, self-correction, or audio. Treat any feature that isn't in v1 as a hypothesis, not a commitment.
 
 ---
 

@@ -2,20 +2,20 @@ import { useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useInboxStore } from "@/stores/inbox-store";
+import { useDashboardStore } from "@/stores/dashboard-store";
 import { useJobStore } from "@/stores/job-store";
-import { InboxCard } from "./inbox-card";
-import type { InboxItem } from "@openhelm/shared";
+import { DashboardCard } from "./dashboard-card";
+import type { DashboardItem } from "@openhelm/shared";
 
 interface AlertGroupProps {
   jobId: string;
-  items: InboxItem[]; // Already sorted most-recent-first
+  items: DashboardItem[]; // Already sorted most-recent-first
 }
 
-/** A collapsible group of inbox alerts for a single job. */
+/** A collapsible group of dashboard alerts for a single job. */
 export function AlertGroup({ jobId, items }: AlertGroupProps) {
   const { jobs } = useJobStore();
-  const { dismissAllForJob } = useInboxStore();
+  const { dismissAllForJob } = useDashboardStore();
   const [expanded, setExpanded] = useState(false);
   const [dismissing, setDismissing] = useState(false);
 
@@ -64,7 +64,7 @@ export function AlertGroup({ jobId, items }: AlertGroupProps) {
       {/* Alert cards */}
       <div className="p-2 space-y-2">
         {visibleItems.map((item) => (
-          <InboxCard key={item.id} item={item} />
+          <DashboardCard key={item.id} item={item} />
         ))}
 
         {/* Expand/collapse toggle */}

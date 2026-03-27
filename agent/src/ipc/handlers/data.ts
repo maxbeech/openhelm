@@ -38,7 +38,7 @@ function countRecords(data: ExportData): RecordCounts {
     runLogs: data.runLogs.length,
     conversations: data.conversations.length,
     messages: data.messages.length,
-    inboxItems: data.inboxItems.length,
+    dashboardItems: data.dashboardItems.length,
     memories: data.memories.length,
     runMemories: data.runMemories.length,
     settings: data.settings.length,
@@ -144,7 +144,7 @@ export function registerDataHandlers() {
     data.runLogs = data.runLogs ?? [];
     data.conversations = data.conversations ?? [];
     data.messages = data.messages ?? [];
-    data.inboxItems = data.inboxItems ?? [];
+    data.dashboardItems = data.dashboardItems ?? [];
     data.memories = data.memories ?? [];
     data.runMemories = data.runMemories ?? [];
 

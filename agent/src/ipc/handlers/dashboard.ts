@@ -1,55 +1,55 @@
 import { registerHandler } from "../handler.js";
 import {
-  getInboxItem,
-  listInboxItems,
-  resolveInboxItem,
-  countOpenInboxItems,
-} from "../../db/queries/inbox-items.js";
+  getDashboardItem,
+  listDashboardItems,
+  resolveDashboardItem,
+  countOpenDashboardItems,
+} from "../../db/queries/dashboard-items.js";
 import { createRun } from "../../db/queries/runs.js";
 import { getJob, updateJobCorrectionNote } from "../../db/queries/jobs.js";
 import { jobQueue } from "../../scheduler/queue.js";
 import { executor } from "../../executor/index.js";
 import { emit } from "../emitter.js";
 import type {
-  ListInboxItemsParams,
-  ResolveInboxItemParams,
+  ListDashboardItemsParams,
+  ResolveDashboardItemParams,
 } from "@openhelm/shared";
 
-export function registerInboxHandlers() {
-  registerHandler("inbox.list", (params) => {
-    return listInboxItems(params as ListInboxItemsParams | undefined);
+export function registerDashboardHandlers() {
+  registerHandler("dashboard.list", (params) => {
+    return listDashboardItems(params as ListDashboardItemsParams | undefined);
   });
 
-  registerHandler("inbox.get", (params) => {
+  registerHandler("dashboard.get", (params) => {
     const { id } = params as { id: string };
     if (!id) throw new Error("id is required");
-    const item = getInboxItem(id);
-    if (!item) throw new Error(`Inbox item not found: ${id}`);
+    const item = getDashboardItem(id);
+    if (!item) throw new Error(`Dashboard item not found: ${id}`);
     return item;
   });
 
-  registerHandler("inbox.count", (params) => {
+  registerHandler("dashboard.count", (params) => {
     const p = params as { projectId?: string } | undefined;
-    return { count: countOpenInboxItems(p?.projectId) };
+    return { count: countOpenDashboardItems(p?.projectId) };
   });
 
-  registerHandler("inbox.resolve", (params) => {
-    const p = params as ResolveInboxItemParams;
+  registerHandler("dashboard.resolve", (params) => {
+    const p = params as ResolveDashboardItemParams;
     if (!p?.id) throw new Error("id is required");
     if (!p?.action) throw new Error("action is required");
 
-    const item = getInboxItem(p.id);
-    if (!item) throw new Error(`Inbox item not found: ${p.id}`);
+    const item = getDashboardItem(p.id);
+    if (!item) throw new Error(`Dashboard item not found: ${p.id}`);
 
     if (p.action === "dismiss") {
-      const resolved = resolveInboxItem(p.id, "dismissed");
-      emit("inbox.resolved", resolved);
+      const resolved = resolveDashboardItem(p.id, "dismissed");
+      emit("dashboard.resolved", resolved);
       return resolved;
     }
 
     if (p.action === "try_again") {
-      const resolved = resolveInboxItem(p.id, "resolved");
-      emit("inbox.resolved", resolved);
+      const resolved = resolveDashboardItem(p.id, "resolved");
+      emit("dashboard.resolved", resolved);
 
       // Create a fresh manual run for the same job
       const run = createRun({
@@ -76,8 +76,8 @@ export function registerInboxHandlers() {
     if (p.action === "do_something_different") {
       if (!p.guidance) throw new Error("guidance is required for do_something_different");
 
-      const resolved = resolveInboxItem(p.id, "resolved");
-      emit("inbox.resolved", resolved);
+      const resolved = resolveDashboardItem(p.id, "resolved");
+      emit("dashboard.resolved", resolved);
 
       // Update job correction context with user guidance
       const job = getJob(item.jobId);

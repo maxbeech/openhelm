@@ -12,6 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { EmojiPicker } from "@/components/shared/emoji-picker";
 import { useGoalStore } from "@/stores/goal-store";
+import { CredentialMultiPicker } from "@/components/credentials/credential-multi-picker";
+import { setCredentialScopesForEntity } from "@/lib/api";
 import type { Goal } from "@openhelm/shared";
 
 interface GoalEditSheetProps {
@@ -32,6 +34,7 @@ export function GoalEditSheet({
   const [name, setName] = useState(goal.name);
   const [description, setDescription] = useState(goal.description ?? "");
   const [icon, setIcon] = useState<string | null>(goal.icon);
+  const [credentialIds, setCredentialIds] = useState<string[]>([]);
   const [nameTouched, setNameTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +65,7 @@ export function GoalEditSheet({
         description: description.trim() || undefined,
         ...(icon !== goal.icon && { icon: icon ?? undefined }),
       });
+      await setCredentialScopesForEntity({ scopeType: "goal", scopeId: goal.id, credentialIds });
       onOpenChange(false);
       onComplete();
     } catch (err) {
@@ -102,6 +106,15 @@ export function GoalEditSheet({
             {nameTouched && !name.trim() && (
               <p className="text-xs text-destructive">Name is required</p>
             )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Credentials (optional)</Label>
+            <CredentialMultiPicker
+              value={credentialIds}
+              onChange={setCredentialIds}
+              existingScope={{ scopeType: "goal", scopeId: goal.id }}
+            />
           </div>
 
           <div className="space-y-1.5">

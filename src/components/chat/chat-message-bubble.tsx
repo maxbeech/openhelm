@@ -4,6 +4,11 @@ import { cn } from "@/lib/utils";
 import { ActionGroup } from "./action-group";
 import type { ChatMessage } from "@openhelm/shared";
 
+/** Defence-in-depth: strip any <tool_call> XML that leaked past the agent parser. */
+function stripToolCallXml(text: string): string {
+  return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
+}
+
 interface ChatMessageBubbleProps {
   message: ChatMessage;
   projectId: string;
@@ -34,7 +39,7 @@ export function ChatMessageBubble({ message, projectId }: ChatMessageBubbleProps
             </p>
           ) : (
             <div className="markdown-content break-words leading-relaxed">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{stripToolCallXml(message.content)}</ReactMarkdown>
             </div>
           )
         ) : !isUser && message.pendingActions?.length ? (

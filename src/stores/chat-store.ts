@@ -96,13 +96,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ sending: true, error: null });
     const { chatModel, chatEffort, chatPermissionMode } = get();
     try {
-      // Optimistically add user message (agent will emit the real one via event)
       await api.sendChatMessage({ projectId, content, context, model: chatModel, modelEffort: chatEffort, permissionMode: chatPermissionMode });
+      // Don't clear sending here — the agent processes asynchronously.
+      // sending is cleared when the assistant message or chat.error event arrives.
     } catch (err) {
+      // Transport-level error (agent not connected, request failed to send)
       set({ error: friendlyError(err, "Failed to send message"), sending: false });
-      throw err;
-    } finally {
-      set({ sending: false });
     }
   },
 

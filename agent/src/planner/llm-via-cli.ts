@@ -29,6 +29,8 @@ export interface LlmCallConfig {
   onTextChunk?: (text: string) => void;
   /** Fired when a tool is invoked by name (enables stream-json output) */
   onToolUse?: (toolName: string) => void;
+  /** Use raw assistant text blocks instead of result event summary */
+  preferRawText?: boolean;
 }
 
 const MODEL_MAP: Record<ModelTier, string> = {
@@ -72,6 +74,7 @@ export async function callLlmViaCli(config: LlmCallConfig): Promise<string> {
     onProgress: config.onProgress,
     onTextChunk: config.onTextChunk,
     onToolUse: config.onToolUse,
+    preferRawText: config.preferRawText,
   });
 
   console.error(`[llm] ${model} completed in ${Date.now() - t0}ms (${result.text.length} chars)`);

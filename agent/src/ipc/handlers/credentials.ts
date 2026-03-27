@@ -6,6 +6,7 @@ import type {
   CreateCredentialParams,
   UpdateCredentialParams,
   ListCredentialsParams,
+  ListCredentialsByScopeParams,
   CredentialValue,
   CredentialWithValue,
 } from "@openhelm/shared";
@@ -110,6 +111,29 @@ export function registerCredentialHandlers() {
       emit("credential.deleted", { id });
     }
     return { deleted };
+  });
+
+  registerHandler("credentials.listForScope", (params) => {
+    const p = params as ListCredentialsByScopeParams;
+    if (!p?.scopeType || !p?.scopeId) throw new Error("scopeType and scopeId are required");
+    return credQueries.listCredentialsByScope(p);
+  });
+
+  /**
+   * Atomically replace the set of credentials bound to an entity (project/goal/job).
+   * Params: { scopeType, scopeId, credentialIds: string[] }
+   * For each credentialId in the new set, ensures the binding exists.
+   * For any credential previously bound to this scope but not in credentialIds, removes that binding.
+   */
+  registerHandler("credentials.setScopesForEntity", (params) => {
+    const { scopeType, scopeId, credentialIds } = params as {
+      scopeType: "project" | "goal" | "job";
+      scopeId: string;
+      credentialIds: string[];
+    };
+    if (!scopeType || !scopeId) throw new Error("scopeType and scopeId are required");
+    if (!Array.isArray(credentialIds)) throw new Error("credentialIds must be an array");
+    return credQueries.setScopeBindingsForEntity({ scopeType, scopeId, credentialIds });
   });
 
   registerHandler("credentials.count", (params) => {

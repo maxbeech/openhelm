@@ -11,6 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { FolderOpen } from "lucide-react";
 import { useProjectStore } from "@/stores/project-store";
+import { CredentialMultiPicker } from "@/components/credentials/credential-multi-picker";
+import { setCredentialScopesForEntity } from "@/lib/api";
 
 interface NewProjectDialogProps {
   open: boolean;
@@ -26,6 +28,7 @@ export function NewProjectDialog({
   const [name, setName] = useState("");
   const [directoryPath, setDirectoryPath] = useState("");
   const [description, setDescription] = useState("");
+  const [credentialIds, setCredentialIds] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { createProject } = useProjectStore();
@@ -50,9 +53,13 @@ export function NewProjectDialog({
         directoryPath: directoryPath.trim(),
         description: description.trim() || undefined,
       });
+      if (credentialIds.length > 0) {
+        await setCredentialScopesForEntity({ scopeType: "project", scopeId: project.id, credentialIds });
+      }
       setName("");
       setDirectoryPath("");
       setDescription("");
+      setCredentialIds([]);
       onCreated(project.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create project");
@@ -104,6 +111,11 @@ export function NewProjectDialog({
               className="max-h-32 overflow-y-auto"
             />
           </div>
+          <div className="space-y-1.5">
+            <Label>Credentials (optional)</Label>
+            <CredentialMultiPicker value={credentialIds} onChange={setCredentialIds} />
+          </div>
+
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button
             onClick={handleCreate}

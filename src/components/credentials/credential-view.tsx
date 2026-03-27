@@ -7,7 +7,7 @@ import { CredentialCard } from "./credential-card";
 import { CredentialCreateDialog } from "./credential-create-dialog";
 import { CredentialEditDialog } from "./credential-edit-dialog";
 import { Button } from "@/components/ui/button";
-import type { Credential, CredentialType, CredentialScope, CredentialValue } from "@openhelm/shared";
+import type { Credential, CredentialType, CredentialScope, CredentialScopeBinding, CredentialValue } from "@openhelm/shared";
 
 export function CredentialView() {
   const { activeProjectId } = useAppStore();
@@ -42,8 +42,7 @@ export function CredentialView() {
       type: CredentialType;
       allowPromptInjection?: boolean;
       value: CredentialValue;
-      scopeType: CredentialScope;
-      scopeId?: string;
+      scopes: CredentialScopeBinding[];
     }) => {
       await createCredential(data);
       fetchCredentials(activeProjectId);
@@ -59,6 +58,7 @@ export function CredentialView() {
       value?: CredentialValue;
       scopeType?: CredentialScope;
       scopeId?: string;
+      scopes?: CredentialScopeBinding[] | null;
       isEnabled?: boolean;
     }) => {
       await updateCredential(data);

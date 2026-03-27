@@ -1,12 +1,12 @@
 /**
  * Human-in-the-Loop Handler — kills hung Claude Code processes
- * that requested interactive input, and creates inbox items.
+ * that requested interactive input, and creates dashboard items.
  */
 
 import { getRun } from "../db/queries/runs.js";
 import { getJob } from "../db/queries/jobs.js";
 import { createRunLog } from "../db/queries/run-logs.js";
-import { createInboxItem } from "../db/queries/inbox-items.js";
+import { createDashboardItem } from "../db/queries/dashboard-items.js";
 import { emit } from "../ipc/emitter.js";
 
 export function handleInteractiveDetected(
@@ -37,8 +37,8 @@ export function handleInteractiveDetected(
     text: `Run killed: no output for extended period (silence timeout). Reason: ${reason}`,
   });
 
-  // Create inbox item
-  const item = createInboxItem({
+  // Create dashboard item
+  const item = createDashboardItem({
     runId,
     jobId: job.id,
     projectId: job.projectId,
@@ -47,6 +47,6 @@ export function handleInteractiveDetected(
     message: reason,
   });
 
-  console.error(`[hitl] inbox item ${item.id} created for run ${runId}`);
-  emit("inbox.created", item);
+  console.error(`[hitl] dashboard item ${item.id} created for run ${runId}`);
+  emit("dashboard.created", item);
 }

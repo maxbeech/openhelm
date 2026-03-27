@@ -651,43 +651,43 @@ export interface RegenerateSystemJobsParams {
   goalId: string;
 }
 
-// ─── Inbox Types ───
+// ─── Dashboard Types ───
 
-export type InboxItemType = "permanent_failure" | "human_in_loop" | "autopilot_limit";
-export type InboxItemStatus = "open" | "resolved" | "dismissed";
+export type DashboardItemType = "permanent_failure" | "human_in_loop" | "autopilot_limit";
+export type DashboardItemStatus = "open" | "resolved" | "dismissed";
 
-export interface InboxItem {
+export interface DashboardItem {
   id: string;
   runId: string;
   jobId: string;
   projectId: string;
-  type: InboxItemType;
-  status: InboxItemStatus;
+  type: DashboardItemType;
+  status: DashboardItemStatus;
   title: string;
   message: string;
   createdAt: string;
   resolvedAt: string | null;
 }
 
-export interface CreateInboxItemParams {
+export interface CreateDashboardItemParams {
   runId: string;
   jobId: string;
   projectId: string;
-  type: InboxItemType;
+  type: DashboardItemType;
   title: string;
   message: string;
 }
 
-export interface ListInboxItemsParams {
+export interface ListDashboardItemsParams {
   projectId?: string;
-  status?: InboxItemStatus;
+  status?: DashboardItemStatus;
 }
 
-export type InboxResolveAction = "dismiss" | "try_again" | "do_something_different";
+export type DashboardResolveAction = "dismiss" | "try_again" | "do_something_different";
 
-export interface ResolveInboxItemParams {
+export interface ResolveDashboardItemParams {
   id: string;
-  action: InboxResolveAction;
+  action: DashboardResolveAction;
   guidance?: string;
 }
 
@@ -768,6 +768,12 @@ export interface MemoryRetrievalContext {
 export type CredentialType = "token" | "username_password";
 export type CredentialScope = "global" | "project" | "goal" | "job";
 
+/** A single entry in the credential_scope_bindings many-to-many table */
+export interface CredentialScopeBinding {
+  scopeType: "project" | "goal" | "job";
+  scopeId: string;
+}
+
 export interface Credential {
   id: string;
   name: string;
@@ -776,8 +782,11 @@ export interface Credential {
   envVarName: string;
   /** When true, the value is also injected into the prompt context (sent to Anthropic) */
   allowPromptInjection: boolean;
+  /** Legacy single-scope field — "global" for global credentials, "scoped" when bindings are used */
   scopeType: CredentialScope;
   scopeId: string | null;
+  /** Explicit scope bindings (project/goal/job IDs). Empty for global credentials. */
+  scopes: CredentialScopeBinding[];
   isEnabled: boolean;
   lastUsedAt: string | null;
   createdAt: string;
@@ -799,8 +808,11 @@ export interface CreateCredentialParams {
   /** Whether the value may also be injected into the prompt (default: false) */
   allowPromptInjection?: boolean;
   value: CredentialValue;
+  /** Legacy single-scope (kept for backward compat) */
   scopeType?: CredentialScope;
   scopeId?: string;
+  /** New multi-scope bindings — takes precedence over scopeType/scopeId when provided */
+  scopes?: CredentialScopeBinding[];
 }
 
 export interface UpdateCredentialParams {
@@ -808,8 +820,11 @@ export interface UpdateCredentialParams {
   name?: string;
   allowPromptInjection?: boolean;
   value?: CredentialValue;
+  /** Legacy single-scope (kept for backward compat) */
   scopeType?: CredentialScope;
   scopeId?: string;
+  /** Replace all scope bindings. null = make global (clear all bindings). */
+  scopes?: CredentialScopeBinding[] | null;
   isEnabled?: boolean;
 }
 
@@ -817,6 +832,11 @@ export interface ListCredentialsParams {
   projectId?: string;
   scopeType?: CredentialScope;
   type?: CredentialType;
+}
+
+export interface ListCredentialsByScopeParams {
+  scopeType: "project" | "goal" | "job";
+  scopeId: string;
 }
 
 // ─── Data Import/Export Types ───
@@ -834,7 +854,7 @@ export interface RecordCounts {
   runLogs: number;
   conversations: number;
   messages: number;
-  inboxItems: number;
+  dashboardItems: number;
   memories: number;
   runMemories: number;
   settings: number;

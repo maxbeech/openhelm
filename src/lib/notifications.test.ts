@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { InboxItem } from "@openhelm/shared";
+import type { DashboardItem } from "@openhelm/shared";
 
 const mockInvoke = vi.fn();
 
@@ -12,10 +12,10 @@ vi.mock("./api", () => ({
   setSetting: vi.fn(),
 }));
 
-import { notifyInboxItem, notifyRunCompleted, ensureNotificationPermission } from "./notifications";
+import { notifyDashboardItem, notifyRunCompleted, ensureNotificationPermission } from "./notifications";
 import * as api from "./api";
 
-const baseItem: InboxItem = {
+const baseItem: DashboardItem = {
   id: "item-1",
   runId: "run-1",
   jobId: "job-1",
@@ -37,10 +37,10 @@ beforeEach(() => {
   (window as Record<string, unknown>).__TAURI_INTERNALS__ = {};
 });
 
-describe("notifyInboxItem", () => {
+describe("notifyDashboardItem", () => {
   it("sends notification when level is 'alerts_only'", async () => {
     vi.mocked(api.getSetting).mockResolvedValue({ value: "alerts_only" } as never);
-    await notifyInboxItem(baseItem);
+    await notifyDashboardItem(baseItem);
     expect(mockInvoke).toHaveBeenCalledWith(
       "send_notification",
       expect.objectContaining({ title: "Run Failed Permanently" }),
@@ -49,25 +49,25 @@ describe("notifyInboxItem", () => {
 
   it("sends notification when level is 'on_finish'", async () => {
     vi.mocked(api.getSetting).mockResolvedValue({ value: "on_finish" } as never);
-    await notifyInboxItem(baseItem);
+    await notifyDashboardItem(baseItem);
     expect(mockInvoke).toHaveBeenCalledWith("send_notification", expect.anything());
   });
 
   it("does not send notification when level is 'never'", async () => {
     vi.mocked(api.getSetting).mockResolvedValue({ value: "never" } as never);
-    await notifyInboxItem(baseItem);
+    await notifyDashboardItem(baseItem);
     expect(mockInvoke).not.toHaveBeenCalledWith("send_notification", expect.anything());
   });
 
   it("defaults to 'alerts_only' when setting is not set", async () => {
     vi.mocked(api.getSetting).mockResolvedValue(null as never);
-    await notifyInboxItem(baseItem);
+    await notifyDashboardItem(baseItem);
     expect(mockInvoke).toHaveBeenCalledWith("send_notification", expect.anything());
   });
 
   it("uses 'Run Stalled' title for human_in_loop items", async () => {
     vi.mocked(api.getSetting).mockResolvedValue({ value: "alerts_only" } as never);
-    await notifyInboxItem({ ...baseItem, type: "human_in_loop" });
+    await notifyDashboardItem({ ...baseItem, type: "human_in_loop" });
     expect(mockInvoke).toHaveBeenCalledWith(
       "send_notification",
       expect.objectContaining({ title: "Run Stalled" }),

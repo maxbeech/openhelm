@@ -1,23 +1,23 @@
 import { create } from "zustand";
 import * as api from "@/lib/api";
-import type { InboxItem, InboxResolveAction } from "@openhelm/shared";
+import type { DashboardItem, DashboardResolveAction } from "@openhelm/shared";
 
-interface InboxState {
-  items: InboxItem[];
+interface DashboardState {
+  items: DashboardItem[];
   openCount: number;
   loading: boolean;
   error: string | null;
 
   fetchItems: (projectId?: string) => Promise<void>;
   fetchOpenCount: (projectId?: string) => Promise<void>;
-  resolveItem: (id: string, action: InboxResolveAction, guidance?: string) => Promise<void>;
+  resolveItem: (id: string, action: DashboardResolveAction, guidance?: string) => Promise<void>;
   dismissAll: () => Promise<void>;
   dismissAllForJob: (jobId: string) => Promise<void>;
-  addItemToStore: (item: InboxItem) => void;
-  updateItemInStore: (item: InboxItem) => void;
+  addItemToStore: (item: DashboardItem) => void;
+  updateItemInStore: (item: DashboardItem) => void;
 }
 
-export const useInboxStore = create<InboxState>((set, get) => ({
+export const useDashboardStore = create<DashboardState>((set, get) => ({
   items: [],
   openCount: 0,
   loading: false,
@@ -26,7 +26,7 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   fetchItems: async (projectId?: string) => {
     set({ loading: true, error: null });
     try {
-      const items = await api.listInboxItems({
+      const items = await api.listDashboardItems({
         status: "open",
         ...(projectId && { projectId }),
       });
@@ -38,7 +38,7 @@ export const useInboxStore = create<InboxState>((set, get) => ({
 
   fetchOpenCount: async (projectId?: string) => {
     try {
-      const { count } = await api.countInboxItems(projectId);
+      const { count } = await api.countDashboardItems(projectId);
       set({ openCount: count });
     } catch {
       // Silently fail — badge is non-critical
@@ -47,7 +47,7 @@ export const useInboxStore = create<InboxState>((set, get) => ({
 
   resolveItem: async (id, action, guidance) => {
     try {
-      await api.resolveInboxItem({ id, action, guidance });
+      await api.resolveDashboardItem({ id, action, guidance });
       // Remove from local items
       set((s) => ({
         items: s.items.filter((item) => item.id !== id),
@@ -61,7 +61,7 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   dismissAll: async () => {
     const { items } = get();
     await Promise.allSettled(
-      items.map((item) => api.resolveInboxItem({ id: item.id, action: "dismiss" })),
+      items.map((item) => api.resolveDashboardItem({ id: item.id, action: "dismiss" })),
     );
     set({ items: [], openCount: 0 });
   },
@@ -70,7 +70,7 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     const { items } = get();
     const jobItems = items.filter((i) => i.jobId === jobId);
     await Promise.allSettled(
-      jobItems.map((item) => api.resolveInboxItem({ id: item.id, action: "dismiss" })),
+      jobItems.map((item) => api.resolveDashboardItem({ id: item.id, action: "dismiss" })),
     );
     set((s) => ({
       items: s.items.filter((i) => i.jobId !== jobId),

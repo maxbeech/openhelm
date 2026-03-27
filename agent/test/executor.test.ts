@@ -157,7 +157,7 @@ describe("Executor run lifecycle", () => {
 
     const updated = getRun(run.id);
     // analysisError no longer promotes to permanent_failure — stays as "failed"
-    // and creates an inbox item instead
+    // and creates a dashboard item instead
     expect(updated!.status).toBe("failed");
     expect(updated!.exitCode).toBe(1);
   });
@@ -224,7 +224,7 @@ describe("Executor run lifecycle", () => {
     expect(updated!.status).toBe("cancelled");
   });
 
-  it("escalates corrective run failure to permanent_failure with inbox item", async () => {
+  it("escalates corrective run failure to permanent_failure with dashboard item", async () => {
     const { emit } = await import("../src/ipc/emitter.js");
     const mockEmit = vi.mocked(emit);
     mockEmit.mockClear();
@@ -267,9 +267,9 @@ describe("Executor run lifecycle", () => {
     const updated = getRun(correctiveRun.id);
     expect(updated!.status).toBe("permanent_failure");
 
-    // Verify inbox.created was emitted
-    const inboxEmits = mockEmit.mock.calls.filter((c) => c[0] === "inbox.created");
-    expect(inboxEmits).toHaveLength(1);
+    // Verify dashboard.created was emitted
+    const dashboardEmits = mockEmit.mock.calls.filter((c) => c[0] === "dashboard.created");
+    expect(dashboardEmits).toHaveLength(1);
   });
 
   it("writes log chunks to database during execution", async () => {

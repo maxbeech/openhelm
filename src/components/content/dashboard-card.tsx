@@ -1,18 +1,18 @@
 import { useState, useRef, useCallback } from "react";
 import { AlertTriangle, Clock } from "lucide-react";
-import { useInboxStore } from "@/stores/inbox-store";
+import { useDashboardStore } from "@/stores/dashboard-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useRunStore } from "@/stores/run-store";
 import { useAppStore } from "@/stores/app-store";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import type { InboxItem } from "@openhelm/shared";
+import type { DashboardItem } from "@openhelm/shared";
 
 const MAX_DESC_LENGTH = 500;
 
-export function InboxCard({ item }: { item: InboxItem }) {
-  const { resolveItem } = useInboxStore();
+export function DashboardCard({ item }: { item: DashboardItem }) {
+  const { resolveItem } = useDashboardStore();
   const { projects } = useProjectStore();
   const { runs } = useRunStore();
   const { selectRunPreserveView } = useAppStore();
@@ -85,7 +85,7 @@ export function InboxCard({ item }: { item: InboxItem }) {
     }
   };
 
-  // Click card body: stay on Inbox, open run in right panel
+  // Click card body: stay on Dashboard, open run in right panel
   const handleCardClick = () => {
     if (!slideOut) selectRunPreserveView(item.runId);
   };

@@ -4,12 +4,14 @@ import {
   createCredential,
   getCredential,
   listCredentials,
+  listCredentialsByScope,
   updateCredential,
   deleteCredential,
   resolveCredentialsForJob,
   countCredentials,
   saveRunCredentials,
   touchCredential,
+  setScopeBindingsForEntity,
 } from "../src/db/queries/credentials.js";
 import { generateEnvVarName, deduplicateEnvVarName } from "../src/credentials/env-var-name.js";
 import { createProject } from "../src/db/queries/projects.js";
@@ -380,5 +382,203 @@ describe("Run-Credential audit trail", () => {
     saveRunCredentials(run.id, [
       { credentialId: cred.id, injectionMethod: "env" },
     ]);
+  });
+});
+
+// ─── Scope Bindings ────────────────────────────────────────────────────────────
+
+describe("credential scope bindings", () => {
+  beforeEach(() => setupTestDb());
+
+  it("creates credential with multi-scope bindings", () => {
+    const p1 = createTestProject();
+    const p2 = createProject({ name: "Other", directoryPath: "/other" });
+
+    const cred = createCredential({
+      name: "Multi Scope Token",
+      type: "token",
+      value: { type: "token", value: "secret" },
+      scopes: [
+        { scopeType: "project", scopeId: p1.id },
+        { scopeType: "project", scopeId: p2.id },
+      ],
+    });
+
+    expect(cred.scopes).toHaveLength(2);
+    expect(cred.scopes.some((s) => s.scopeId === p1.id)).toBe(true);
+    expect(cred.scopes.some((s) => s.scopeId === p2.id)).toBe(true);
+    // scopeType on the credential row is "global" (bindings are in the separate table)
+    expect(cred.scopeType).toBe("global");
+  });
+
+  it("getCredential returns scopes array", () => {
+    const p = createTestProject();
+    const cred = createCredential({
+      name: "Scoped Token",
+      type: "token",
+      value: { type: "token", value: "x" },
+      scopes: [{ scopeType: "project", scopeId: p.id }],
+    });
+
+    const fetched = getCredential(cred.id);
+    expect(fetched?.scopes).toHaveLength(1);
+    expect(fetched?.scopes[0].scopeId).toBe(p.id);
+  });
+
+  it("updateCredential replaces all scope bindings when scopes array provided", () => {
+    const p1 = createTestProject();
+    const p2 = createProject({ name: "Other", directoryPath: "/other" });
+
+    const cred = createCredential({
+      name: "Token",
+      type: "token",
+      value: { type: "token", value: "x" },
+      scopes: [{ scopeType: "project", scopeId: p1.id }],
+    });
+
+    updateCredential({
+      id: cred.id,
+      scopes: [{ scopeType: "project", scopeId: p2.id }],
+    });
+
+    const updated = getCredential(cred.id)!;
+    expect(updated.scopes).toHaveLength(1);
+    expect(updated.scopes[0].scopeId).toBe(p2.id);
+  });
+
+  it("updateCredential with scopes=null makes credential global", () => {
+    const p = createTestProject();
+    const cred = createCredential({
+      name: "Token",
+      type: "token",
+      value: { type: "token", value: "x" },
+      scopes: [{ scopeType: "project", scopeId: p.id }],
+    });
+
+    updateCredential({ id: cred.id, scopes: null });
+
+    const updated = getCredential(cred.id)!;
+    expect(updated.scopes).toHaveLength(0);
+  });
+
+  it("listCredentialsByScope returns credentials bound to a project", () => {
+    const p1 = createTestProject();
+    const p2 = createProject({ name: "Other", directoryPath: "/other" });
+
+    const boundCred = createCredential({
+      name: "Bound",
+      type: "token",
+      value: { type: "token", value: "x" },
+      scopes: [{ scopeType: "project", scopeId: p1.id }],
+    });
+    createCredential({
+      name: "Unrelated",
+      type: "token",
+      value: { type: "token", value: "y" },
+      scopes: [{ scopeType: "project", scopeId: p2.id }],
+    });
+
+    const results = listCredentialsByScope({ scopeType: "project", scopeId: p1.id });
+    expect(results.some((c) => c.id === boundCred.id)).toBe(true);
+    expect(results.every((c) => c.id !== "unrelated")).toBe(true);
+  });
+
+  it("setScopeBindingsForEntity adds and removes bindings atomically", () => {
+    const p = createTestProject();
+    const c1 = createCredential({ name: "C1", type: "token", value: { type: "token", value: "a" } });
+    const c2 = createCredential({ name: "C2", type: "token", value: { type: "token", value: "b" } });
+    const c3 = createCredential({ name: "C3", type: "token", value: { type: "token", value: "c" } });
+
+    // Bind C1 and C2 initially
+    setScopeBindingsForEntity({ scopeType: "project", scopeId: p.id, credentialIds: [c1.id, c2.id] });
+    let bound = listCredentialsByScope({ scopeType: "project", scopeId: p.id });
+    expect(bound.some((c) => c.id === c1.id)).toBe(true);
+    expect(bound.some((c) => c.id === c2.id)).toBe(true);
+
+    // Replace with C2 and C3 (C1 removed, C3 added)
+    const result = setScopeBindingsForEntity({ scopeType: "project", scopeId: p.id, credentialIds: [c2.id, c3.id] });
+    expect(result.added).toBe(1);
+    expect(result.removed).toBe(1);
+
+    bound = listCredentialsByScope({ scopeType: "project", scopeId: p.id });
+    expect(bound.some((c) => c.id === c1.id)).toBe(false);
+    expect(bound.some((c) => c.id === c2.id)).toBe(true);
+    expect(bound.some((c) => c.id === c3.id)).toBe(true);
+  });
+
+  it("resolveCredentialsForJob includes binding-based credentials", () => {
+    const project = createTestProject();
+    const job = createJob({
+      projectId: project.id,
+      name: "Binding Job",
+      prompt: "test",
+      scheduleType: "manual",
+      scheduleConfig: {},
+    });
+
+    const cred = createCredential({
+      name: "Job Bound Cred",
+      type: "token",
+      value: { type: "token", value: "secret" },
+      scopes: [{ scopeType: "job", scopeId: job.id }],
+    });
+
+    const resolved = resolveCredentialsForJob(job.id);
+    expect(resolved.some((c) => c.id === cred.id)).toBe(true);
+  });
+
+  it("resolveCredentialsForJob excludes binding-based credentials scoped to other jobs", () => {
+    const project = createTestProject();
+    const job1 = createJob({
+      projectId: project.id,
+      name: "Job 1",
+      prompt: "test",
+      scheduleType: "manual",
+      scheduleConfig: {},
+    });
+    const job2 = createJob({
+      projectId: project.id,
+      name: "Job 2",
+      prompt: "test",
+      scheduleType: "manual",
+      scheduleConfig: {},
+    });
+
+    const cred = createCredential({
+      name: "Job2 Only Cred",
+      type: "token",
+      value: { type: "token", value: "secret" },
+      scopes: [{ scopeType: "job", scopeId: job2.id }],
+    });
+
+    const resolvedForJob1 = resolveCredentialsForJob(job1.id);
+    expect(resolvedForJob1.some((c) => c.id === cred.id)).toBe(false);
+
+    const resolvedForJob2 = resolveCredentialsForJob(job2.id);
+    expect(resolvedForJob2.some((c) => c.id === cred.id)).toBe(true);
+  });
+
+  it("binding-based global credentials don't apply to unrelated jobs", () => {
+    const project = createTestProject();
+    const job = createJob({
+      projectId: project.id,
+      name: "Unrelated Job",
+      prompt: "test",
+      scheduleType: "manual",
+      scheduleConfig: {},
+    });
+
+    // Credential with bindings: stored as scopeType="global" in the row,
+    // but bound to a different project — should NOT appear in job's resolved set
+    const otherProject = createProject({ name: "Other", directoryPath: "/other" });
+    const cred = createCredential({
+      name: "Other Project Only",
+      type: "token",
+      value: { type: "token", value: "secret" },
+      scopes: [{ scopeType: "project", scopeId: otherProject.id }],
+    });
+
+    const resolved = resolveCredentialsForJob(job.id);
+    expect(resolved.some((c) => c.id === cred.id)).toBe(false);
   });
 });

@@ -91,6 +91,9 @@ export async function handleChatMessage(
   const userMsg = createMessage({ conversationId: conv.id, role: "user", content });
   emit("chat.messageCreated", { ...userMsg, projectId });
 
+  // Emit early "thinking" so the UI shows feedback during async prompt build
+  emit("chat.status", { status: "thinking", projectId });
+
   const systemPrompt = await buildChatSystemPromptAsync({ project, viewingGoal, viewingJob, viewingRun });
 
   // Tool loop
@@ -100,8 +103,36 @@ export async function handleChatMessage(
   let toolExchange = "";
   let finalTextSegments: string[] = [];
 
+  // Stateful streaming sanitizer — buffers text while inside a <tool_call> block
+  // so that blocks spanning multiple chunks never leak to the UI.
+  let streamBuffer = "";
+  let insideToolCall = false;
+
+  function sanitizeStreamChunk(text: string): string {
+    let output = "";
+    streamBuffer += text;
+    while (streamBuffer.length > 0) {
+      if (insideToolCall) {
+        const closeIdx = streamBuffer.indexOf("</tool_call>");
+        if (closeIdx === -1) { streamBuffer = ""; break; }
+        streamBuffer = streamBuffer.slice(closeIdx + "</tool_call>".length);
+        insideToolCall = false;
+      } else {
+        const openIdx = streamBuffer.indexOf("<tool_call>");
+        if (openIdx === -1) { output += streamBuffer; streamBuffer = ""; break; }
+        output += streamBuffer.slice(0, openIdx);
+        streamBuffer = streamBuffer.slice(openIdx + "<tool_call>".length);
+        insideToolCall = true;
+      }
+    }
+    return output.trimEnd();
+  }
+
   for (let iter = 0; iter < MAX_TOOL_LOOP_ITERATIONS; iter++) {
     emit("chat.status", { status: iter === 0 ? "thinking" : "analyzing", projectId });
+    // Reset stream buffer state for each LLM iteration
+    streamBuffer = "";
+    insideToolCall = false;
     const userMessage = buildLlmUserMessage(history, content, toolExchange || undefined);
     const rawResponse = await callLlmViaCli({
       model: "chat",
@@ -112,9 +143,9 @@ export async function handleChatMessage(
       disableTools: false,
       workingDirectory: project.directoryPath,
       permissionMode: permissionMode || "plan",
+      preferRawText: true,
       onTextChunk: (text) => {
-        // Strip <tool_call> XML blocks from the streaming preview — they're internal
-        const stripped = text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trimEnd();
+        const stripped = sanitizeStreamChunk(text);
         if (stripped) emit("chat.streaming", { text: stripped, projectId });
       },
       onToolUse: (toolName) => {

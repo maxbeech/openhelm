@@ -7,7 +7,7 @@
  *
  * Modes:
  * - full_auto: system jobs created and run without approval
- * - approval_required: system jobs proposed via inbox for user review
+ * - approval_required: system jobs proposed via dashboard for user review
  * - off: no system jobs, no self-correction
  */
 

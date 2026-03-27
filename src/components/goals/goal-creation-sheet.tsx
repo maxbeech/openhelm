@@ -15,6 +15,8 @@ import { useGoalStore } from "@/stores/goal-store";
 import { useJobStore } from "@/stores/job-store";
 import { useAppStore } from "@/stores/app-store";
 import { InlineJobForm, EMPTY_INLINE_JOB, type InlineJob } from "./inline-job-form";
+import { CredentialMultiPicker } from "@/components/credentials/credential-multi-picker";
+import { setCredentialScopesForEntity } from "@/lib/api";
 import type { ScheduleConfig } from "@openhelm/shared";
 
 interface GoalCreationSheetProps {
@@ -46,6 +48,7 @@ export function GoalCreationSheet({
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState("");
   const [inlineJobs, setInlineJobs] = useState<InlineJob[]>([]);
+  const [credentialIds, setCredentialIds] = useState<string[]>([]);
   const [nameTouched, setNameTouched] = useState(false);
   const [jobsTouched, setJobsTouched] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -56,6 +59,7 @@ export function GoalCreationSheet({
       setName(initialName);
       setDescription("");
       setInlineJobs([]);
+      setCredentialIds([]);
       setNameTouched(false);
       setJobsTouched(false);
       setError(null);
@@ -79,6 +83,9 @@ export function GoalCreationSheet({
         name: name.trim(),
         description: description.trim() || undefined,
       });
+      if (credentialIds.length > 0) {
+        await setCredentialScopesForEntity({ scopeType: "goal", scopeId: goal.id, credentialIds });
+      }
       for (const j of inlineJobs) {
         if (j.name.trim() && j.prompt.trim()) {
           await createJob({
@@ -142,6 +149,12 @@ export function GoalCreationSheet({
               rows={3}
               className="text-sm"
             />
+          </div>
+
+          {/* Credentials */}
+          <div className="space-y-1.5">
+            <Label>Credentials (optional)</Label>
+            <CredentialMultiPicker value={credentialIds} onChange={setCredentialIds} />
           </div>
 
           {/* Inline Jobs */}

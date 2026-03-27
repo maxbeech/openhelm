@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useJobStore } from "@/stores/job-store";
 import { useGoalStore } from "@/stores/goal-store";
 import { JobCreationForm, type JobFormState, type JobFormErrors } from "./job-creation-form";
+import { setCredentialScopesForEntity } from "@/lib/api";
 import type { ScheduleConfig } from "@openhelm/shared";
 
 interface JobCreationSheetProps {
@@ -41,6 +42,7 @@ const INITIAL_FORM: JobFormState = {
   workingDirectory: "",
   correctionNote: "",
   silenceTimeoutMinutes: "",
+  credentialIds: [],
 };
 
 function getScheduleConfig(form: JobFormState): ScheduleConfig {
@@ -133,7 +135,7 @@ export function JobCreationSheet({
     setCreating(true);
     setError(null);
     try {
-      await createJob({
+      const job = await createJob({
         projectId,
         goalId: form.goalId !== "none" ? form.goalId : undefined,
         name: form.name.trim(),
@@ -148,6 +150,9 @@ export function JobCreationSheet({
           ? parseInt(form.silenceTimeoutMinutes, 10) || null
           : null,
       });
+      if (form.credentialIds.length > 0) {
+        await setCredentialScopesForEntity({ scopeType: "job", scopeId: job.id, credentialIds: form.credentialIds });
+      }
       handleOpenChange(false);
       onComplete();
     } catch (err) {
@@ -174,6 +179,7 @@ export function JobCreationSheet({
           projectDirectory={projectDirectory}
           onFieldChange={(field, value) => setForm((f) => ({ ...f, [field]: value }))}
           onFieldBlur={(f) => setTouched((t) => ({ ...t, [f]: true }))}
+          onCredentialsChange={(ids) => setForm((f) => ({ ...f, credentialIds: ids }))}
           error={error}
         />
 

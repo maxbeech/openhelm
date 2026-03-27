@@ -9,7 +9,7 @@ import {
   runLogs,
   conversations,
   messages,
-  inboxItems,
+  dashboardItems,
   memories,
   runMemories,
 } from "../schema.js";
@@ -21,7 +21,7 @@ import type {
   RunLog,
   Conversation,
   ChatMessage,
-  InboxItem,
+  DashboardItem,
   Memory,
   Setting,
   RecordCounts,
@@ -93,7 +93,7 @@ export interface ExportData {
   runLogs: RunLog[];
   conversations: Conversation[];
   messages: ChatMessage[];
-  inboxItems: InboxItem[];
+  dashboardItems: DashboardItem[];
   memories: Memory[];
   runMemories: { runId: string; memoryId: string }[];
   settings: Setting[];
@@ -112,7 +112,7 @@ export function exportAll(includeRunLogs: boolean): ExportData {
       : [],
     conversations: db.select().from(conversations).all() as Conversation[],
     messages: db.select().from(messages).all().map(rowToMessage),
-    inboxItems: db.select().from(inboxItems).all() as InboxItem[],
+    dashboardItems: db.select().from(dashboardItems).all() as DashboardItem[],
     memories: db.select().from(memories).all().map(rowToMemory),
     runMemories: db.select().from(runMemories).all(),
   };
@@ -130,7 +130,7 @@ export function getExportStats(): ExportStatsResult {
     runLogs: db.select({ c: sql<number>`count(*)` }).from(runLogs).get()?.c ?? 0,
     conversations: db.select({ c: sql<number>`count(*)` }).from(conversations).get()?.c ?? 0,
     messages: db.select({ c: sql<number>`count(*)` }).from(messages).get()?.c ?? 0,
-    inboxItems: db.select({ c: sql<number>`count(*)` }).from(inboxItems).get()?.c ?? 0,
+    dashboardItems: db.select({ c: sql<number>`count(*)` }).from(dashboardItems).get()?.c ?? 0,
     memories: db.select({ c: sql<number>`count(*)` }).from(memories).get()?.c ?? 0,
     runMemories: db.select({ c: sql<number>`count(*)` }).from(runMemories).get()?.c ?? 0,
   };
@@ -158,7 +158,7 @@ export function clearAllData(): void {
   const db = getDb();
   db.delete(runMemories).run();
   db.delete(runLogs).run();
-  db.delete(inboxItems).run();
+  db.delete(dashboardItems).run();
   db.delete(messages).run();
   db.delete(conversations).run();
   db.delete(memories).run();
@@ -174,7 +174,7 @@ export function importAllData(data: ExportData): RecordCounts {
   const db = getDb();
   const counts: RecordCounts = {
     projects: 0, goals: 0, jobs: 0, runs: 0, runLogs: 0,
-    conversations: 0, messages: 0, inboxItems: 0, memories: 0,
+    conversations: 0, messages: 0, dashboardItems: 0, memories: 0,
     runMemories: 0, settings: 0,
   };
 
@@ -235,10 +235,10 @@ export function importAllData(data: ExportData): RecordCounts {
       }).run();
       counts.messages++;
     }
-    // 9. Inbox items
-    for (const ii of data.inboxItems) {
-      tx.insert(inboxItems).values(ii).run();
-      counts.inboxItems++;
+    // 9. Dashboard items
+    for (const ii of data.dashboardItems) {
+      tx.insert(dashboardItems).values(ii).run();
+      counts.dashboardItems++;
     }
     // 10. Memories (re-stringify JSON)
     for (const mem of data.memories) {

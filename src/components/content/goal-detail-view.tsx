@@ -19,6 +19,7 @@ import {
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EmojiPicker } from "@/components/shared/emoji-picker";
 import { GoalEditSheet } from "@/components/goals/goal-edit-sheet";
+import { CredentialTags } from "@/components/credentials/credential-tags";
 import { useGoalStore } from "@/stores/goal-store";
 import { useJobStore } from "@/stores/job-store";
 import { useRunStore } from "@/stores/run-store";
@@ -39,6 +40,7 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
   const { runs } = useRunStore();
   const { selectJob, setContentView, activeProjectId } = useAppStore();
 
+  const [credentialRefreshKey, setCredentialRefreshKey] = useState(0);
   const [confirmAction, setConfirmAction] = useState<
     "archive" | "delete" | null
   >(null);
@@ -160,6 +162,11 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
         </div>
       </div>
 
+      {/* Credential tags */}
+      <div className="mb-4">
+        <CredentialTags scopeType="goal" scopeId={goal.id} refreshKey={credentialRefreshKey} />
+      </div>
+
       <Separator className="mb-6" />
 
       {/* Jobs table */}
@@ -256,7 +263,7 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
         goal={goal}
         open={showEditSheet}
         onOpenChange={setShowEditSheet}
-        onComplete={() => {}}
+        onComplete={() => setCredentialRefreshKey((k) => k + 1)}
       />
     </div>
   );

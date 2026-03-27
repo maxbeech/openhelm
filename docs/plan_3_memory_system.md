@@ -349,7 +349,7 @@ Add `buildMemorySection()` to `system-prompt.ts`:
 
 ### 8.1 Sidebar Update
 
-Add a "Memory" button between Inbox and the Project dropdown in `sidebar.tsx`, using the `Brain` icon from lucide-react. Shows memory count badge.
+Add a "Memory" button between Dashboard and the Project dropdown in `sidebar.tsx`, using the `Brain` icon from lucide-react. Shows memory count badge.
 
 ### 8.2 Content View
 

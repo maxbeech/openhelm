@@ -79,7 +79,7 @@ export class Scheduler {
               `[scheduler] system job ${job.id} budget exceeded (${systemUsage}/${userUsage * 0.2}) — disabling`,
             );
             disableJob(job.id);
-            emit("inbox.created", {
+            emit("dashboard.created", {
               type: "autopilot_limit",
               jobId: job.id,
               title: `System job "${job.name}" paused — token budget exceeded`,

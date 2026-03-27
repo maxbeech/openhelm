@@ -16,6 +16,7 @@ import { RunStatusBadge } from "@/components/shared/status-badge";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EmojiPicker } from "@/components/shared/emoji-picker";
 import { JobEditSheet } from "@/components/jobs/job-edit-sheet";
+import { CredentialTags } from "@/components/credentials/credential-tags";
 import { useJobStore } from "@/stores/job-store";
 import { useRunStore } from "@/stores/run-store";
 import { useAppStore } from "@/stores/app-store";
@@ -43,6 +44,7 @@ export function JobDetailView({ jobId }: JobDetailViewProps) {
   const [triggering, setTriggering] = useState(false);
   const [showRunWarning, setShowRunWarning] = useState(false);
   const [showEditSheet, setShowEditSheet] = useState(false);
+  const [credentialRefreshKey, setCredentialRefreshKey] = useState(0);
   const [confirmAction, setConfirmAction] = useState<
     "archive" | "delete" | null
   >(null);
@@ -123,6 +125,11 @@ export function JobDetailView({ jobId }: JobDetailViewProps) {
         <div className="max-h-40 overflow-auto rounded-lg border border-border bg-background p-3 font-mono text-xs">
           {job.prompt}
         </div>
+      </div>
+
+      {/* Credentials */}
+      <div className="mb-6">
+        <CredentialTags scopeType="job" scopeId={job.id} refreshKey={credentialRefreshKey} />
       </div>
 
       {/* Correction Note — AI-managed guidance from a previous failure */}
@@ -297,7 +304,7 @@ export function JobDetailView({ jobId }: JobDetailViewProps) {
         open={showEditSheet}
         onOpenChange={setShowEditSheet}
         projectDirectory={activeProject?.directoryPath ?? ""}
-        onComplete={() => {}}
+        onComplete={() => setCredentialRefreshKey((k) => k + 1)}
       />
     </div>
   );

@@ -338,7 +338,7 @@ Claude Code occasionally pauses mid-run to ask the user a question — requestin
 
 The interactive detector monitors two signals simultaneously. The first is output content: a rolling buffer of recent output checked against patterns that suggest a question is being asked, such as lines ending with a question mark, `(y/n)` choice prompts, or phrases like "press enter to continue". The second is output silence: 60 seconds of no output from an otherwise active process is a strong signal that the process is waiting.
 
-When interactive behaviour is detected, the run must not be killed. The correct response is to hold the run in a `waiting_for_input` status, notify the UI, and let the user decide whether to cancel. Killing the run would discard any work Claude Code had already done. In v1, this surfaces as a status banner on the run detail screen. In v2, it escalates to the inbox system.
+When interactive behaviour is detected, the run must not be killed. The correct response is to hold the run in a `waiting_for_input` status, notify the UI, and let the user decide whether to cancel. Killing the run would discard any work Claude Code had already done. In v1, this surfaces as a status banner on the run detail screen. In v2, it escalates to the dashboard system.
 
 ---
 
@@ -415,7 +415,7 @@ The run status is a finite state machine. Enforcing valid transitions at the app
 
 Valid transitions: `queued → running`, `queued → cancelled`, `running → succeeded`, `running → failed`, `running → cancelled`, `running → permanent_failure`. Any attempt to transition from a terminal state (succeeded, failed, permanent_failure, cancelled) to any other state should be treated as a bug and logged as an error, not silently ignored.
 
-The `permanent_failure` status is used when a pre-flight check fails — for example, the Claude Code binary is missing, the project directory no longer exists, or the settings are in an invalid state. These failures cannot be resolved by retrying the job as-is; the user must take action first. In v1, these surface as a special badge in the runs list. In v2, they escalate to the inbox system.
+The `permanent_failure` status is used when a pre-flight check fails — for example, the Claude Code binary is missing, the project directory no longer exists, or the settings are in an invalid state. These failures cannot be resolved by retrying the job as-is; the user must take action first. In v1, these surface as a special badge in the runs list. In v2, they escalate to the dashboard system.
 
 ---
 
@@ -899,9 +899,9 @@ The following will be requested by early users. The answer is always "it's plann
 
 **Memory system** — v2. Building this requires the core run loop to be stable and real run output data to exist. Designing a memory schema in the abstract leads to the wrong design.
 
-**Failure self-correction** — v2. Requires the inbox system as a prerequisite. The `permanent_failure` status and `corrective` trigger source exist in the v1 schema specifically to make this a clean addition later.
+**Failure self-correction** — v2. Requires the dashboard system as a prerequisite. The `permanent_failure` status and `corrective` trigger source exist in the v1 schema specifically to make this a clean addition later.
 
-**Inbox and notification system** — v2. Notification permission is requested in v1 but the inbox UI and notification sending are v2.
+**Dashboard and notification system** — v2. Notification permission is requested in v1 but the dashboard UI and notification sending are v2.
 
 **Team and collaboration features** — v3. Requires a shared backend, which is architecturally incompatible with the local-first v1 design.
 

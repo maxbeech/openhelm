@@ -5,7 +5,7 @@ export type ContentView =
   | "home"
   | "goal-detail"
   | "job-detail"
-  | "inbox"
+  | "dashboard"
   | "memory"
   | "credentials"
   | "settings";
@@ -40,7 +40,7 @@ interface AppState {
   selectGoal: (goalId: string) => void;
   selectJob: (jobId: string) => void;
   selectRun: (runId: string, jobId?: string) => void;
-  // Select a run without changing the current content view (used from Inbox)
+  // Select a run without changing the current content view (used from Dashboard)
   selectRunPreserveView: (runId: string) => void;
   clearSelectedRun: () => void;
   toggleGoalCollapsed: (goalId: string) => void;
@@ -56,7 +56,7 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set) => ({
-  contentView: "inbox",
+  contentView: "dashboard",
   selectedGoalId: null,
   selectedJobId: null,
   selectedRunId: null,
@@ -92,7 +92,7 @@ export const useAppStore = create<AppState>((set) => ({
       contentView: (jobId ?? s.selectedJobId) ? "job-detail" : s.contentView,
     })),
 
-  // Select a run without switching away from the current view (e.g. from Inbox)
+  // Select a run without switching away from the current view (e.g. from Dashboard)
   selectRunPreserveView: (runId) => set({ selectedRunId: runId }),
 
   clearSelectedRun: () => set({ selectedRunId: null }),
@@ -105,7 +105,7 @@ export const useAppStore = create<AppState>((set) => ({
     })),
 
   setContentView: (view) => {
-    const clearSelections = view === "home" || view === "settings" || view === "inbox" || view === "memory";
+    const clearSelections = view === "home" || view === "settings" || view === "dashboard" || view === "memory";
     set({
       contentView: view,
       selectedGoalId: clearSelections ? null : undefined,
@@ -166,7 +166,7 @@ export const useAppStore = create<AppState>((set) => ({
     }
   },
 
-  // When switching project filter, don't change contentView — stay on inbox
+  // When switching project filter, don't change contentView — stay on dashboard
   setActiveProjectId: (id) =>
     set({
       activeProjectId: id,

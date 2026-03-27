@@ -13,6 +13,7 @@ import { EmojiPicker } from "@/components/shared/emoji-picker";
 import { useJobStore } from "@/stores/job-store";
 import { useGoalStore } from "@/stores/goal-store";
 import { JobCreationForm, type JobFormState, type JobFormErrors } from "./job-creation-form";
+import { setCredentialScopesForEntity } from "@/lib/api";
 import type { Job, ScheduleConfig, ScheduleConfigCalendar } from "@openhelm/shared";
 
 interface JobEditSheetProps {
@@ -96,6 +97,7 @@ function jobToFormState(job: Job): JobFormState {
     silenceTimeoutMinutes: job.silenceTimeoutMinutes != null
       ? String(job.silenceTimeoutMinutes)
       : "",
+    credentialIds: [], // Populated on mount via CredentialMultiPicker existingScope
   };
 }
 
@@ -185,6 +187,7 @@ export function JobEditSheet({
           : null,
         ...(icon !== job.icon && { icon: icon ?? undefined }),
       });
+      await setCredentialScopesForEntity({ scopeType: "job", scopeId: job.id, credentialIds: form.credentialIds });
       handleOpenChange(false);
       onComplete();
     } catch (err) {
@@ -220,8 +223,10 @@ export function JobEditSheet({
           projectDirectory={projectDirectory}
           onFieldChange={(field, value) => setForm((f) => ({ ...f, [field]: value }))}
           onFieldBlur={(f) => setTouched((t) => ({ ...t, [f]: true }))}
+          onCredentialsChange={(ids) => setForm((f) => ({ ...f, credentialIds: ids }))}
           error={error}
           isEditing
+          existingJobId={job.id}
         />
 
         <div className="flex gap-2 border-t border-border p-4">

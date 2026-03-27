@@ -7,7 +7,7 @@ import type {
   RunLog,
   Setting,
   SettingKey,
-  InboxItem,
+  DashboardItem,
   Memory,
   Credential,
   CredentialWithValue,
@@ -35,6 +35,7 @@ import type {
   CreateCredentialParams,
   UpdateCredentialParams,
   ListCredentialsParams,
+  ListCredentialsByScopeParams,
   ClaudeCodeDetectionResult,
   DetectClaudeCodeParams,
   VerifyClaudeCodeParams,
@@ -44,8 +45,8 @@ import type {
   GetJobTokenStatsParams,
   JobTokenStat,
   SchedulerStatus,
-  ListInboxItemsParams,
-  ResolveInboxItemParams,
+  ListDashboardItemsParams,
+  ResolveDashboardItemParams,
   ChatMessage,
   SendChatMessageParams,
   ApproveChatActionParams,
@@ -281,8 +282,8 @@ export function stopAllRuns(): Promise<{ stoppedActive: number; clearedQueued: n
 
 export function sendChatMessage(
   params: SendChatMessageParams,
-): Promise<ChatMessage[]> {
-  return agentClient.request<ChatMessage[]>("chat.send", params);
+): Promise<{ started: boolean }> {
+  return agentClient.request<{ started: boolean }>("chat.send", params);
 }
 
 export function approveChatAction(
@@ -319,22 +320,22 @@ export function clearChat(params: ClearChatParams): Promise<{ cleared: boolean }
   return agentClient.request<{ cleared: boolean }>("chat.clear", params);
 }
 
-// ─── Inbox ───
+// ─── Dashboard ───
 
-export function listInboxItems(params?: ListInboxItemsParams): Promise<InboxItem[]> {
-  return agentClient.request<InboxItem[]>("inbox.list", params);
+export function listDashboardItems(params?: ListDashboardItemsParams): Promise<DashboardItem[]> {
+  return agentClient.request<DashboardItem[]>("dashboard.list", params);
 }
 
-export function getInboxItem(id: string): Promise<InboxItem> {
-  return agentClient.request<InboxItem>("inbox.get", { id });
+export function getDashboardItem(id: string): Promise<DashboardItem> {
+  return agentClient.request<DashboardItem>("dashboard.get", { id });
 }
 
-export function countInboxItems(projectId?: string): Promise<{ count: number }> {
-  return agentClient.request<{ count: number }>("inbox.count", { projectId });
+export function countDashboardItems(projectId?: string): Promise<{ count: number }> {
+  return agentClient.request<{ count: number }>("dashboard.count", { projectId });
 }
 
-export function resolveInboxItem(params: ResolveInboxItemParams): Promise<InboxItem> {
-  return agentClient.request<InboxItem>("inbox.resolve", params);
+export function resolveDashboardItem(params: ResolveDashboardItemParams): Promise<DashboardItem> {
+  return agentClient.request<DashboardItem>("dashboard.resolve", params);
 }
 
 // ─── Memories ───
@@ -415,6 +416,18 @@ export function countCredentials(projectId?: string): Promise<{ count: number }>
 
 export function countAllCredentials(): Promise<{ count: number }> {
   return agentClient.request<{ count: number }>("credentials.countAll");
+}
+
+export function listCredentialsByScope(params: ListCredentialsByScopeParams): Promise<Credential[]> {
+  return agentClient.request<Credential[]>("credentials.listForScope", params);
+}
+
+export function setCredentialScopesForEntity(params: {
+  scopeType: "project" | "goal" | "job";
+  scopeId: string;
+  credentialIds: string[];
+}): Promise<{ added: number; removed: number }> {
+  return agentClient.request("credentials.setScopesForEntity", params);
 }
 
 // ─── Data Import/Export ───

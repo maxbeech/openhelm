@@ -7,6 +7,7 @@ import {
   handleRejectAll,
 } from "../../chat/handler.js";
 import { listMessagesForProject, clearConversation } from "../../db/queries/conversations.js";
+import { emit } from "../emitter.js";
 import type {
   SendChatMessageParams,
   ApproveChatActionParams,
@@ -18,11 +19,24 @@ import type {
 } from "@openhelm/shared";
 
 export function registerChatHandlers() {
-  registerHandler("chat.send", async (params) => {
+  // chat.send returns immediately — messages and errors arrive via events.
+  // This prevents frontend IPC timeouts on long-running LLM tool loops.
+  registerHandler("chat.send", (params) => {
     const p = params as SendChatMessageParams;
     if (!p?.projectId) throw new Error("projectId is required");
     if (!p?.content?.trim()) throw new Error("content is required");
-    return handleChatMessage(p.projectId, p.content.trim(), p.context, p.model, p.modelEffort, p.permissionMode);
+
+    handleChatMessage(p.projectId, p.content.trim(), p.context, p.model, p.modelEffort, p.permissionMode)
+      .catch((err) => {
+        console.error("[chat] send failed:", err);
+        emit("chat.error", {
+          projectId: p.projectId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        emit("chat.status", { status: "done", projectId: p.projectId });
+      });
+
+    return { started: true };
   });
 
   registerHandler("chat.approveAction", async (params) => {

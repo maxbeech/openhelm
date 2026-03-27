@@ -1,12 +1,12 @@
 /**
  * Failure Triage — promotes unfixable failures to permanent_failure
- * and creates inbox items for user attention.
+ * and creates dashboard items for user attention.
  */
 
 import { getRun } from "../db/queries/runs.js";
 import { updateRun } from "../db/queries/runs.js";
 import { getJob } from "../db/queries/jobs.js";
-import { createInboxItem } from "../db/queries/inbox-items.js";
+import { createDashboardItem } from "../db/queries/dashboard-items.js";
 import { emit } from "../ipc/emitter.js";
 
 export function triagePermanentFailure(
@@ -33,8 +33,8 @@ export function triagePermanentFailure(
     previousStatus: "failed",
   });
 
-  // Create inbox item
-  const item = createInboxItem({
+  // Create dashboard item
+  const item = createDashboardItem({
     runId,
     jobId: job.id,
     projectId: job.projectId,
@@ -43,6 +43,6 @@ export function triagePermanentFailure(
     message: reason || "This failure was classified as unfixable by the AI analyzer.",
   });
 
-  console.error(`[failure-triage] run ${runId} promoted to permanent_failure, inbox item ${item.id}`);
-  emit("inbox.created", item);
+  console.error(`[failure-triage] run ${runId} promoted to permanent_failure, dashboard item ${item.id}`);
+  emit("dashboard.created", item);
 }
