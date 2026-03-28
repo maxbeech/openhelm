@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.1] - 2026-03-28
+
+### Added
+- Browser CAPTCHA detection: detects when Claude Code encounters CAPTCHA pages and sends an intervention event so the user can manually solve it
+- macOS background process launching: improved handling for spawning browser processes in the background without stealing focus
+- Browser process cleanup and intervention handling: prevents zombie processes and tracks user interventions during browser automation runs
+- Browser credential injection: credentials marked as "browser" are automatically injected into browser environments before Claude Code runs
+
+### Fixed
+- Browser MCP handler now correctly validates environment before attempting browser operations
+- Improved test coverage for browser MCP integration and credential handling
+
 ## [0.3.0] - 2026-03-28
 
 ### Added
