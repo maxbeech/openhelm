@@ -30,6 +30,7 @@ export function CredentialCard({ credential, onEdit, onDelete }: CredentialCardP
   const { revealValue } = useCredentialStore();
   const [revealed, setRevealed] = useState<CredentialWithValue | null>(null);
   const [revealing, setRevealing] = useState(false);
+  const [revealError, setRevealError] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const ScopeIcon = scopeIcons[credential.scopeType] ?? Globe;
@@ -39,10 +40,18 @@ export function CredentialCard({ credential, onEdit, onDelete }: CredentialCardP
       setRevealed(null);
       return;
     }
+    setRevealError(false);
     setRevealing(true);
-    const result = await revealValue(credential.id);
-    setRevealed(result);
-    setRevealing(false);
+    try {
+      const result = await revealValue(credential.id);
+      setRevealed(result);
+      // Auto-hide after 30 seconds to reduce plaintext exposure time.
+      setTimeout(() => setRevealed(null), 30_000);
+    } catch {
+      setRevealError(true);
+    } finally {
+      setRevealing(false);
+    }
   }, [credential.id, revealed, revealValue]);
 
   const formatValue = (cred: CredentialWithValue): string => {
@@ -102,7 +111,13 @@ export function CredentialCard({ credential, onEdit, onDelete }: CredentialCardP
       {/* Row 3: Masked value + actions */}
       <div className="flex items-center gap-2">
         <div className="flex-1 font-mono text-xs text-muted-foreground">
-          {revealed ? formatValue(revealed) : "••••••••••••"}
+          {revealError ? (
+            <span className="text-destructive">Failed to reveal</span>
+          ) : revealed ? (
+            formatValue(revealed)
+          ) : (
+            "••••••••••••"
+          )}
         </div>
         <Button
           size="sm"

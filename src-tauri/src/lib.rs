@@ -197,8 +197,11 @@ fn send_notification(title: String, body: String) -> Result<(), String> {
     // Dev builds: process runs as a raw binary without a bundle proxy; fall back to osascript.
     #[cfg(all(target_os = "macos", debug_assertions))]
     {
-        let safe_title = title.replace('\\', "\\\\").replace('"', "\\\"");
-        let safe_body = body.replace('\\', "\\\\").replace('"', "\\\"");
+        // Escape backslashes, double-quotes, and newlines so the values are safe
+        // inside AppleScript double-quoted string literals. Unescaped newlines
+        // would break the AppleScript parser (string literals cannot span lines).
+        let safe_title = title.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', " ").replace('\r', "");
+        let safe_body = body.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', " ").replace('\r', "");
         let script = format!(r#"display notification "{safe_body}" with title "{safe_title}""#);
         std::process::Command::new("osascript")
             .arg("-e")
@@ -308,14 +311,6 @@ pub fn run() {
                 .and_then(|p| p.parent().map(|d| d.to_path_buf()))
                 .unwrap_or_default();
 
-            // Ensure the agent sidecar is treated as CommonJS by Node.js.
-            // Node.js resolves module type by walking UP the directory tree looking
-            // for a package.json. When the built .app is run from inside a Node.js
-            // workspace (e.g. during dev testing from target/release/bundle/), it
-            // finds the workspace root package.json which has "type":"module", causing
-            // a "require is not defined in ES module scope" crash. Writing a
-            // {"type":"commonjs"} package.json next to our binary prevents this by
-            // short-circuiting the traversal at the correct level.
             let pkg_json = bin_dir.join("package.json");
             if !pkg_json.exists() {
                 let _ = std::fs::write(&pkg_json, r#"{"type":"commonjs"}"#);

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { AlertTriangle, Clock, Monitor } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import * as api from "@/lib/api";
+import { formatRelativeTime } from "@/lib/format";
 import type { DashboardItem } from "@openhelm/shared";
 
 const MAX_DESC_LENGTH = 500;
@@ -27,12 +28,22 @@ export function DashboardCard({ item }: { item: DashboardItem }) {
   const [collapse, setCollapse] = useState(false);
   const [lockedHeight, setLockedHeight] = useState<number | null>(null);
 
+  // Ref to a cleanup function for the run.created event listener registered in
+  // handleResolve. Storing it in a ref (rather than state) lets useEffect below
+  // cancel it if the component unmounts before the 15-second timeout fires.
+  const pendingListenerCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    return () => {
+      pendingListenerCleanup.current?.();
+    };
+  }, []);
+
   const project = projects.find((p) => p.id === item.projectId);
   const run = runs.find((r) => r.id === item.runId);
   const isFailure = item.type === "permanent_failure";
   const isCaptcha = item.type === "captcha_intervention";
 
-  const rawDescription = run?.summary?.trim() || item.message;
+  const rawDescription = run?.summary?.trim() || item.message || "";
   const description =
     rawDescription.length > MAX_DESC_LENGTH
       ? rawDescription.slice(0, MAX_DESC_LENGTH) + "..."
@@ -54,21 +65,24 @@ export function DashboardCard({ item }: { item: DashboardItem }) {
   const handleResolve = async (action: "dismiss" | "try_again" | "do_something_different") => {
     setResolving(true);
 
-    // For actions that create a new run, register listener BEFORE triggering resolve
-    let cleanupListener: (() => void) | null = null;
+    // For actions that create a new run, register a listener BEFORE triggering
+    // resolve so we can navigate to the new run as soon as it is created.
+    // The cleanup ref ensures the listener is removed on component unmount too.
     if (action === "try_again" || action === "do_something_different") {
       const handler = (e: Event) => {
         const data = (e as CustomEvent<{ runId: string; jobId: string }>).detail;
         if (data.jobId === item.jobId) {
           selectRunPreserveView(data.runId);
-          cleanupListener?.();
+          pendingListenerCleanup.current?.();
+          pendingListenerCleanup.current = null;
         }
       };
       window.addEventListener("agent:run.created", handler);
       const timeoutId = setTimeout(() => {
         window.removeEventListener("agent:run.created", handler);
+        pendingListenerCleanup.current = null;
       }, 15_000);
-      cleanupListener = () => {
+      pendingListenerCleanup.current = () => {
         window.removeEventListener("agent:run.created", handler);
         clearTimeout(timeoutId);
       };
@@ -217,13 +231,3 @@ export function DashboardCard({ item }: { item: DashboardItem }) {
   );
 }
 
-function formatRelativeTime(isoString: string): string {
-  const diff = Date.now() - new Date(isoString).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}

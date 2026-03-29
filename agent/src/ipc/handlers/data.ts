@@ -23,6 +23,8 @@ import type {
 
 const EXPORT_VERSION = 1;
 const APP_VERSION = "0.1.0";
+// Maximum import file size (100 MB). Prevents loading a multi-GB file fully into memory.
+const MAX_IMPORT_FILE_SIZE = 100 * 1024 * 1024;
 const MACHINE_SPECIFIC_SETTINGS = new Set([
   "claude_code_path",
   "claude_code_version",
@@ -80,6 +82,13 @@ export function registerDataHandlers() {
     if (!p?.filePath) throw new Error("filePath is required");
 
     const stat = statSync(p.filePath);
+    if (stat.size > MAX_IMPORT_FILE_SIZE) {
+      return {
+        valid: false,
+        error: `File is too large (${(stat.size / 1024 / 1024).toFixed(1)} MB). Maximum allowed is ${MAX_IMPORT_FILE_SIZE / 1024 / 1024} MB.`,
+        fileSizeBytes: stat.size,
+      } satisfies ImportPreviewResult;
+    }
     try {
       const raw = readFileSync(p.filePath, "utf-8");
       const parsed = JSON.parse(raw);
@@ -123,7 +132,12 @@ export function registerDataHandlers() {
       throw new Error("Cannot import while runs are active or queued. Cancel all runs first.");
     }
 
-    // Read and parse
+    // Read and parse — size was already validated in importPreview, but re-check
+    // here in case importExecute is called without a prior importPreview call.
+    const stat2 = statSync(p.filePath);
+    if (stat2.size > MAX_IMPORT_FILE_SIZE) {
+      throw new Error(`File is too large (${(stat2.size / 1024 / 1024).toFixed(1)} MB)`);
+    }
     const raw = readFileSync(p.filePath, "utf-8");
     const parsed = JSON.parse(raw);
 

@@ -21,6 +21,7 @@ export function RunDetailView({ runId }: RunDetailViewProps) {
   const { clearSelectedRun, selectJob, selectRunPreserveView } = useAppStore();
   const { logs, loading: logsLoading } = useRunLogs(runId);
   const [cancelling, setCancelling] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [fetchedRun, setFetchedRun] = useState<Run | null>(null);
   const [fetchError, setFetchError] = useState(false);
 
@@ -87,7 +88,12 @@ export function RunDetailView({ runId }: RunDetailViewProps) {
         <div className="flex items-center gap-1">
           {isTerminal && isFailed && (
             <button
-              onClick={() => retryRun(run.jobId, run.id)}
+              onClick={() => {
+                setActionError(null);
+                retryRun(run.jobId, run.id).catch((err: unknown) =>
+                  setActionError(err instanceof Error ? err.message : "Retry failed"),
+                );
+              }}
               className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-destructive hover:bg-accent hover:text-destructive"
               title="Retry failed run"
             >
@@ -97,7 +103,12 @@ export function RunDetailView({ runId }: RunDetailViewProps) {
           )}
           {isTerminal && (
             <button
-              onClick={() => triggerRun(run.jobId)}
+              onClick={() => {
+                setActionError(null);
+                triggerRun(run.jobId).catch((err: unknown) =>
+                  setActionError(err instanceof Error ? err.message : "Failed to start run"),
+                );
+              }}
               className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
               title="Start a new run"
             >
@@ -134,6 +145,13 @@ export function RunDetailView({ runId }: RunDetailViewProps) {
         onSelectJob={selectJob}
         onSelectRun={selectRunPreserveView}
       />
+
+      {/* Action error */}
+      {actionError && (
+        <div className="border-b border-border px-4 py-2 text-xs text-destructive">
+          {actionError}
+        </div>
+      )}
 
       {/* Cancel Button */}
       {isCancellable && (

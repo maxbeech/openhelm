@@ -14,6 +14,8 @@ import { initAgentSentry, captureAgentError } from "./sentry.js";
 import { initPowerManagement, shutdownPowerManagement } from "./power/index.js";
 import { startPeriodicVerifier, stopPeriodicVerifier } from "./license/periodic-verifier.js";
 import { cleanupOrphanedConfigs } from "./mcp-servers/mcp-config-builder.js";
+import { cleanupOrphanedBrowserCredentials } from "./credentials/browser-credentials.js";
+import { cleanupOrphanedBrowserPids } from "./mcp-servers/browser-cleanup.js";
 
 // Injected at build time by esbuild define — see agent/scripts/build.mjs
 declare const __OPENHELM_VERSION__: string;
@@ -48,9 +50,19 @@ try {
   console.error("[agent] sentry init failed (non-fatal):", err);
 }
 
-// 1d. Clean up orphaned MCP config files from previous crashes
+// 1d. Clean up orphaned MCP config files and browser credential files from previous crashes
 try {
   cleanupOrphanedConfigs();
+} catch {
+  // Non-fatal — directory may not exist yet
+}
+try {
+  cleanupOrphanedBrowserCredentials();
+} catch {
+  // Non-fatal — directory may not exist yet
+}
+try {
+  cleanupOrphanedBrowserPids();
 } catch {
   // Non-fatal — directory may not exist yet
 }

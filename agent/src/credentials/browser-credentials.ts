@@ -6,7 +6,7 @@
  * exists on disk for <1 second.
  */
 
-import { writeFileSync, mkdirSync, unlinkSync } from "fs";
+import { writeFileSync, mkdirSync, unlinkSync, readdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -48,5 +48,30 @@ export function removeBrowserCredentialsFile(path: string): void {
     unlinkSync(path);
   } catch {
     // Already deleted by MCP server — expected
+  }
+}
+
+/**
+ * Sweep orphaned credential files from ~/.openhelm/browser-credentials/.
+ * Called at agent startup to clean up after crashes where the MCP server
+ * never got to delete the file.
+ */
+export function cleanupOrphanedBrowserCredentials(): void {
+  try {
+    const files = readdirSync(BROWSER_CREDS_DIR);
+    for (const file of files) {
+      if (file.startsWith("run-") && file.endsWith(".json")) {
+        try {
+          unlinkSync(join(BROWSER_CREDS_DIR, file));
+        } catch {
+          // ignore
+        }
+      }
+    }
+    if (files.length > 0) {
+      console.error(`[browser-credentials] cleaned up ${files.length} orphaned credential file(s)`);
+    }
+  } catch {
+    // Directory doesn't exist yet — nothing to clean
   }
 }

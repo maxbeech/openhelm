@@ -24,6 +24,7 @@ export function CredentialView() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [editingCredential, setEditingCredential] = useState<Credential | null>(null);
+  const [crudError, setCrudError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchCredentials(activeProjectId);
@@ -45,8 +46,13 @@ export function CredentialView() {
       value: CredentialValue;
       scopes: CredentialScopeBinding[];
     }) => {
-      await createCredential(data);
-      fetchCredentials(activeProjectId);
+      setCrudError(null);
+      try {
+        await createCredential(data);
+        fetchCredentials(activeProjectId);
+      } catch (err) {
+        setCrudError(err instanceof Error ? err.message : "Failed to create credential");
+      }
     },
     [activeProjectId, createCredential, fetchCredentials],
   );
@@ -63,22 +69,37 @@ export function CredentialView() {
       scopes?: CredentialScopeBinding[] | null;
       isEnabled?: boolean;
     }) => {
-      await updateCredential(data);
-      fetchCredentials(activeProjectId);
+      setCrudError(null);
+      try {
+        await updateCredential(data);
+        fetchCredentials(activeProjectId);
+      } catch (err) {
+        setCrudError(err instanceof Error ? err.message : "Failed to update credential");
+      }
     },
     [activeProjectId, updateCredential, fetchCredentials],
   );
 
   const handleDelete = useCallback(
     async (id: string) => {
-      await deleteCredential(id);
-      fetchCredentials(activeProjectId);
+      setCrudError(null);
+      try {
+        await deleteCredential(id);
+        fetchCredentials(activeProjectId);
+      } catch (err) {
+        setCrudError(err instanceof Error ? err.message : "Failed to delete credential");
+      }
     },
     [activeProjectId, deleteCredential, fetchCredentials],
   );
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
+      {crudError && (
+        <div className="mx-6 mt-4 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {crudError}
+        </div>
+      )}
       <div className="space-y-6 px-6 pt-14 pb-8">
         {/* Filters */}
         <section>

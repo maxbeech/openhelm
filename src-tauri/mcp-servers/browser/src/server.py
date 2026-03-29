@@ -3148,6 +3148,7 @@ if __name__ == "__main__":
 
     if args.run_id:
         _run_id = args.run_id
+        process_cleanup.set_run_id(args.run_id)
 
     if DISABLED_SECTIONS:
         print(f"Disabled tool sections: {', '.join(sorted(DISABLED_SECTIONS))}", file=sys.stderr)

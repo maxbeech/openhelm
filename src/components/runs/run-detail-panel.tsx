@@ -23,6 +23,7 @@ export function RunDetailPanel({ run, jobName, onClose }: RunDetailPanelProps) {
   const { selectJob, selectRunPreserveView } = useAppStore();
   const { logs, loading: logsLoading } = useRunLogs(run.id);
   const [cancelling, setCancelling] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [runMemories, setRunMemories] = useState<Memory[]>([]);
   const [memoriesExpanded, setMemoriesExpanded] = useState(false);
 
@@ -66,7 +67,12 @@ export function RunDetailPanel({ run, jobName, onClose }: RunDetailPanelProps) {
         <div className="flex items-center gap-1">
           {isTerminal && isFailed && (
             <button
-              onClick={() => retryRun(run.jobId, run.id)}
+              onClick={() => {
+                setActionError(null);
+                retryRun(run.jobId, run.id).catch((err: unknown) =>
+                  setActionError(err instanceof Error ? err.message : "Retry failed"),
+                );
+              }}
               className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-destructive hover:bg-accent hover:text-destructive"
               title="Retry failed run"
             >
@@ -76,7 +82,12 @@ export function RunDetailPanel({ run, jobName, onClose }: RunDetailPanelProps) {
           )}
           {isTerminal && (
             <button
-              onClick={() => triggerRun(run.jobId)}
+              onClick={() => {
+                setActionError(null);
+                triggerRun(run.jobId).catch((err: unknown) =>
+                  setActionError(err instanceof Error ? err.message : "Failed to start run"),
+                );
+              }}
               className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
               title="Start a new run"
             >
@@ -112,6 +123,13 @@ export function RunDetailPanel({ run, jobName, onClose }: RunDetailPanelProps) {
         onSelectJob={selectJob}
         onSelectRun={selectRunPreserveView}
       />
+
+      {/* Action error */}
+      {actionError && (
+        <div className="border-b border-border px-4 py-2 text-xs text-destructive">
+          {actionError}
+        </div>
+      )}
 
       {/* Cancel Button */}
       {isCancellable && (

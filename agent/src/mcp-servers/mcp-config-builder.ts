@@ -20,7 +20,9 @@ export const BROWSER_MCP_PREAMBLE =
   'OpenHelm: A built-in browser MCP server is available as "openhelm-browser". ' +
   "For any browser automation, prefer the mcp__openhelm-browser__* tools — " +
   "they include per-operation timeout protection. Only use a different browser " +
-  "MCP if the task explicitly requests one.\n\n";
+  "MCP if the task explicitly requests one. " +
+  "When your task is complete, close all browser instances using " +
+  "mcp__openhelm-browser__close_instance before finishing.\n\n";
 
 /**
  * Prepended to job prompts to instruct Claude on CAPTCHA handling.
@@ -108,7 +110,9 @@ export function writeMcpConfigFile(runId: string, credentialsFilePath?: string):
 
   mkdirSync(MCP_CONFIG_DIR, { recursive: true });
   const configPath = join(MCP_CONFIG_DIR, `run-${runId}.json`);
-  writeFileSync(configPath, JSON.stringify(config, null, 2));
+  // Write with 0600 permissions — the file contains the credentials file path,
+  // so limit visibility to the current user only.
+  writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
   return configPath;
 }
 

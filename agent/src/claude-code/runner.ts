@@ -172,6 +172,12 @@ export function runClaudeCode(
 
     // -- Write prompt to stdin (avoids ARG_MAX limits and argument-parsing
     //    ambiguity for long prompts, matching print.ts approach) --
+    // Attach an error handler before writing — a synchronous EPIPE (e.g. if
+    // Claude Code exits before reading stdin) would otherwise become an
+    // unhandled stream error and crash the agent.
+    child.stdin?.on("error", (err) => {
+      console.error("[runner] stdin write error:", err.message);
+    });
     child.stdin?.write(config.prompt);
     child.stdin?.end();
 

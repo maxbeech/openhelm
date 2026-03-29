@@ -355,7 +355,15 @@ export class Executor {
           }
           if (!raw) continue;
 
-          const value = JSON.parse(raw) as CredentialValue;
+          let value: CredentialValue;
+          try {
+            value = JSON.parse(raw) as CredentialValue;
+          } catch (err) {
+            // Malformed JSON in keychain (e.g. raw token stored by hand) — skip
+            // this credential rather than aborting all subsequent ones.
+            console.error(`[executor] credential "${cred.name}" has non-JSON keychain value (skipping):`, err);
+            continue;
+          }
           // Always add to redactor (catches leaks in logs regardless of injection mode)
           allSecrets.push(...extractSecretStrings(value));
 
@@ -531,6 +539,14 @@ export class Executor {
       try {
         const { removeBrowserCredentialsFile } = await import("../credentials/browser-credentials.js");
         removeBrowserCredentialsFile(browserCredentialsFilePath);
+      } catch { /* ignore */ }
+    }
+
+    // Kill any orphaned Chrome processes from this run (MCP server cleanup may not have completed)
+    if (mcpConfigPath) {
+      try {
+        const { cleanupBrowsersForRun } = await import("../mcp-servers/browser-cleanup.js");
+        cleanupBrowsersForRun(runId);
       } catch { /* ignore */ }
     }
 

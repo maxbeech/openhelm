@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { RunStatusBadge } from "@/components/shared/status-badge";
 import { TokensChart } from "@/components/shared/tokens-chart";
 import { AlertGroup } from "./alert-group";
-import { formatTokenCount } from "@/lib/format";
+import { formatTokenCount, formatRelativeTime } from "@/lib/format";
 import * as api from "@/lib/api";
 import type { DashboardItem, Run, AutopilotProposal } from "@openhelm/shared";
 
@@ -382,13 +382,3 @@ function RecentRunRow({
   );
 }
 
-function formatRelativeTime(isoString: string): string {
-  const diff = Date.now() - new Date(isoString).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}

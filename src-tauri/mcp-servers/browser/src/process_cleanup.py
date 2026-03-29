@@ -14,13 +14,32 @@ from debug_logger import debug_logger
 
 class ProcessCleanup:
     """Manages browser process tracking and cleanup."""
-    
+
     def __init__(self):
         self.pid_file = Path(os.path.expanduser("~/.stealth_browser_pids.json"))
+        self._run_id: str | None = None
         self.tracked_pids: Set[int] = set()
         self.browser_processes: Dict[str, int] = {}
         self._setup_cleanup_handlers()
         self._recover_orphaned_processes()
+
+    def set_run_id(self, run_id: str) -> None:
+        """Switch to per-run PID file for concurrent-run safety.
+
+        Called after CLI args are parsed when ``--run-id`` is provided.
+        Migrates any already-tracked PIDs to the new per-run file.
+        """
+        self._run_id = run_id
+        per_run_dir = Path(os.path.expanduser("~/.openhelm/browser-pids"))
+        os.makedirs(per_run_dir, mode=0o700, exist_ok=True)
+        self.pid_file = per_run_dir / f"run-{run_id}.json"
+        # Persist any PIDs already tracked (usually none at this point)
+        if self.browser_processes:
+            self._save_tracked_pids()
+        debug_logger.log_info(
+            "process_cleanup", "set_run_id",
+            f"Switched to per-run PID file: {self.pid_file}",
+        )
     
     def _setup_cleanup_handlers(self):
         """Setup signal handlers and atexit cleanup."""
@@ -55,6 +74,7 @@ class ProcessCleanup:
     def _save_tracked_pids(self):
         """Save tracked PIDs to disk."""
         try:
+            os.makedirs(self.pid_file.parent, mode=0o700, exist_ok=True)
             data = {
                 'browser_processes': self.browser_processes,
                 'timestamp': time.time()
