@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getJobTokenStats } from "@/lib/api";
 import { formatTokenCount } from "@/lib/format";
 import { useAgentEvent } from "@/hooks/use-agent-event";
+import { useAppStore } from "@/stores/app-store";
 import type { JobTokenStat } from "@openhelm/shared";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +48,7 @@ const BAR_COLORS = [
 ];
 
 export function TokensChart({ projectId, jobIds, compact = false }: TokensChartProps) {
+  const { selectJob } = useAppStore();
   const [mode, setMode] = useState<Mode>("avg");
   const [period, setPeriod] = useState<Period>("30d");
   const [stats, setStats] = useState<JobTokenStat[]>([]);
@@ -177,7 +179,12 @@ export function TokensChart({ projectId, jobIds, compact = false }: TokensChartP
                 : stat.jobName;
 
             return (
-              <div key={stat.jobId} className="flex items-center gap-2">
+              <div
+                key={stat.jobId}
+                className="flex items-center gap-2 rounded cursor-pointer hover:bg-accent/40 transition-colors px-1 -mx-1"
+                onClick={() => selectJob(stat.jobId)}
+                title={`Open ${stat.jobName}`}
+              >
                 <span
                   className={cn(
                     "shrink-0 text-right text-muted-foreground truncate",

@@ -6,6 +6,10 @@ import { useGoalStore } from "@/stores/goal-store";
 import { useJobStore } from "@/stores/job-store";
 import { useRunStore } from "@/stores/run-store";
 
+vi.mock("@/lib/api", () => ({
+  getJobTokenStats: vi.fn().mockResolvedValue([]),
+}));
+
 const mockGoals = [
   {
     id: "g1",

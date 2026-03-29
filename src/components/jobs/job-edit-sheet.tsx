@@ -14,6 +14,7 @@ import { useJobStore } from "@/stores/job-store";
 import { useGoalStore } from "@/stores/goal-store";
 import { JobCreationForm, type JobFormState, type JobFormErrors } from "./job-creation-form";
 import { setCredentialScopesForEntity } from "@/lib/api";
+import { normalizeModelShortName } from "@/lib/utils";
 import type { Job, ScheduleConfig, ScheduleConfigCalendar } from "@openhelm/shared";
 
 interface JobEditSheetProps {
@@ -37,6 +38,9 @@ function getScheduleConfig(form: JobFormState): ScheduleConfig {
         : { dayOfMonth: form.calendarDayOfMonth }),
     };
   }
+  if (form.scheduleType === "cron") {
+    return { expression: form.cronExpression ?? "" };
+  }
   if (form.scheduleType === "manual") return {};
   // "once" — fire 10 seconds from now
   return { fireAt: new Date(Date.now() + 10_000).toISOString() };
@@ -50,6 +54,7 @@ function jobToFormState(job: Job): JobFormState {
   let calendarDayOfWeek = 1;
   let calendarDaysOfWeek: number[] = [1];
   let calendarDayOfMonth = 1;
+  let cronExpression = "";
 
   if (job.scheduleType === "interval") {
     const cfg = job.scheduleConfig as Record<string, unknown>;
@@ -77,6 +82,11 @@ function jobToFormState(job: Job): JobFormState {
     calendarDayOfMonth = cfg.dayOfMonth ?? 1;
   }
 
+  if (job.scheduleType === "cron") {
+    const cfg = job.scheduleConfig as Record<string, unknown>;
+    if (typeof cfg.expression === "string") cronExpression = cfg.expression;
+  }
+
   return {
     name: job.name,
     prompt: job.prompt,
@@ -89,7 +99,8 @@ function jobToFormState(job: Job): JobFormState {
     calendarDayOfWeek,
     calendarDaysOfWeek,
     calendarDayOfMonth,
-    model: job.model ?? "sonnet",
+    cronExpression,
+    model: normalizeModelShortName(job.model),
     modelEffort: job.modelEffort ?? "medium",
     permissionMode: job.permissionMode ?? "bypassPermissions",
     workingDirectory: job.workingDirectory ?? "",

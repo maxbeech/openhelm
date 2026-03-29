@@ -50,6 +50,8 @@ import {
   scheduleWake,
 } from "../power/index.js";
 import { InterventionWatcher, cleanupOrphanedInterventions } from "./intervention-watcher.js";
+import { isAuthError, handleAuthFailure } from "./auth-monitor.js";
+import { isMcpError, handleMcpFailure } from "./mcp-monitor.js";
 
 const DEFAULT_MAX_CONCURRENCY = 2;
 const DEFAULT_TIMEOUT_MS = 0; // No limit (silence timeout catches stuck processes)
@@ -517,6 +519,9 @@ export class Executor {
     // Track the Claude Code process PID so the focus guard can suppress child windows.
     let claudePid: number | undefined;
 
+    // Accumulate recent stderr lines for post-mortem analysis (auth/MCP detection)
+    const recentStderr: string[] = [];
+
     // Execute via ClaudeCodeRunner
     const result = await this.runnerFn(
       {
@@ -544,6 +549,11 @@ export class Executor {
           // DB insert BEFORE IPC emit (ordering invariant)
           const log = createRunLog({ runId, stream, text: safeText });
           emit("run.log", { runId, sequence: log.sequence, stream, text: safeText });
+          // Accumulate recent stderr for post-mortem auth/MCP detection
+          if (stream === "stderr") {
+            recentStderr.push(safeText);
+            if (recentStderr.length > 30) recentStderr.shift();
+          }
         },
         onInteractiveDetected: (reason, type) => {
           emit("run.interactiveDetected", { runId, reason, type });
@@ -599,7 +609,7 @@ export class Executor {
     this.activeRuns.delete(runId);
 
     // Handle completion (includes async summary generation)
-    await this.onRunCompleted(runId, job, result, timeoutMs);
+    await this.onRunCompleted(runId, job, result, timeoutMs, recentStderr);
 
     // Try to process the next item in the queue
     this.processNext();
@@ -666,6 +676,7 @@ export class Executor {
     job: Job,
     result: ClaudeCodeRunResult,
     timeoutMs?: number,
+    recentStderr?: string[],
   ): Promise<void> {
     // Release sleep prevention for this run
     if (isPowerManagementEnabled()) {
@@ -738,6 +749,21 @@ export class Executor {
         jobId: job.id,
         exitCode: result.exitCode ?? null,
       });
+
+      // Check for auth/MCP failures from recent stderr (reactive detection)
+      const stderrText = (recentStderr ?? []).join("\n");
+
+      // Auth failure — skip self-correction entirely, pause scheduler
+      if (isAuthError(stderrText)) {
+        handleAuthFailure(runId, job.id, job.projectId);
+        return;
+      }
+
+      // MCP failure — create alert but still allow self-correction
+      if (isMcpError(stderrText)) {
+        handleMcpFailure(runId, job.id, job.projectId, stderrText.slice(-300));
+      }
+
       // Build structured failure signal
       const isTimeout = result.timedOut || result.exitCode === 143 || result.exitCode === 137;
       const isSilenceTimeout = hitlKillType === "silence_timeout";

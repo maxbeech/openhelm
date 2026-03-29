@@ -341,6 +341,23 @@ export const dataTableChanges = sqliteTable("data_table_changes", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
+/**
+ * Daily snapshots of Claude Code token usage.
+ * One row per UTC date; UPSERTED on each scanner refresh.
+ * Tracks total usage (from ~/.claude/projects JSONL) and OpenHelm's share.
+ */
+export const claudeUsageSnapshots = sqliteTable("claude_usage_snapshots", {
+  id: text("id").primaryKey(),
+  date: text("date").notNull().unique(),
+  recordedAt: text("recorded_at").notNull(),
+  totalInputTokens: integer("total_input_tokens").notNull().default(0),
+  totalOutputTokens: integer("total_output_tokens").notNull().default(0),
+  sonnetInputTokens: integer("sonnet_input_tokens").notNull().default(0),
+  sonnetOutputTokens: integer("sonnet_output_tokens").notNull().default(0),
+  openHelmInputTokens: integer("openhelm_input_tokens").notNull().default(0),
+  openHelmOutputTokens: integer("openhelm_output_tokens").notNull().default(0),
+});
+
 /** Real-time log chunks captured from Claude Code output */
 export const runLogs = sqliteTable("run_logs", {
   id: text("id").primaryKey(),

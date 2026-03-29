@@ -33,7 +33,7 @@ export function registerDashboardHandlers() {
     return { count: countOpenDashboardItems(p?.projectId) };
   });
 
-  registerHandler("dashboard.resolve", (params) => {
+  registerHandler("dashboard.resolve", async (params) => {
     const p = params as ResolveDashboardItemParams;
     if (!p?.id) throw new Error("id is required");
     if (!p?.action) throw new Error("action is required");
@@ -109,6 +109,29 @@ export function registerDashboardHandlers() {
       return resolved;
     }
 
+    if (p.action === "re_authenticated") {
+      const resolved = resolveDashboardItem(p.id, "resolved");
+      emit("dashboard.resolved", resolved);
+
+      // Run health check and resume interrupted runs
+      const { attemptAuthResume } = await import("../../executor/auth-monitor.js");
+      const resumeResult = await attemptAuthResume((queueItem) => {
+        jobQueue.enqueue(queueItem);
+        executor.processNext();
+      });
+
+      return { ...resolved, resumeResult };
+    }
+
     throw new Error(`Unknown action: ${p.action}`);
+  });
+
+  // Dedicated handler for re-authentication (can also be called directly)
+  registerHandler("health.reAuthenticated", async () => {
+    const { attemptAuthResume } = await import("../../executor/auth-monitor.js");
+    return attemptAuthResume((queueItem) => {
+      jobQueue.enqueue(queueItem);
+      executor.processNext();
+    });
   });
 }

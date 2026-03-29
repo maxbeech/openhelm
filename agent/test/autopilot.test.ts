@@ -285,7 +285,7 @@ describe("backfillMissingAutopilotJobs", () => {
     backfillMissingAutopilotJobs = mod.backfillMissingAutopilotJobs;
 
     // Create two goals: one with system jobs, one without
-    const g1 = createGoal({ projectId, name: "Goal without system jobs" });
+    const g1 = createGoal({ projectId, name: "Goal without system jobs", description: "Improve test coverage across all modules" });
     backfillGoalNoJobs = g1.id;
 
     const g2 = createGoal({ projectId, name: "Goal with system jobs" });
@@ -306,6 +306,7 @@ describe("backfillMissingAutopilotJobs", () => {
     mockGenerateSystemJobs.mockReset();
     mockEmit.mockClear();
     deleteSetting("autopilot_mode");
+    deleteSetting("autopilot_backfill_failures");
   });
 
   it("backfills goals without system jobs", async () => {
@@ -330,5 +331,111 @@ describe("backfillMissingAutopilotJobs", () => {
     await backfillMissingAutopilotJobs();
 
     expect(mockGenerateSystemJobs).not.toHaveBeenCalled();
+  });
+
+  it("skips goals on cooldown from recent failure", async () => {
+    // Create fresh goal so it has no system jobs from prior tests
+    const freshGoal = createGoal({ projectId, name: "Cooldown goal", description: "Has enough context for backfill" });
+    const map: Record<string, number> = { [freshGoal.id]: Date.now() };
+    setSetting("autopilot_backfill_failures", JSON.stringify(map));
+
+    mockGenerateSystemJobs.mockResolvedValue([
+      makePlannedSystemJob({ systemCategory: "cooldown_test" }),
+    ]);
+
+    await backfillMissingAutopilotJobs();
+
+    const calledGoalIds = mockGenerateSystemJobs.mock.calls.map(
+      (c: unknown[]) => c[0],
+    );
+    expect(calledGoalIds).not.toContain(freshGoal.id);
+  });
+
+  it("retries goals after cooldown expires", async () => {
+    // Create fresh goal so it has no system jobs from prior tests
+    const freshGoal = createGoal({ projectId, name: "Retry goal", description: "Has enough context for backfill" });
+    const map: Record<string, number> = {
+      [freshGoal.id]: Date.now() - 25 * 60 * 60 * 1000,
+    };
+    setSetting("autopilot_backfill_failures", JSON.stringify(map));
+
+    mockGenerateSystemJobs.mockResolvedValue([
+      makePlannedSystemJob({ systemCategory: "retry_test" }),
+    ]);
+
+    await backfillMissingAutopilotJobs();
+
+    const calledGoalIds = mockGenerateSystemJobs.mock.calls.map(
+      (c: unknown[]) => c[0],
+    );
+    expect(calledGoalIds).toContain(freshGoal.id);
+  });
+
+  it("skips goals with insufficient context", async () => {
+    const thinGoal = createGoal({ projectId, name: "ThinGoalTest" });
+
+    mockGenerateSystemJobs.mockResolvedValue([
+      makePlannedSystemJob({ systemCategory: "thin_test" }),
+    ]);
+
+    await backfillMissingAutopilotJobs();
+
+    const calledGoalIds = mockGenerateSystemJobs.mock.calls.map(
+      (c: unknown[]) => c[0],
+    );
+    expect(calledGoalIds).not.toContain(thinGoal.id);
+  });
+
+  it("records failure when generation throws", async () => {
+    // Create fresh goal with enough context so it passes thin-goal check
+    createGoal({ projectId, name: "Fail goal", description: "Will fail generation" });
+
+    mockGenerateSystemJobs.mockRejectedValue(new Error("CLI crash"));
+
+    await backfillMissingAutopilotJobs();
+
+    const setting = getSetting("autopilot_backfill_failures");
+    expect(setting).not.toBeNull();
+    const map = JSON.parse(setting!.value);
+    expect(Object.keys(map).length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("clearBackfillCooldown", () => {
+  let clearBackfillCooldown: typeof import("../src/autopilot/index.js").clearBackfillCooldown;
+
+  beforeAll(async () => {
+    const mod = await import("../src/autopilot/index.js");
+    clearBackfillCooldown = mod.clearBackfillCooldown;
+  });
+
+  it("removes a goal from the failure map", () => {
+    const testGoalId = "test-cooldown-goal";
+    const map: Record<string, number> = {
+      [testGoalId]: Date.now(),
+      "other-goal": Date.now(),
+    };
+    setSetting("autopilot_backfill_failures", JSON.stringify(map));
+
+    clearBackfillCooldown(testGoalId);
+
+    const setting = getSetting("autopilot_backfill_failures");
+    expect(setting).not.toBeNull();
+    const updated = JSON.parse(setting!.value);
+    expect(updated[testGoalId]).toBeUndefined();
+    expect(updated["other-goal"]).toBeDefined();
+  });
+
+  it("deletes the setting when map becomes empty", () => {
+    const testGoalId = "only-goal";
+    setSetting(
+      "autopilot_backfill_failures",
+      JSON.stringify({ [testGoalId]: Date.now() }),
+    );
+
+    clearBackfillCooldown(testGoalId);
+
+    const setting = getSetting("autopilot_backfill_failures");
+    expect(setting).toBeNull();
   });
 });

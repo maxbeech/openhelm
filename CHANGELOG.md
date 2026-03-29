@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Claude Code Usage Dashboard: three stat cards (Today, This Week All, This Week Sonnet) mirroring `/usage` output, with OpenHelm vs total breakdown and comparison to previous period
+- 30-day SVG line chart showing token usage trend (total vs OpenHelm), with hover tooltips
+- Total usage tracking: reads `~/.claude/projects/**/*.jsonl` to capture all Claude Code sessions (not just OpenHelm-initiated ones); falls back to OpenHelm-only if unavailable
+- JSONL deduplication: skips streaming-start placeholder entries by detecting parent→child assistant-turn chains
+- Usage alert system: macOS notifications at 50%, 75%, 90% of configurable daily/weekly token budgets; per-threshold deduplication via settings keys prevents repeat alerts within the same period
+- New settings keys: `claude_daily_budget` and `claude_weekly_budget` for user-configurable alert thresholds
+- New DB table `claude_usage_snapshots` (migration 0027) for per-day usage aggregates
+- Health monitoring: reactive detection of Claude Code authentication failures and MCP server unavailability from run stderr
+- New dashboard alert types: `auth_required` (with "I've Re-authenticated" action) and `mcp_unavailable`
+- Auto-pause scheduler on auth failure to prevent cascading run failures
+- Auto-resume interrupted jobs when the user confirms re-authentication via dashboard
+- Native macOS notifications for auth and MCP alerts
+- Health banner auto-rechecks when auth_required events arrive
+
 ## [0.4.0] - 2026-03-29
 
 ### Added

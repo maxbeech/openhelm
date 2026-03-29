@@ -63,6 +63,11 @@ export function DataTableDetailView({ tableId }: Props) {
     api.getDataTable(tableId).then(setTable).catch(console.error);
   }, [tableId]);
 
+  const handleColumnConfigUpdate = useCallback(async (columnId: string, config: Record<string, unknown>) => {
+    const updated = await api.updateDataTableColumnConfig({ tableId, columnId, config });
+    setTable(updated);
+  }, [tableId]);
+
   if (!table) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
@@ -113,6 +118,7 @@ export function DataTableDetailView({ tableId }: Props) {
           onCellChange={handleCellChange}
           onDeleteRow={handleDeleteRow}
           onColumnRemove={handleColumnRemove}
+          onColumnConfigUpdate={handleColumnConfigUpdate}
         />
       </div>
 

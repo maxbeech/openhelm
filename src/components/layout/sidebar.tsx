@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { useResizePanel } from "@/hooks/use-resize-panel";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import { useMemoryStore } from "@/stores/memory-store";
 import { useCredentialStore } from "@/stores/credential-store";
@@ -41,6 +42,14 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
   const [starBannerVisible, setStarBannerVisible] = useState(() => getStarBannerVisible());
   const activeProject = projects.find((p) => p.id === activeProjectId);
 
+  const { width, dragHandleProps } = useResizePanel({
+    minWidth: 180,
+    maxWidth: 480,
+    defaultWidth: 256,
+    storageKey: "sidebar-width",
+    direction: "left",
+  });
+
   const handleProjectSwitch = useCallback(
     (id: string | null) => {
       setActiveProjectId(id);
@@ -49,7 +58,7 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
   );
 
   return (
-    <aside className="no-select flex h-full w-64 flex-col border-r border-sidebar-border bg-sidebar">
+    <aside style={{ width }} className="relative no-select flex h-full flex-col border-r border-sidebar-border bg-sidebar">
       {/* Logo row — h-12 header; click-to-drag via Tauri IPC */}
       <div
         data-tauri-drag-region
@@ -248,6 +257,11 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
           <span>Settings</span>
         </button>
       </div>
+      {/* Drag handle on the right edge — resize the sidebar by dragging */}
+      <div
+        {...dragHandleProps}
+        className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 z-10"
+      />
     </aside>
   );
 }

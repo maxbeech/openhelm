@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { AlertTriangle, Clock, Monitor } from "lucide-react";
+import { AlertTriangle, Clock, KeyRound, Monitor, Server } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useRunStore } from "@/stores/run-store";
@@ -21,6 +21,7 @@ export function DashboardCard({ item }: { item: DashboardItem }) {
   const [showGuidance, setShowGuidance] = useState(false);
   const [guidance, setGuidance] = useState("");
   const [resolving, setResolving] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // Exit animation state
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -42,6 +43,8 @@ export function DashboardCard({ item }: { item: DashboardItem }) {
   const run = runs.find((r) => r.id === item.runId);
   const isFailure = item.type === "permanent_failure";
   const isCaptcha = item.type === "captcha_intervention";
+  const isAuth = item.type === "auth_required";
+  const isMcp = item.type === "mcp_unavailable";
 
   const rawDescription = run?.summary?.trim() || item.message || "";
   const description =
@@ -101,6 +104,24 @@ export function DashboardCard({ item }: { item: DashboardItem }) {
     }
   };
 
+  const handleReAuthenticated = async () => {
+    setResolving(true);
+    setAuthError(null);
+    try {
+      const result = await api.reAuthenticated();
+      if (result.success) {
+        await triggerExit();
+        await resolveItem(item.id, "dismiss");
+      } else {
+        setAuthError(result.error ?? "Still not authenticated. Run `claude` in your terminal to log in.");
+      }
+    } catch {
+      setAuthError("Failed to check authentication status.");
+    } finally {
+      setResolving(false);
+    }
+  };
+
   // Click card body: stay on Dashboard, open run in right panel
   const handleCardClick = () => {
     if (!slideOut && item.runId) selectRunPreserveView(item.runId);
@@ -134,8 +155,12 @@ export function DashboardCard({ item }: { item: DashboardItem }) {
           <div className="flex items-start gap-3">
             {isFailure ? (
               <AlertTriangle className="mt-0.5 size-5 shrink-0 text-destructive" />
+            ) : isAuth ? (
+              <KeyRound className="mt-0.5 size-5 shrink-0 text-destructive" />
             ) : isCaptcha ? (
               <Monitor className="mt-0.5 size-5 shrink-0 text-blue-500" />
+            ) : isMcp ? (
+              <Server className="mt-0.5 size-5 shrink-0 text-amber-500" />
             ) : (
               <Clock className="mt-0.5 size-5 shrink-0 text-amber-500" />
             )}
@@ -186,6 +211,31 @@ export function DashboardCard({ item }: { item: DashboardItem }) {
                   Cancel
                 </Button>
               </div>
+            </div>
+          ) : isAuth ? (
+            <div className="space-y-2">
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  size="sm"
+                  variant="default"
+                  disabled={resolving}
+                  onClick={handleReAuthenticated}
+                >
+                  <KeyRound className="mr-1.5 size-3.5" />
+                  I've Re-authenticated
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={resolving}
+                  onClick={() => handleResolve("dismiss")}
+                >
+                  Dismiss
+                </Button>
+              </div>
+              {authError && (
+                <p className="text-xs text-destructive">{authError}</p>
+              )}
             </div>
           ) : (
             <div className="flex gap-2 flex-wrap">

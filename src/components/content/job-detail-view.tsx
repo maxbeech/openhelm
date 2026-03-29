@@ -21,10 +21,12 @@ import { useJobStore } from "@/stores/job-store";
 import { useRunStore } from "@/stores/run-store";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectStore } from "@/stores/project-store";
+import { useGoalStore } from "@/stores/goal-store";
 import {
   formatSchedule,
   formatRelativeTime,
   formatDuration,
+  formatTokenCount,
   getElapsed,
 } from "@/lib/format";
 
@@ -35,8 +37,9 @@ interface JobDetailViewProps {
 export function JobDetailView({ jobId }: JobDetailViewProps) {
   const { jobs, updateJob, toggleEnabled, archiveJob, deleteJob } = useJobStore();
   const { runs, triggerRun } = useRunStore();
-  const { selectRun, setContentView, activeProjectId } = useAppStore();
+  const { selectRun, selectGoal, setContentView, activeProjectId } = useAppStore();
   const { projects } = useProjectStore();
+  const { goals } = useGoalStore();
 
   // Tick every minute so relative timestamps (e.g. "Next: in 4h") stay current
   useNow();
@@ -53,6 +56,8 @@ export function JobDetailView({ jobId }: JobDetailViewProps) {
   const activeProject = projects.find((p) => p.id === activeProjectId);
 
   const job = jobs.find((j) => j.id === jobId);
+  const jobProject = job ? projects.find((p) => p.id === job.projectId) : null;
+  const jobGoal = job?.goalId ? goals.find((g) => g.id === job.goalId) : null;
   const jobRuns = useMemo(
     () => runs.filter((r) => r.jobId === jobId),
     [runs, jobId],
@@ -101,6 +106,26 @@ export function JobDetailView({ jobId }: JobDetailViewProps) {
     <div className="p-6">
       {/* Header */}
       <div className="mb-6">
+        {/* Project / Goal breadcrumb */}
+        {(jobProject || jobGoal) && (
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+            {jobProject && (
+              <span className="rounded bg-muted px-1.5 py-0.5 font-medium">
+                {jobProject.name}
+              </span>
+            )}
+            {jobProject && jobGoal && <span className="text-muted-foreground/40">/</span>}
+            {jobGoal && (
+              <button
+                onClick={() => selectGoal(jobGoal.id)}
+                className="rounded bg-muted px-1.5 py-0.5 font-medium hover:bg-accent transition-colors"
+                title="Open goal"
+              >
+                {jobGoal.icon ? `${jobGoal.icon} ` : ""}{jobGoal.name}
+              </button>
+            )}
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <EmojiPicker
             value={job.icon}
@@ -233,6 +258,7 @@ export function JobDetailView({ jobId }: JobDetailViewProps) {
             <col className="w-32" />
             <col className="w-28" />
             <col className="w-20" />
+            <col className="w-20" />
             <col />
           </colgroup>
           <thead>
@@ -240,6 +266,7 @@ export function JobDetailView({ jobId }: JobDetailViewProps) {
               <th className="px-3 py-2 font-medium">Status</th>
               <th className="px-3 py-2 font-medium">Started</th>
               <th className="px-3 py-2 font-medium">Duration</th>
+              <th className="px-3 py-2 font-medium">Tokens</th>
               <th className="px-3 py-2 font-medium">Summary</th>
             </tr>
           </thead>
@@ -270,6 +297,11 @@ export function JobDetailView({ jobId }: JobDetailViewProps) {
                     ? formatDuration(
                         getElapsed(run.startedAt, run.finishedAt),
                       )
+                    : "\u2014"}
+                </td>
+                <td className="px-3 py-2.5 font-mono text-xs tabular-nums text-muted-foreground">
+                  {run.inputTokens != null || run.outputTokens != null
+                    ? formatTokenCount((run.inputTokens ?? 0) + (run.outputTokens ?? 0))
                     : "\u2014"}
                 </td>
                 <td className="truncate px-3 py-2.5 text-xs text-muted-foreground">

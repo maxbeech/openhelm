@@ -10,9 +10,10 @@ interface Props {
   onCellChange: (rowId: string, columnId: string, value: unknown) => void;
   onDeleteRow: (rowId: string) => void;
   onColumnRemove: (columnId: string) => void;
+  onColumnConfigUpdate: (columnId: string, config: Record<string, unknown>) => void;
 }
 
-export function DataTableGrid({ columns, rows, loading, onCellChange, onDeleteRow, onColumnRemove }: Props) {
+export function DataTableGrid({ columns, rows, loading, onCellChange, onDeleteRow, onColumnRemove, onColumnConfigUpdate }: Props) {
   if (loading && rows.length === 0) {
     return (
       <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
@@ -67,6 +68,7 @@ export function DataTableGrid({ columns, rows, loading, onCellChange, onDeleteRo
                   column={col}
                   value={row.data[col.id]}
                   onChange={(value) => onCellChange(row.id, col.id, value)}
+                  onColumnConfigUpdate={(config) => onColumnConfigUpdate(col.id, config)}
                 />
               </td>
             ))}

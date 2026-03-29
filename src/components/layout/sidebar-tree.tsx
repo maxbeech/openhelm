@@ -1,13 +1,31 @@
-import { useState, useMemo } from "react";
-import { Plus } from "lucide-react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { Folder, FolderOpen, Plus, Search, X } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
 import { useAppStore } from "@/stores/app-store";
 import { useGoalStore } from "@/stores/goal-store";
 import { useJobStore } from "@/stores/job-store";
 import { useRunStore } from "@/stores/run-store";
+import { useProjectStore } from "@/stores/project-store";
+import * as api from "@/lib/api";
 import { SidebarJobNode } from "./sidebar-job-node";
 import { SidebarGoalNode } from "./sidebar-goal-node";
 import { SortDropdown, applySortGoals, applySortJobs } from "./sidebar-sort";
 import { SidebarArchived } from "./sidebar-archived";
+import { SidebarProjectGroup } from "./sidebar-project-group";
+import { cn } from "@/lib/utils";
+import type { JobTokenStat } from "@openhelm/shared";
 
 interface SidebarTreeProps {
   projectId: string | null;
@@ -27,32 +45,104 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
     jobSortMode,
     setGoalSortMode,
     setJobSortMode,
+    groupByProject,
+    setGroupByProject,
+    sidebarSearch,
+    setSidebarSearch,
+    projectGroupOrder,
+    setProjectGroupOrder,
   } = useAppStore();
   const { goals, createGoal } = useGoalStore();
   const { jobs } = useJobStore();
   const { runs } = useRunStore();
+  const { projects } = useProjectStore();
 
   const [addingGoal, setAddingGoal] = useState(false);
   const [newGoalInput, setNewGoalInput] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [tokenStats, setTokenStats] = useState<JobTokenStat[]>([]);
+
+  // ─── Token stats ─────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    api.getJobTokenStats({}).then(setTokenStats).catch(() => {});
+  }, [runs]); // refresh when runs change
+
+  const tokensByJob = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const stat of tokenStats) {
+      map.set(stat.jobId, stat.totalInputTokens + stat.totalOutputTokens);
+    }
+    return map;
+  }, [tokenStats]);
+
+  const tokensByGoal = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const job of jobs) {
+      if (!job.goalId) continue;
+      const t = tokensByJob.get(job.id) ?? 0;
+      map.set(job.goalId, (map.get(job.goalId) ?? 0) + t);
+    }
+    return map;
+  }, [jobs, tokensByJob]);
+
+  const tokensByProject = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const job of jobs) {
+      const t = tokensByJob.get(job.id) ?? 0;
+      map.set(job.projectId, (map.get(job.projectId) ?? 0) + t);
+    }
+    return map;
+  }, [jobs, tokensByJob]);
+
+  // ─── DnD sensors ─────────────────────────────────────────────────────────
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  const goalDragMode = goalSortMode === "custom" && !sidebarSearch;
+  const jobDragMode = jobSortMode === "custom" && !sidebarSearch;
+
+  // ─── Search toggle ────────────────────────────────────────────────────────
+
+  const openSearch = useCallback(() => {
+    setSearchOpen(true);
+    setTimeout(() => searchInputRef.current?.focus(), 0);
+  }, []);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSidebarSearch("");
+  }, [setSidebarSearch]);
+
+  // ─── Core data derivations ────────────────────────────────────────────────
 
   const activeGoals = useMemo(
-    () => applySortGoals(goals.filter((g) => g.status !== "archived"), goalSortMode),
-    [goals, goalSortMode],
+    () => applySortGoals(
+      goals.filter((g) => g.status !== "archived"),
+      goalSortMode,
+      tokensByGoal,
+    ),
+    [goals, goalSortMode, tokensByGoal],
   );
 
   const jobsByGoal = useMemo(() => {
     const map = new Map<string | null, typeof jobs>();
     for (const job of jobs) {
       if (job.isArchived) continue;
+      // Hide internal sentinel jobs (e.g. health monitoring) from sidebar
+      if (job.systemCategory === "health_monitoring") continue;
       const key = job.goalId;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(job);
     }
     for (const [key, groupJobs] of map) {
-      map.set(key, applySortJobs(groupJobs, jobSortMode));
+      map.set(key, applySortJobs(groupJobs, jobSortMode, tokensByJob));
     }
     return map;
-  }, [jobs, jobSortMode]);
+  }, [jobs, jobSortMode, tokensByJob]);
 
   const standaloneJobs = useMemo(
     () => jobsByGoal.get(null) ?? [],
@@ -95,6 +185,67 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
     return map;
   }, [runs]);
 
+  // ─── Search filtering ─────────────────────────────────────────────────────
+
+  const q = sidebarSearch.toLowerCase().trim();
+
+  const filteredGoals = useMemo(() => {
+    if (!q) return activeGoals;
+    return activeGoals.filter((goal) => {
+      if ((goal.name || goal.description).toLowerCase().includes(q)) return true;
+      const goalJobs = jobsByGoal.get(goal.id) ?? [];
+      return goalJobs.some((j) => j.name.toLowerCase().includes(q));
+    });
+  }, [activeGoals, jobsByGoal, q]);
+
+  const filteredStandaloneJobs = useMemo(() => {
+    if (!q) return standaloneJobs;
+    return standaloneJobs.filter((j) => j.name.toLowerCase().includes(q));
+  }, [standaloneJobs, q]);
+
+  // ─── Project grouping ─────────────────────────────────────────────────────
+
+  const isAllProjects = projectId === null;
+  const showGroupToggle = isAllProjects;
+
+  // Ordered project list for grouped view
+  const orderedProjects = useMemo(() => {
+    if (!isAllProjects || !groupByProject) return [];
+    // Sort projects by sort mode first
+    let sorted = [...projects];
+    if (goalSortMode === "alpha_asc") sorted.sort((a, b) => a.name.localeCompare(b.name));
+    else if (goalSortMode === "alpha_desc") sorted.sort((a, b) => b.name.localeCompare(a.name));
+    else if (goalSortMode === "created_asc") sorted.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    else if (goalSortMode === "created_desc") sorted.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    else if (goalSortMode === "updated_asc") sorted.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+    else if (goalSortMode === "updated_desc") sorted.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    else if (goalSortMode === "tokens_asc") sorted.sort((a, b) => (tokensByProject.get(a.id) ?? 0) - (tokensByProject.get(b.id) ?? 0));
+    else if (goalSortMode === "tokens_desc") sorted.sort((a, b) => (tokensByProject.get(b.id) ?? 0) - (tokensByProject.get(a.id) ?? 0));
+    else if (goalSortMode === "custom" && projectGroupOrder.length > 0) {
+      // Apply persisted custom order
+      const orderMap = new Map(projectGroupOrder.map((id, i) => [id, i]));
+      sorted.sort((a, b) => (orderMap.get(a.id) ?? 9999) - (orderMap.get(b.id) ?? 9999));
+    }
+    return sorted;
+  }, [projects, isAllProjects, groupByProject, goalSortMode, tokensByProject, projectGroupOrder]);
+
+  // Filter projects for search
+  const visibleProjects = useMemo(() => {
+    if (!q) return orderedProjects;
+    return orderedProjects.filter((p) => {
+      if (p.name.toLowerCase().includes(q)) return true;
+      const pGoals = activeGoals.filter((g) => g.projectId === p.id);
+      if (pGoals.some((g) => {
+        if ((g.name || g.description).toLowerCase().includes(q)) return true;
+        return (jobsByGoal.get(g.id) ?? []).some((j) => j.name.toLowerCase().includes(q));
+      })) return true;
+      const pStandalone = standaloneJobs.filter((j) => j.projectId === p.id);
+      return pStandalone.some((j) => j.name.toLowerCase().includes(q));
+    });
+  }, [orderedProjects, q, activeGoals, jobsByGoal, standaloneJobs]);
+
+  // ─── Goal creation ────────────────────────────────────────────────────────
+
   const handleCreateGoal = async () => {
     const name = newGoalInput.trim();
     setNewGoalInput("");
@@ -108,6 +259,40 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
     }
   };
 
+  // ─── Drag handlers ────────────────────────────────────────────────────────
+
+  const handleGoalDragEnd = useCallback((event: DragEndEvent, scopeGoals: typeof activeGoals) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = scopeGoals.findIndex((g) => g.id === active.id);
+    const newIndex = scopeGoals.findIndex((g) => g.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    const reordered = arrayMove(scopeGoals, oldIndex, newIndex);
+    api.reorderGoals({ items: reordered.map((g, i) => ({ id: g.id, sortOrder: i })) }).catch(() => {});
+  }, []);
+
+  const handleJobDragEnd = useCallback((event: DragEndEvent, scopeJobs: typeof standaloneJobs) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = scopeJobs.findIndex((j) => j.id === active.id);
+    const newIndex = scopeJobs.findIndex((j) => j.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    const reordered = arrayMove(scopeJobs, oldIndex, newIndex);
+    api.reorderJobs({ items: reordered.map((j, i) => ({ id: j.id, sortOrder: i })) }).catch(() => {});
+  }, []);
+
+  const handleProjectGroupDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const ids = orderedProjects.map((p) => p.id);
+    const oldIndex = ids.indexOf(active.id as string);
+    const newIndex = ids.indexOf(over.id as string);
+    if (oldIndex === -1 || newIndex === -1) return;
+    setProjectGroupOrder(arrayMove(ids, oldIndex, newIndex));
+  }, [orderedProjects, setProjectGroupOrder]);
+
+  // ─── Render ───────────────────────────────────────────────────────────────
+
   return (
     <div className="flex-1 overflow-auto">
       {/* GOALS section header */}
@@ -115,8 +300,30 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
         <span className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           Goals
         </span>
+        {showGroupToggle && (
+          <button
+            onClick={() => setGroupByProject(!groupByProject)}
+            className={cn(
+              "rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
+              groupByProject && "text-primary",
+            )}
+            title={groupByProject ? "Ungroup by project" : "Group by project"}
+          >
+            {groupByProject ? <FolderOpen className="size-3.5" /> : <Folder className="size-3.5" />}
+          </button>
+        )}
         <SortDropdown value={goalSortMode} onChange={setGoalSortMode} label="goals" />
-        {projectId && (
+        <button
+          onClick={searchOpen ? closeSearch : openSearch}
+          className={cn(
+            "rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
+            (searchOpen || sidebarSearch) && "text-primary",
+          )}
+          title="Search goals and jobs"
+        >
+          <Search className="size-3.5" />
+        </button>
+        {projectId && !searchOpen && (
           <button
             onClick={() => {
               setAddingGoal(true);
@@ -129,6 +336,28 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
           </button>
         )}
       </div>
+
+      {/* Search input */}
+      {searchOpen && (
+        <div className="flex items-center gap-1 px-3 pb-1">
+          <input
+            ref={searchInputRef}
+            value={sidebarSearch}
+            onChange={(e) => setSidebarSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") closeSearch();
+            }}
+            placeholder="Search..."
+            className="flex-1 rounded-md bg-sidebar-accent px-2 py-1 text-xs text-sidebar-foreground outline-none ring-1 ring-primary/50"
+          />
+          <button
+            onClick={closeSearch}
+            className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      )}
 
       {/* Inline goal name input */}
       {addingGoal && (
@@ -151,62 +380,150 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
         </div>
       )}
 
-      {/* Goal nodes */}
-      <div className="pb-2">
-        {activeGoals.map((goal) => (
-          <SidebarGoalNode
-            key={goal.id}
-            goal={goal}
-            goalJobs={jobsByGoal.get(goal.id) ?? []}
-            recentRunsByJob={recentRunsByJob}
-            isCollapsed={collapsedGoalIds.includes(goal.id)}
-            isSelected={contentView === "goal-detail" && selectedGoalId === goal.id}
-            contentView={contentView}
-            selectedJobId={selectedJobId}
-            onToggleCollapsed={() => toggleGoalCollapsed(goal.id)}
-            onSelectGoal={() => selectGoal(goal.id)}
-            onSelectJob={selectJob}
-            onNewJobForGoal={onNewJobForGoal}
-          />
-        ))}
+      {/* ── GROUPED VIEW (All Projects + groupByProject=true) ── */}
+      {isAllProjects && groupByProject ? (
+        <div className="pb-2">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={goalDragMode ? handleProjectGroupDragEnd : undefined}
+          >
+            <SortableContext
+              items={visibleProjects.map((p) => p.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {visibleProjects.map((project) => {
+                const projectGoals = filteredGoals.filter((g) => g.projectId === project.id);
+                const projectStandalone = filteredStandaloneJobs.filter((j) => j.projectId === project.id);
+                return (
+                  <DndContext
+                    key={project.id}
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={(e) => handleGoalDragEnd(e, projectGoals)}
+                  >
+                    <SidebarProjectGroup
+                      project={project}
+                      goals={projectGoals}
+                      standaloneJobs={projectStandalone}
+                      jobsByGoal={jobsByGoal}
+                      recentRunsByJob={recentRunsByJob}
+                      sortMode={goalSortMode}
+                      contentView={contentView}
+                      selectedGoalId={selectedGoalId}
+                      selectedJobId={selectedJobId}
+                      collapsedGoalIds={collapsedGoalIds}
+                      isDragMode={goalDragMode}
+                      onSelectGoal={selectGoal}
+                      onSelectJob={selectJob}
+                      onToggleGoalCollapsed={toggleGoalCollapsed}
+                      onNewJobForGoal={onNewJobForGoal}
+                      jobDragMode={jobDragMode}
+                    />
+                  </DndContext>
+                );
+              })}
+            </SortableContext>
+          </DndContext>
 
-        {/* Standalone jobs (no goal) */}
-        {standaloneJobs.length > 0 && (
-          <div className="mt-3 border-t border-sidebar-border pt-3">
-            <div className="mb-1 flex items-center gap-1 px-3">
-              <p className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Jobs
-              </p>
-              <SortDropdown value={jobSortMode} onChange={setJobSortMode} label="jobs" />
+          {hasArchived && (
+            <SidebarArchived
+              archivedGoals={archivedGoals}
+              archivedStandaloneJobs={archivedStandaloneJobs}
+              archivedJobsByGoal={archivedJobsByGoal}
+              recentRunsByJob={recentRunsByJob}
+              contentView={contentView}
+              selectedGoalId={selectedGoalId}
+              selectedJobId={selectedJobId}
+              selectGoal={selectGoal}
+              selectJob={selectJob}
+              archivedCount={archivedCount}
+            />
+          )}
+        </div>
+      ) : (
+        /* ── FLAT VIEW ── */
+        <div className="pb-2">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={(e) => handleGoalDragEnd(e, filteredGoals)}
+          >
+            <SortableContext
+              items={filteredGoals.map((g) => g.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {filteredGoals.map((goal) => (
+                <SidebarGoalNode
+                  key={goal.id}
+                  goal={goal}
+                  goalJobs={jobsByGoal.get(goal.id) ?? []}
+                  recentRunsByJob={recentRunsByJob}
+                  isCollapsed={collapsedGoalIds.includes(goal.id)}
+                  isSelected={contentView === "goal-detail" && selectedGoalId === goal.id}
+                  contentView={contentView}
+                  selectedJobId={selectedJobId}
+                  isDragMode={goalDragMode}
+                  jobDragMode={jobDragMode}
+                  onToggleCollapsed={() => toggleGoalCollapsed(goal.id)}
+                  onSelectGoal={() => selectGoal(goal.id)}
+                  onSelectJob={selectJob}
+                  onNewJobForGoal={onNewJobForGoal}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
+
+          {/* Standalone jobs (no goal) */}
+          {filteredStandaloneJobs.length > 0 && (
+            <div className="mt-3 border-t border-sidebar-border pt-3">
+              <div className="mb-1 flex items-center gap-1 px-3">
+                <p className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Jobs
+                </p>
+                <SortDropdown value={jobSortMode} onChange={setJobSortMode} label="jobs" />
+              </div>
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={(e) => handleJobDragEnd(e, filteredStandaloneJobs)}
+              >
+                <SortableContext
+                  items={filteredStandaloneJobs.map((j) => j.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {filteredStandaloneJobs.map((job) => (
+                    <SidebarJobNode
+                      key={job.id}
+                      job={job}
+                      recentRuns={recentRunsByJob.get(job.id) ?? []}
+                      isSelected={contentView === "job-detail" && selectedJobId === job.id}
+                      onSelect={() => selectJob(job.id)}
+                      isDragMode={jobDragMode}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
             </div>
-            {standaloneJobs.map((job) => (
-              <SidebarJobNode
-                key={job.id}
-                job={job}
-                recentRuns={recentRunsByJob.get(job.id) ?? []}
-                isSelected={contentView === "job-detail" && selectedJobId === job.id}
-                onSelect={() => selectJob(job.id)}
-              />
-            ))}
-          </div>
-        )}
+          )}
 
-        {/* Archived section */}
-        {hasArchived && (
-          <SidebarArchived
-            archivedGoals={archivedGoals}
-            archivedStandaloneJobs={archivedStandaloneJobs}
-            archivedJobsByGoal={archivedJobsByGoal}
-            recentRunsByJob={recentRunsByJob}
-            contentView={contentView}
-            selectedGoalId={selectedGoalId}
-            selectedJobId={selectedJobId}
-            selectGoal={selectGoal}
-            selectJob={selectJob}
-            archivedCount={archivedCount}
-          />
-        )}
-      </div>
+          {/* Archived section */}
+          {hasArchived && (
+            <SidebarArchived
+              archivedGoals={archivedGoals}
+              archivedStandaloneJobs={archivedStandaloneJobs}
+              archivedJobsByGoal={archivedJobsByGoal}
+              recentRunsByJob={recentRunsByJob}
+              contentView={contentView}
+              selectedGoalId={selectedGoalId}
+              selectedJobId={selectedJobId}
+              selectGoal={selectGoal}
+              selectJob={selectJob}
+              archivedCount={archivedCount}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

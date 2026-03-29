@@ -44,7 +44,11 @@ export async function notifyDashboardItem(item: DashboardItem): Promise<void> {
         ? "Run Failed Permanently"
         : item.type === "captcha_intervention"
           ? "CAPTCHA Detected"
-          : "Run Stalled";
+          : item.type === "auth_required"
+            ? "Authentication Required"
+            : item.type === "mcp_unavailable"
+              ? "MCP Server Unavailable"
+              : "Run Stalled";
     await sendNativeNotification(title, item.title);
   } catch (err) {
     console.error("[notifications] notifyDashboardItem invoke failed:", err);
@@ -77,14 +81,15 @@ export async function notifyRunCompleted(
 export async function notifyAutopilotFailed(
   goalName: string,
   error: string,
+  hint?: string,
 ): Promise<void> {
   const level = await getNotificationLevel();
   if (level === "never") return;
   try {
-    await sendNativeNotification(
-      "Autopilot Generation Failed",
-      `Could not generate system jobs for "${goalName}": ${error}`,
-    );
+    const body = hint
+      ? `"${goalName}": ${hint}`
+      : `Could not generate system jobs for "${goalName}". Will retry in 24h.`;
+    await sendNativeNotification("Autopilot: Action Needed", body);
   } catch (err) {
     console.error("[notifications] notifyAutopilotFailed invoke failed:", err);
   }

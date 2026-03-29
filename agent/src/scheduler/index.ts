@@ -16,13 +16,16 @@ import { createRun, listDeferredDueRuns, listRuns, updateRun, getSystemTokenUsag
 import { emit } from "../ipc/emitter.js";
 import { createDashboardItem } from "../db/queries/dashboard-items.js";
 import { isPowerManagementEnabled, scheduleWake } from "../power/index.js";
+import { usageService } from "../usage/service.js";
 
 const TICK_INTERVAL_MS = 60_000; // 1 minute
+const USAGE_REFRESH_EVERY_N_TICKS = 5; // refresh usage every 5 minutes
 
 export class Scheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
   private _running = false;
   private onWorkEnqueued: (() => void) | null = null;
+  private tickCount = 0;
 
   get running(): boolean {
     return this._running;
@@ -177,6 +180,14 @@ export class Scheduler {
 
       if (enqueued > 0) {
         this.onWorkEnqueued?.();
+      }
+
+      // ── 4. Periodic usage tracking ──
+      this.tickCount++;
+      if (this.tickCount % USAGE_REFRESH_EVERY_N_TICKS === 0) {
+        usageService.refresh().catch((err) =>
+          console.error("[scheduler] usage refresh error:", err),
+        );
       }
     } catch (err) {
       console.error("[scheduler] tick error:", err);

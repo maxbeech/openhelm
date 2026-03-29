@@ -79,6 +79,7 @@ export function SidebarArchived({
                       contentView === "job-detail" && selectedJobId === job.id
                     }
                     onSelect={() => selectJob(job.id)}
+                  isDragMode={false}
                   />
                 ))}
               </div>
@@ -93,6 +94,7 @@ export function SidebarArchived({
                 contentView === "job-detail" && selectedJobId === job.id
               }
               onSelect={() => selectJob(job.id)}
+              isDragMode={false}
             />
           ))}
         </div>

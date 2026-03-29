@@ -20,7 +20,8 @@ export function AlertGroup({ jobId, items }: AlertGroupProps) {
   const [dismissing, setDismissing] = useState(false);
 
   const job = jobs.find((j) => j.id === jobId);
-  const jobName = job?.name ?? "Unknown Job";
+  const isSystemHealth = job?.source === "system" && job?.systemCategory === "health_monitoring";
+  const jobName = isSystemHealth ? "System Health" : (job?.name ?? "Unknown Job");
 
   // Show only the most recent alert unless expanded
   const visibleItems = expanded ? items : items.slice(0, 1);

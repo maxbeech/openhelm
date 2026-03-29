@@ -1,5 +1,7 @@
 import { useMemo } from "react";
-import { Bot, Pause } from "lucide-react";
+import { Bot, GripVertical, Pause } from "lucide-react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { NodeIcon } from "@/components/shared/node-icon";
 import type {
   Job,
@@ -8,12 +10,13 @@ import type {
   ScheduleConfigCalendar,
   ScheduleConfigInterval,
 } from "@openhelm/shared";
-import { cn } from "@/lib/utils";
+import { cn, normalizeModelShortName } from "@/lib/utils";
 
 interface SidebarJobNodeProps {
   job: Job;
   recentRuns: Run[];
   isSelected: boolean;
+  isDragMode: boolean;
   onSelect: () => void;
 }
 
@@ -86,60 +89,90 @@ export function SidebarJobNode({
   job,
   recentRuns,
   isSelected,
+  isDragMode,
   onSelect,
 }: SidebarJobNodeProps) {
   const scheduleLabel = useMemo(() => formatScheduleLabel(job), [job]);
   // Last 5, reversed so newest on right (timeline reading order)
   const dots = recentRuns.slice(0, 5).reverse();
-
   const isDisabled = !job.isEnabled;
 
-  return (
-    <button
-      onClick={onSelect}
-      className={cn(
-        "mb-0.5 flex w-full flex-col gap-0.5 rounded-md py-1.5 pl-7 pr-2 text-left transition-colors",
-        isSelected
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
-        isDisabled && !isSelected && "opacity-45",
-      )}
-    >
-      {/* Row 1: Name + Model badge */}
-      <div className="flex items-center gap-1.5">
-        <NodeIcon icon={job.icon} defaultIcon="briefcase" />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-sm",
-            isSelected && "font-medium",
-          )}
-        >
-          {job.name}
-        </span>
-        {isDisabled && (
-          <Pause className="size-3 shrink-0 fill-muted-foreground/50 text-muted-foreground/50" />
-        )}
-        {job.source === "system" && (
-          <Bot className="size-3 shrink-0 text-muted-foreground/60" />
-        )}
-        <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] leading-none text-muted-foreground">
-          {job.model || "sonnet"}
-        </span>
-      </div>
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: job.id, disabled: !isDragMode });
 
-      {/* Row 2: Schedule + Run status dots */}
-      <div className="flex items-center gap-1.5 pl-5">
-        <span className="flex-1 truncate text-[11px] text-muted-foreground/70">
-          {scheduleLabel}
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn("flex items-stretch", isDragging && "opacity-50")}
+    >
+      {isDragMode && (
+        <span
+          {...attributes}
+          {...listeners}
+          className="flex cursor-grab items-center pl-2 text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
+        >
+          <GripVertical className="size-3.5" />
         </span>
-        {dots.length > 0 && (
-          <div className="flex shrink-0 items-center gap-[3px]">
-            {dots.map((run) => (
-              <RunDot key={run.id} status={run.status} />
-            ))}
-          </div>
+      )}
+      <button
+        onClick={onSelect}
+        className={cn(
+          "mb-0.5 flex min-w-0 flex-1 flex-col gap-0.5 rounded-md py-1.5 pr-2 text-left transition-colors",
+          isDragMode ? "pl-1" : "pl-7",
+          isSelected
+            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+            : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
+          isDisabled && !isSelected && "opacity-45",
         )}
-      </div>
-    </button>
+      >
+        {/* Row 1: Name + Model badge */}
+        <div className="flex items-center gap-1.5">
+          <NodeIcon icon={job.icon} defaultIcon="briefcase" />
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-sm",
+              isSelected && "font-medium",
+            )}
+          >
+            {job.name}
+          </span>
+          {isDisabled && (
+            <Pause className="size-3 shrink-0 fill-muted-foreground/50 text-muted-foreground/50" />
+          )}
+          {job.source === "system" && (
+            <Bot className="size-3 shrink-0 text-muted-foreground/60" />
+          )}
+          <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] leading-none text-muted-foreground">
+            {normalizeModelShortName(job.model)}
+          </span>
+        </div>
+
+        {/* Row 2: Schedule + Run status dots */}
+        <div className="flex items-center gap-1.5 pl-5">
+          <span className="flex-1 truncate text-[11px] text-muted-foreground/70">
+            {scheduleLabel}
+          </span>
+          {dots.length > 0 && (
+            <div className="flex shrink-0 items-center gap-[3px]">
+              {dots.map((run) => (
+                <RunDot key={run.id} status={run.status} />
+              ))}
+            </div>
+          )}
+        </div>
+      </button>
+    </div>
   );
 }

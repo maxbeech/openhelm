@@ -92,6 +92,18 @@ unsafe fn on_app_activated(notification: NonNull<NSNotification>) {
     // Retained<T> implements Deref<Target = T>, so &*obj gives &AnyObject.
     let app = &*(&*obj as *const objc2::runtime::AnyObject as *const NSRunningApplication);
 
+    // Never hide browser apps — they are intentionally user-interactable
+    // (e.g. spawned by the browser MCP for CAPTCHAs, logins, etc.).
+    // The macOS background-launch path (`open -g`) handles the initial
+    // "don't steal focus" requirement; the focus guard only needs to
+    // suppress non-browser windows spawned by Claude Code.
+    if let Some(bundle_id) = app.bundleIdentifier() {
+        let id = bundle_id.to_string();
+        if is_browser_bundle(&id) {
+            return;
+        }
+    }
+
     let pid = app.processIdentifier();
 
     for &guarded_pid in &guarded {
@@ -100,6 +112,22 @@ unsafe fn on_app_activated(notification: NonNull<NSNotification>) {
             break;
         }
     }
+}
+
+/// Known browser bundle identifiers that should never be hidden by the focus guard.
+const BROWSER_BUNDLES: &[&str] = &[
+    "com.google.chrome",
+    "org.chromium.chromium",
+    "com.microsoft.edgemac",
+    "com.brave.browser",
+    "com.operasoftware.opera",
+    "com.vivaldi.vivaldi",
+];
+
+/// Returns true if `bundle_id` belongs to a browser application.
+fn is_browser_bundle(bundle_id: &str) -> bool {
+    let lower = bundle_id.to_ascii_lowercase();
+    BROWSER_BUNDLES.iter().any(|&b| lower == b)
 }
 
 /// Returns true if `pid` is at or below `ancestor` in the macOS process tree.
@@ -158,4 +186,29 @@ pub fn remove_pid(pid: i32) {
 /// Enable or disable the focus guard globally (persisted as a user setting).
 pub fn set_enabled(enabled: bool) {
     ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_browser_bundle;
+
+    #[test]
+    fn known_browser_bundles_are_excluded() {
+        assert!(is_browser_bundle("com.google.Chrome"));
+        assert!(is_browser_bundle("com.google.chrome")); // case-insensitive
+        assert!(is_browser_bundle("org.chromium.Chromium"));
+        assert!(is_browser_bundle("com.microsoft.edgemac"));
+        assert!(is_browser_bundle("com.brave.Browser"));
+        assert!(is_browser_bundle("com.operasoftware.Opera"));
+        assert!(is_browser_bundle("com.vivaldi.Vivaldi"));
+    }
+
+    #[test]
+    fn non_browser_apps_are_not_excluded() {
+        assert!(!is_browser_bundle("com.apple.terminal"));
+        assert!(!is_browser_bundle("com.apple.xcode"));
+        assert!(!is_browser_bundle("com.microsoft.VSCode"));
+        assert!(!is_browser_bundle("")); // empty string
+        assert!(!is_browser_bundle("com.google.chrome.extra")); // prefix-only should not match
+    }
 }

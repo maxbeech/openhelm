@@ -49,6 +49,7 @@ import type {
   AddDataTableColumnParams,
   RenameDataTableColumnParams,
   RemoveDataTableColumnParams,
+  UpdateDataTableColumnConfigParams,
   ListDataTableChangesParams,
   BulkReorderParams,
   ClaudeCodeDetectionResult,
@@ -81,6 +82,7 @@ import type {
   PollCheckoutSessionResult,
   CustomerPortalResult,
   PricingResult,
+  UsageSummary,
 } from "@openhelm/shared";
 
 // ─── Projects ───
@@ -305,6 +307,16 @@ export function stopAllRuns(): Promise<{ stoppedActive: number; clearedQueued: n
 
 export function focusBrowserWindow(): Promise<{ success: boolean }> {
   return agentClient.request<{ success: boolean }>("browserMcp.focusBrowser");
+}
+
+// ─── Health ───
+
+export function reAuthenticated(): Promise<{
+  success: boolean;
+  resumed: number;
+  error?: string;
+}> {
+  return agentClient.request("health.reAuthenticated");
 }
 
 // ─── Chat ───
@@ -668,6 +680,10 @@ export function removeDataTableColumn(params: RemoveDataTableColumnParams): Prom
   return agentClient.request<DataTable>("dataTables.removeColumn", params);
 }
 
+export function updateDataTableColumnConfig(params: UpdateDataTableColumnConfigParams): Promise<DataTable> {
+  return agentClient.request<DataTable>("dataTables.updateColumnConfig", params);
+}
+
 export function countDataTables(projectId: string): Promise<{ count: number }> {
   return agentClient.request<{ count: number }>("dataTables.count", { projectId });
 }
@@ -679,3 +695,21 @@ export function countAllDataTables(): Promise<{ count: number }> {
 export function listDataTableChanges(params: ListDataTableChangesParams): Promise<DataTableChange[]> {
   return agentClient.request<DataTableChange[]>("dataTables.listChanges", params);
 }
+
+// ─── Claude Code Usage ───
+
+export function getUsageSummary(): Promise<UsageSummary> {
+  return agentClient.request<UsageSummary>("usage.getSummary");
+}
+
+export function setUsageSettings(params: {
+  dailyBudget?: number | null;
+  weeklyBudget?: number | null;
+}): Promise<{ ok: boolean }> {
+  return agentClient.request<{ ok: boolean }>("usage.setSettings", params);
+}
+
+export function triggerUsageRefresh(): Promise<{ ok: boolean }> {
+  return agentClient.request<{ ok: boolean }>("usage.refresh");
+}
+

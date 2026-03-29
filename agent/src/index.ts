@@ -14,6 +14,7 @@ import { initAgentSentry, captureAgentError } from "./sentry.js";
 import { initPowerManagement, shutdownPowerManagement } from "./power/index.js";
 import { startPeriodicVerifier, stopPeriodicVerifier } from "./license/periodic-verifier.js";
 import { backfillMissingAutopilotJobs } from "./autopilot/index.js";
+import { usageService } from "./usage/service.js";
 import { cleanupOrphanedConfigs } from "./mcp-servers/mcp-config-builder.js";
 import { cleanupOrphanedBrowserCredentials } from "./credentials/browser-credentials.js";
 import { cleanupOrphanedBrowserPids } from "./mcp-servers/browser-cleanup.js";
@@ -167,6 +168,11 @@ executor.processNext();
 // 7d. Backfill system jobs for goals that don't have any (non-blocking)
 backfillMissingAutopilotJobs().catch((err) =>
   console.error("[agent] autopilot backfill failed (non-fatal):", err),
+);
+
+// 7e. Initial usage snapshot (non-blocking)
+usageService.refresh().catch((err) =>
+  console.error("[agent] initial usage refresh failed (non-fatal):", err),
 );
 
 // 8. Prevent stdout pipe errors from crashing the agent.

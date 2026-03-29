@@ -60,9 +60,14 @@ Edit `src-tauri/tauri.conf.json` — set `"version"` to the new version.
 
 Edit `agent/package.json` — set `"version"` to the new version.
 
-### 3. Update CHANGELOG.md
+### 3. Verify and update CHANGELOG.md
 
-Prepend a new section at the top (after the `# Changelog` heading) in this format:
+Use `git log` to read all commits since the last git tag:
+```bash
+git log $(git describe --tags --abbrev=0)..HEAD --oneline
+```
+
+**Verify** the existing CHANGELOG.md top section accurately reflects those commits. If any significant changes are missing or the section is blank, add them now. Prepend a new section at the top (after the `# Changelog` heading) in this format:
 ```
 ## [<version>] - <today's date YYYY-MM-DD>
 
@@ -73,7 +78,7 @@ Prepend a new section at the top (after the `# Changelog` heading) in this forma
 - (list bug fixes from recent commits)
 ```
 
-Use `git log` to read the recent commits since the last tag to generate the changelog entries.
+The CHANGELOG.md must be accurate before continuing — it is the source of truth used in step 7 to update the website.
 
 ### 4. Commit and push to main
 
@@ -96,7 +101,9 @@ Tell the user: "CI is now running. Both DMGs will be built, signed, notarized, a
 
 Poll `gh run list -R maxbeech/OpenHelm --limit 1` every 30 seconds until the run status is `completed`. If it fails, show the failure details from `gh run view --log-failed`.
 
-### 7. Update the website download links
+### 7. Update the website
+
+#### 7a. Update download links
 
 Edit `/Users/maxbeech/Documents/Beech/Development/OpenHelm-Website/src/lib/release-config.ts`:
 
@@ -108,11 +115,24 @@ export const LATEST_RELEASE = {
 };
 ```
 
-Then commit and push the website:
+#### 7b. Update the changelog page
+
+Edit `/Users/maxbeech/Documents/Beech/Development/OpenHelm-Website/src/app/changelog/ChangelogContent.tsx`.
+
+The `releases` array at the top of the file must reflect the current CHANGELOG.md. For each **major or minor** release (x.y.0), ensure there is an entry in the array. The **latest** release must have `latest: true` and all others must not.
+
+To update for the new version:
+1. If this is a **patch** release (x.y.Z where Z > 0): update the `patches` field of the existing major/minor card (e.g. add "vX.Y.Z — short summary of what changed").
+2. If this is a **minor or major** release (x.y.0 or x.0.0): add a new entry at the **top** of the `releases` array, set `latest: true`, and remove `latest: true` from the previously-latest entry. Pick 4–6 headline highlights from the CHANGELOG.md entry for this version — favour Added items. Choose an appropriate icon from `@heroicons/react/24/outline` and a distinct accent colour class.
+
+After editing, verify the file compiles (no TypeScript errors) before committing.
+
+#### 7c. Commit and deploy
+
 ```bash
 cd /Users/maxbeech/Documents/Beech/Development/OpenHelm-Website
-git add src/lib/release-config.ts
-git commit -m "Bump download links to v<version>"
+git add src/lib/release-config.ts src/app/changelog/ChangelogContent.tsx
+git commit -m "Bump download links and changelog to v<version>"
 git push origin main
 ```
 

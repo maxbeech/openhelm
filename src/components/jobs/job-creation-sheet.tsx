@@ -58,6 +58,9 @@ function getScheduleConfig(form: JobFormState): ScheduleConfig {
         : { dayOfMonth: form.calendarDayOfMonth }),
     };
   }
+  if (form.scheduleType === "cron") {
+    return { expression: form.cronExpression ?? "" };
+  }
   if (form.scheduleType === "manual") {
     return {};
   }

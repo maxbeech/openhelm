@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Target, Briefcase, Play, AlertTriangle, LayoutDashboard, ChevronDown, ChevronUp, RefreshCw, PlayCircle, Bot, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -11,10 +11,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RunStatusBadge } from "@/components/shared/status-badge";
 import { TokensChart } from "@/components/shared/tokens-chart";
+import { ClaudeUsageWidgets } from "@/components/shared/claude-usage-widgets";
+import { ClaudeUsageChart } from "@/components/shared/claude-usage-chart";
 import { AlertGroup } from "./alert-group";
 import { formatTokenCount, formatRelativeTime } from "@/lib/format";
+import { useAgentEvent } from "@/hooks/use-agent-event";
 import * as api from "@/lib/api";
-import type { DashboardItem, Run, AutopilotProposal } from "@openhelm/shared";
+import type { DashboardItem, Run, AutopilotProposal, UsageSummary } from "@openhelm/shared";
 
 const DEFAULT_VISIBLE_GROUPS = 3;
 const DEFAULT_VISIBLE_RUNS = 10;
@@ -31,6 +34,28 @@ export function DashboardView() {
   const [dismissingAll, setDismissingAll] = useState(false);
   const [visibleRunCount, setVisibleRunCount] = useState(DEFAULT_VISIBLE_RUNS);
   const [proposals, setProposals] = useState<AutopilotProposal[]>([]);
+  const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
+  const fetchUsageRef = useRef<() => void>(null!);
+
+  const fetchUsage = useCallback(async () => {
+    try {
+      const summary = await api.getUsageSummary();
+      setUsageSummary(summary);
+    } catch { /* Non-fatal — agent may not have data yet */ }
+  }, []);
+
+  fetchUsageRef.current = fetchUsage;
+
+  useEffect(() => { fetchUsage(); }, [fetchUsage]);
+
+  // Refresh when agent signals a new snapshot is ready
+  useAgentEvent("usage.updated", useCallback(() => { fetchUsageRef.current(); }, []));
+
+  // Also refresh after a run finishes (OpenHelm tokens updated)
+  useAgentEvent("run.statusChanged", useCallback((data: { status: string }) => {
+    const terminal = ["succeeded", "failed", "permanent_failure", "cancelled"];
+    if (terminal.includes(data.status)) fetchUsageRef.current();
+  }, []));
 
   const fetchProposals = useCallback(async () => {
     try {
@@ -132,6 +157,17 @@ export function DashboardView() {
           />
         </div>
       </section>
+
+      {/* Claude Code Usage */}
+      {usageSummary && (
+        <section>
+          <h3 className="mb-3 text-sm font-semibold text-muted-foreground">
+            Claude Code Usage
+          </h3>
+          <ClaudeUsageWidgets summary={usageSummary} />
+          <ClaudeUsageChart series={usageSummary.series} className="mt-3" />
+        </section>
+      )}
 
       {/* Autopilot Proposals */}
       {proposals.length > 0 && (

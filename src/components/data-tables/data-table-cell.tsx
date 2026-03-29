@@ -1,18 +1,37 @@
 import { useState, useRef, useEffect } from "react";
 import type { DataTableColumn } from "@openhelm/shared";
+import { SelectCell, MultiSelectCell } from "./select-cell";
 
 interface Props {
   column: DataTableColumn;
   value: unknown;
   onChange: (value: unknown) => void;
+  onColumnConfigUpdate?: (config: Record<string, unknown>) => void;
 }
 
-export function DataTableCell({ column, value, onChange }: Props) {
+export function DataTableCell({ column, value, onChange, onColumnConfigUpdate }: Props) {
+  const noop = () => {};
   switch (column.type) {
     case "checkbox":
       return <CheckboxCell value={value} onChange={onChange} />;
     case "select":
-      return <SelectCell column={column} value={value} onChange={onChange} />;
+      return (
+        <SelectCell
+          column={column}
+          value={value}
+          onChange={onChange}
+          onColumnConfigUpdate={onColumnConfigUpdate ?? noop}
+        />
+      );
+    case "multi_select":
+      return (
+        <MultiSelectCell
+          column={column}
+          value={value}
+          onChange={onChange}
+          onColumnConfigUpdate={onColumnConfigUpdate ?? noop}
+        />
+      );
     default:
       return <TextCell value={value} onChange={onChange} type={column.type} />;
   }
@@ -86,25 +105,5 @@ function CheckboxCell({ value, onChange }: { value: unknown; onChange: (v: unkno
         className="size-3.5 rounded border-input"
       />
     </div>
-  );
-}
-
-// ─── Select cell ───
-
-function SelectCell({ column, value, onChange }: { column: DataTableColumn; value: unknown; onChange: (v: unknown) => void }) {
-  const options = (column.config?.options ?? []) as Array<{ id: string; label: string; color?: string }>;
-  const selected = options.find((o) => o.id === value);
-
-  return (
-    <select
-      value={(value as string) ?? ""}
-      onChange={(e) => onChange(e.target.value || null)}
-      className="w-full bg-transparent px-3 py-1.5 text-sm outline-none cursor-pointer min-h-[30px]"
-    >
-      <option value="">-</option>
-      {options.map((opt) => (
-        <option key={opt.id} value={opt.id}>{opt.label}</option>
-      ))}
-    </select>
   );
 }

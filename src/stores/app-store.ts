@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { SortMode } from "@openhelm/shared";
+import * as api from "@/lib/api";
 
 // Navigation model — run detail is a side panel, not a content view
 export type ContentView =
@@ -39,6 +40,11 @@ interface AppState {
   goalSortMode: SortMode;
   jobSortMode: SortMode;
 
+  // Sidebar view options
+  groupByProject: boolean;
+  sidebarSearch: string;
+  projectGroupOrder: string[]; // ordered project IDs for custom group sort
+
   // Existing — null means "All Projects"
   activeProjectId: string | null;
   onboardingComplete: boolean;
@@ -62,6 +68,11 @@ interface AppState {
   setGoalSortMode: (mode: SortMode) => void;
   setJobSortMode: (mode: SortMode) => void;
 
+  // Sidebar view options
+  setGroupByProject: (on: boolean) => void;
+  setSidebarSearch: (q: string) => void;
+  setProjectGroupOrder: (ids: string[]) => void;
+
   // Existing
   setActiveProjectId: (id: string | null) => void;
   setOnboardingComplete: (complete: boolean) => void;
@@ -81,6 +92,10 @@ export const useAppStore = create<AppState>((set) => ({
 
   goalSortMode: "custom",
   jobSortMode: "custom",
+
+  groupByProject: false,
+  sidebarSearch: "",
+  projectGroupOrder: [],
 
   activeProjectId: null,
   onboardingComplete: false,
@@ -186,6 +201,13 @@ export const useAppStore = create<AppState>((set) => ({
 
   setGoalSortMode: (mode) => set({ goalSortMode: mode }),
   setJobSortMode: (mode) => set({ jobSortMode: mode }),
+
+  setGroupByProject: (on) => set({ groupByProject: on }),
+  setSidebarSearch: (q) => set({ sidebarSearch: q }),
+  setProjectGroupOrder: (ids) => {
+    set({ projectGroupOrder: ids });
+    api.setSetting({ key: "sidebar_project_group_order", value: JSON.stringify(ids) }).catch(() => {});
+  },
 
   // When switching project filter, don't change contentView — stay on dashboard
   setActiveProjectId: (id) =>

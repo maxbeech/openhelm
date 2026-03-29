@@ -97,6 +97,7 @@ export function registerAutopilotHandlers() {
     const goal = getGoal(p.goalId);
     if (!goal) throw new Error(`Goal not found: ${p.goalId}`);
 
+    clearBackfillCooldown(p.goalId);
     await generateAndHandleSystemJobs(p.goalId, goal.projectId);
     return { success: true };
   });
@@ -111,6 +112,7 @@ export function registerAutopilotHandlers() {
   registerHandler("autopilot.generateForGoal", async (params) => {
     const { goalId, projectId } = params as { goalId: string; projectId: string };
     if (!goalId || !projectId) throw new Error("goalId and projectId are required");
+    clearBackfillCooldown(goalId);
     await generateAndHandleSystemJobs(goalId, projectId);
     return { success: true };
   });

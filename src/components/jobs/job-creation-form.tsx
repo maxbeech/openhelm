@@ -166,6 +166,7 @@ export function JobCreationForm({
             <SelectItem value="once">Once (immediately)</SelectItem>
             <SelectItem value="interval">Interval (repeating)</SelectItem>
             <SelectItem value="calendar">Calendar (scheduled)</SelectItem>
+            <SelectItem value="cron">Cron expression</SelectItem>
             <SelectItem value="manual">Manual only</SelectItem>
           </SelectContent>
         </Select>

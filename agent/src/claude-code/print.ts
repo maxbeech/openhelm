@@ -147,9 +147,16 @@ export function runClaudeCodePrint(config: PrintConfig): Promise<PrintResult> {
         resolve({ text, exitCode: code });
       } else {
         const stderr = stderrChunks.join("\n");
+        console.error(
+          `[print] Claude Code exited with code ${code}. ` +
+            `stdout=${stdoutChunks.length} lines, stderr=${stderrChunks.length} lines` +
+            (stderr
+              ? `\n[print] stderr: ${stderr.slice(0, 1000)}`
+              : " (stderr empty)"),
+        );
         reject(
           new PrintError(
-            `Claude Code exited with code ${code}${stderr ? `: ${stderr.slice(0, 500)}` : ""}`,
+            `Claude Code exited with code ${code}${stderr ? `: ${stderr.slice(0, 500)}` : " (no stderr — the prompt may lack sufficient context)"}`,
             code,
           ),
         );

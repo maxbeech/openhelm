@@ -16,6 +16,7 @@ import type {
   AddDataTableColumnParams,
   RenameDataTableColumnParams,
   RemoveDataTableColumnParams,
+  UpdateDataTableColumnConfigParams,
   ListDataTableChangesParams,
   DataTableChangeAction,
   DataTableChangeActor,
@@ -378,6 +379,35 @@ export function removeColumn(params: RemoveDataTableColumnParams): DataTable {
     actor: params.actor,
     runId: params.runId,
     diff: { removedColumn: removed },
+  });
+
+  return rowToTable(row);
+}
+
+export function updateColumnConfig(params: UpdateDataTableColumnConfigParams): DataTable {
+  const db = getDb();
+  const table = getDataTable(params.tableId);
+  if (!table) throw new Error(`Data table not found: ${params.tableId}`);
+
+  const colIdx = table.columns.findIndex((c) => c.id === params.columnId);
+  if (colIdx === -1) throw new Error(`Column not found: ${params.columnId}`);
+
+  const columns = [...table.columns];
+  columns[colIdx] = { ...columns[colIdx], config: params.config };
+
+  const row = db
+    .update(dataTables)
+    .set({ columns: JSON.stringify(columns), updatedAt: new Date().toISOString() })
+    .where(eq(dataTables.id, params.tableId))
+    .returning()
+    .get();
+
+  logChange({
+    tableId: params.tableId,
+    action: "schema_change",
+    actor: params.actor,
+    runId: params.runId,
+    diff: { updatedColumnConfig: { columnId: params.columnId, config: params.config } },
   });
 
   return rowToTable(row);

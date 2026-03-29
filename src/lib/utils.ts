@@ -33,3 +33,14 @@ export function friendlyError(err: unknown, context: string): string {
 
   return `${context}: ${raw}`;
 }
+
+/**
+ * Maps a full Claude model ID (e.g. "claude-haiku-4-5-20251001") or short name
+ * to the canonical short name used in the UI: "sonnet" | "haiku" | "opus".
+ */
+export function normalizeModelShortName(model: string | null | undefined): "sonnet" | "haiku" | "opus" {
+  if (!model) return "sonnet";
+  if (model.includes("haiku")) return "haiku";
+  if (model.includes("opus")) return "opus";
+  return "sonnet";
+}

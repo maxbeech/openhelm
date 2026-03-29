@@ -5,6 +5,9 @@ interface ResizePanelConfig {
   maxWidth: number;
   defaultWidth: number;
   storageKey: string;
+  /** "right" (default): panel is anchored to the right edge (drag left border to resize).
+   *  "left": panel is anchored to the left edge (drag right border to resize). */
+  direction?: "left" | "right";
 }
 
 interface ResizePanelResult {
@@ -15,11 +18,13 @@ interface ResizePanelResult {
 }
 
 /**
- * Hook for a right-edge resizable panel.
- * Drag the left border to resize. Width persists in localStorage.
+ * Hook for a resizable panel.
+ * For "right" direction (default): drag the left border to resize (right-anchored panels).
+ * For "left" direction: drag the right border to resize (left-anchored panels like the sidebar).
+ * Width persists in localStorage.
  */
 export function useResizePanel(config: ResizePanelConfig): ResizePanelResult {
-  const { minWidth, maxWidth, defaultWidth, storageKey } = config;
+  const { minWidth, maxWidth, defaultWidth, storageKey, direction = "right" } = config;
 
   const [width, setWidth] = useState(() => {
     try {
@@ -50,7 +55,10 @@ export function useResizePanel(config: ResizePanelConfig): ResizePanelResult {
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!dragging.current) return;
-      const newWidth = Math.min(maxWidth, Math.max(minWidth, window.innerWidth - e.clientX));
+      const newWidth = Math.min(
+        maxWidth,
+        Math.max(minWidth, direction === "left" ? e.clientX : window.innerWidth - e.clientX),
+      );
       setWidth(newWidth);
     };
 
@@ -69,7 +77,7 @@ export function useResizePanel(config: ResizePanelConfig): ResizePanelResult {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
     };
-  }, [minWidth, maxWidth, storageKey]);
+  }, [minWidth, maxWidth, storageKey, direction]);
 
   return { width, dragHandleProps: { onMouseDown } };
 }

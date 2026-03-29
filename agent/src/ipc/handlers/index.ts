@@ -16,6 +16,7 @@ import { registerCredentialHandlers } from "./credentials.js";
 import { registerAutopilotHandlers } from "./autopilot.js";
 import { registerBrowserMcpHandlers } from "./browser-mcp.js";
 import { registerDataTableHandlers } from "./data-tables.js";
+import { registerUsageHandlers } from "./usage.js";
 
 /** Register all domain IPC handlers */
 export function registerAllHandlers() {
@@ -37,4 +38,5 @@ export function registerAllHandlers() {
   registerAutopilotHandlers();
   registerBrowserMcpHandlers();
   registerDataTableHandlers();
+  registerUsageHandlers();
 }

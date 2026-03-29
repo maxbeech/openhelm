@@ -188,6 +188,8 @@ export interface RunLog {
 export type NotificationLevel = "never" | "on_finish" | "alerts_only";
 
 export type SettingKey =
+  | "claude_daily_budget"
+  | "claude_weekly_budget"
   | "claude_code_path"
   | "claude_code_version"
   | "max_concurrent_runs"
@@ -218,7 +220,8 @@ export type SettingKey =
   | "onboarding_complete"
   | "global_prompt"
   | "focus_guard_enabled"
-  | "autopilot_mode";
+  | "autopilot_mode"
+  | "sidebar_project_group_order";
 
 export interface Setting {
   key: SettingKey;
@@ -317,6 +320,48 @@ export interface UpdateRunParams {
   outputTokens?: number;
 }
 
+// ─── Claude Code Usage Tracking ───────────────────────────────────────────────
+
+/** One row per UTC day in claude_usage_snapshots */
+export interface ClaudeUsageSnapshot {
+  id: string;
+  date: string;         // YYYY-MM-DD
+  recordedAt: string;   // ISO timestamp
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  sonnetInputTokens: number;
+  sonnetOutputTokens: number;
+  openHelmInputTokens: number;
+  openHelmOutputTokens: number;
+}
+
+/** Token totals for a period (today / this week / etc.) */
+export interface UsagePeriodStat {
+  totalTokens: number;      // all models: input + output
+  sonnetTokens: number;     // Sonnet only: input + output
+  openHelmTokens: number;   // OpenHelm-initiated portion
+}
+
+/** One data point in the 30-day trend chart */
+export interface UsageDayPoint {
+  date: string;          // YYYY-MM-DD
+  totalTokens: number;
+  openHelmTokens: number;
+}
+
+/** Full summary returned by usage.getSummary */
+export interface UsageSummary {
+  today: UsagePeriodStat;
+  todayPrev: UsagePeriodStat;   // same weekday last week
+  week: UsagePeriodStat;        // Mon through today (UTC)
+  weekPrev: UsagePeriodStat;    // same weekday range last week
+  series: UsageDayPoint[];      // last 30 days, ascending
+  dailyBudget: number | null;   // user-configured token limit
+  weeklyBudget: number | null;
+  /** Whether total usage came from JSONL parsing or only from OpenHelm runs */
+  dataSource: "jsonl" | "openhelm_only";
+}
+
 /** Per-job token usage aggregation returned by getJobTokenStats */
 export interface JobTokenStat {
   jobId: string;
@@ -372,7 +417,16 @@ export interface ListGoalsParams {
 }
 
 /** Sort mode for sidebar ordering */
-export type SortMode = "custom" | "alpha_asc" | "created_asc" | "created_desc";
+export type SortMode =
+  | "custom"
+  | "alpha_asc"
+  | "alpha_desc"
+  | "created_asc"
+  | "created_desc"
+  | "updated_asc"
+  | "updated_desc"
+  | "tokens_asc"
+  | "tokens_desc";
 
 export interface ReorderGoalParams {
   id: string;
@@ -1158,6 +1212,14 @@ export interface RenameDataTableColumnParams {
 export interface RemoveDataTableColumnParams {
   tableId: string;
   columnId: string;
+  actor?: DataTableChangeActor;
+  runId?: string;
+}
+
+export interface UpdateDataTableColumnConfigParams {
+  tableId: string;
+  columnId: string;
+  config: Record<string, unknown>;
   actor?: DataTableChangeActor;
   runId?: string;
 }

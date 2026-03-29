@@ -12,6 +12,7 @@ import type {
   AddDataTableColumnParams,
   RenameDataTableColumnParams,
   RemoveDataTableColumnParams,
+  UpdateDataTableColumnConfigParams,
   ListDataTableChangesParams,
 } from "@openhelm/shared";
 
@@ -148,6 +149,18 @@ export function registerDataTableHandlers() {
     if (!p?.columnId) throw new Error("columnId is required");
 
     const table = dtQueries.removeColumn(p);
+    scheduleEmbeddingUpdate(table.id);
+    emit("dataTable.updated", table);
+    return table;
+  });
+
+  registerHandler("dataTables.updateColumnConfig", (params) => {
+    const p = params as UpdateDataTableColumnConfigParams;
+    if (!p?.tableId) throw new Error("tableId is required");
+    if (!p?.columnId) throw new Error("columnId is required");
+    if (!p?.config) throw new Error("config is required");
+
+    const table = dtQueries.updateColumnConfig(p);
     scheduleEmbeddingUpdate(table.id);
     emit("dataTable.updated", table);
     return table;

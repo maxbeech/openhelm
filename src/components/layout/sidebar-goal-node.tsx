@@ -1,6 +1,9 @@
 import { useState } from "react";
-import { ChevronRight, Plus } from "lucide-react";
+import { ChevronRight, GripVertical, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { NodeIcon } from "@/components/shared/node-icon";
 import { SidebarJobNode } from "./sidebar-job-node";
 import type { Goal, Job, Run } from "@openhelm/shared";
@@ -14,6 +17,8 @@ interface SidebarGoalNodeProps {
   isSelected: boolean;
   contentView: ContentView;
   selectedJobId: string | null;
+  isDragMode: boolean;
+  jobDragMode: boolean;
   onToggleCollapsed: () => void;
   onSelectGoal: () => void;
   onSelectJob: (jobId: string) => void;
@@ -28,11 +33,26 @@ export function SidebarGoalNode({
   isSelected,
   contentView,
   selectedJobId,
+  isDragMode,
+  jobDragMode,
   onToggleCollapsed,
   onSelectGoal,
   onSelectJob,
   onNewJobForGoal,
 }: SidebarGoalNodeProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: goal.id, disabled: !isDragMode });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
   const [addingJob, setAddingJob] = useState(false);
   const [newJobInput, setNewJobInput] = useState("");
 
@@ -44,10 +64,23 @@ export function SidebarGoalNode({
   };
 
   return (
-    <div className="group mb-3">
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn("group mb-3", isDragging && "opacity-50")}
+    >
       {/* Goal header row — sticky below the GOALS header (~30px) */}
       <div className="sticky top-[30px] z-10 bg-sidebar px-3">
         <div className="flex items-center">
+          {isDragMode && (
+            <span
+              {...attributes}
+              {...listeners}
+              className="mr-0.5 cursor-grab text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
+            >
+              <GripVertical className="size-3.5" />
+            </span>
+          )}
           <button
             onClick={onToggleCollapsed}
             className="flex size-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
@@ -108,18 +141,23 @@ export function SidebarGoalNode({
       )}
 
       {/* Nested jobs */}
-      {!isCollapsed &&
-        goalJobs.map((job) => (
-          <SidebarJobNode
-            key={job.id}
-            job={job}
-            recentRuns={recentRunsByJob.get(job.id) ?? []}
-            isSelected={
-              contentView === "job-detail" && selectedJobId === job.id
-            }
-            onSelect={() => onSelectJob(job.id)}
-          />
-        ))}
+      {!isCollapsed && (
+        <SortableContext
+          items={goalJobs.map((j) => j.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          {goalJobs.map((job) => (
+            <SidebarJobNode
+              key={job.id}
+              job={job}
+              recentRuns={recentRunsByJob.get(job.id) ?? []}
+              isSelected={contentView === "job-detail" && selectedJobId === job.id}
+              onSelect={() => onSelectJob(job.id)}
+              isDragMode={jobDragMode}
+            />
+          ))}
+        </SortableContext>
+      )}
     </div>
   );
 }

@@ -86,6 +86,7 @@ export default function App() {
     setOnboardingComplete,
     setAgentReady,
     setContentView,
+    setProjectGroupOrder,
   } = useAppStore();
   const { projects, fetchProjects } = useProjectStore();
   const { goals, fetchGoals } = useGoalStore();
@@ -363,8 +364,8 @@ export default function App() {
 
   // Autopilot failure handler
   const handleAutopilotFailed = useCallback(
-    (data: { goalId: string; projectId: string; goalName: string; error: string }) => {
-      notifyAutopilotFailed(data.goalName, data.error);
+    (data: { goalId: string; projectId: string; goalName: string; error: string; hint?: string }) => {
+      notifyAutopilotFailed(data.goalName, data.error, data.hint);
     },
     [],
   );
@@ -494,6 +495,10 @@ export default function App() {
           setActiveProjectId(
             activeProj?.id ?? (projectsList.length === 1 ? projectsList[0].id : null),
           );
+          const savedGroupOrder = await api.getSetting("sidebar_project_group_order").catch(() => null);
+          if (savedGroupOrder?.value) {
+            try { setProjectGroupOrder(JSON.parse(savedGroupOrder.value)); } catch { /* ignore */ }
+          }
         }
         // Fetch cross-project dashboard right away
         fetchDashboardItems();
@@ -523,7 +528,7 @@ export default function App() {
         setInitialLoading(false);
       }
     })();
-  }, [agentReady, fetchProjects, setOnboardingComplete, setActiveProjectId, fetchDashboardItems, fetchDashboardCount, setShouldCheckUpdates]);
+  }, [agentReady, fetchProjects, setOnboardingComplete, setActiveProjectId, setProjectGroupOrder, fetchDashboardItems, fetchDashboardCount, setShouldCheckUpdates]);
 
   // Fetch data when project filter changes (null = All Projects)
   useEffect(() => {
