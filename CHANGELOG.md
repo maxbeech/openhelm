@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-03-29
+
 ### Added
 - Claude Code Usage Dashboard: three stat cards (Today, This Week All, This Week Sonnet) mirroring `/usage` output, with OpenHelm vs total breakdown and comparison to previous period
 - 30-day SVG line chart showing token usage trend (total vs OpenHelm), with hover tooltips
