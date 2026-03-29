@@ -13,6 +13,8 @@ import { extractJson } from "./extract-json.js";
 import { getGoal } from "../db/queries/goals.js";
 import { listJobs } from "../db/queries/jobs.js";
 import { getProject } from "../db/queries/projects.js";
+import { listTargets } from "../db/queries/targets.js";
+import { evaluateTargets } from "../data-tables/target-evaluator.js";
 import type { PlannedSystemJob, Job } from "@openhelm/shared";
 
 interface SystemJobGenerationResult {
@@ -87,7 +89,7 @@ export async function generateSystemJobs(
 }
 
 function buildUserMessage(
-  goal: { name: string; description: string },
+  goal: { id: string; name: string; description: string },
   project: { name: string; directoryPath: string; description: string | null },
   userJobs: Job[],
   existingCategories: string[],
@@ -118,6 +120,28 @@ ${goal.description !== goal.name ? `Description: ${goal.description}` : ""}
 User-created jobs for this goal:
 ${jobSummaries || "  (none yet)"}
 ${skipNote}
-
+${buildTargetSummary(goal.id)}
 Generate appropriate monitoring/review system jobs for this goal.`;
+}
+
+function buildTargetSummary(goalId: string): string {
+  try {
+    const targets = listTargets({ goalId });
+    if (targets.length === 0) return "";
+
+    const evaluations = evaluateTargets(targets);
+    const dirLabels = { gte: ">=", lte: "<=", eq: "==" } as const;
+    const lines = evaluations.map((e) => {
+      const label = e.label ?? "Target";
+      const dir = dirLabels[e.direction];
+      const pct = Math.round(e.progress * 100);
+      const current = e.currentValue != null ? e.currentValue : "no data";
+      const overdue = e.isOverdue ? " OVERDUE" : "";
+      return `  - ${label}: ${dir} ${e.targetValue} (current: ${current}, progress: ${pct}%${overdue})`;
+    });
+
+    return `\nTarget metrics for this goal:\n${lines.join("\n")}\n`;
+  } catch {
+    return "";
+  }
 }

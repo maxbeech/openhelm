@@ -51,6 +51,11 @@ import type {
   RemoveDataTableColumnParams,
   UpdateDataTableColumnConfigParams,
   ListDataTableChangesParams,
+  Target,
+  TargetEvaluation,
+  CreateTargetParams,
+  UpdateTargetParams,
+  ListTargetsParams,
   BulkReorderParams,
   ClaudeCodeDetectionResult,
   DetectClaudeCodeParams,
@@ -694,6 +699,36 @@ export function countAllDataTables(): Promise<{ count: number }> {
 
 export function listDataTableChanges(params: ListDataTableChangesParams): Promise<DataTableChange[]> {
   return agentClient.request<DataTableChange[]>("dataTables.listChanges", params);
+}
+
+// ─── Targets ───
+
+export function listTargets(params: ListTargetsParams): Promise<Target[]> {
+  return agentClient.request<Target[]>("targets.list", params);
+}
+
+export function getTarget(id: string): Promise<Target> {
+  return agentClient.request<Target>("targets.get", { id });
+}
+
+export function createTarget(params: CreateTargetParams): Promise<Target> {
+  return agentClient.request<Target>("targets.create", params);
+}
+
+export function updateTarget(params: UpdateTargetParams): Promise<Target> {
+  return agentClient.request<Target>("targets.update", params);
+}
+
+export function deleteTarget(id: string): Promise<{ deleted: boolean }> {
+  return agentClient.request<{ deleted: boolean }>("targets.delete", { id });
+}
+
+export function evaluateTarget(id: string): Promise<TargetEvaluation> {
+  return agentClient.request<TargetEvaluation>("targets.evaluate", { id });
+}
+
+export function evaluateTargets(params: { goalId?: string; jobId?: string }): Promise<TargetEvaluation[]> {
+  return agentClient.request<TargetEvaluation[]>("targets.evaluateAll", params);
 }
 
 // ─── Claude Code Usage ───

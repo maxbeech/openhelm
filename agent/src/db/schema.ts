@@ -358,6 +358,34 @@ export const claudeUsageSnapshots = sqliteTable("claude_usage_snapshots", {
   openHelmOutputTokens: integer("openhelm_output_tokens").notNull().default(0),
 });
 
+/** Numerical targets linked to data table columns for goal/job progress tracking */
+export const targets = sqliteTable("targets", {
+  id: text("id").primaryKey(),
+  goalId: text("goal_id").references(() => goals.id, { onDelete: "cascade" }),
+  jobId: text("job_id").references(() => jobs.id, { onDelete: "cascade" }),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  dataTableId: text("data_table_id")
+    .notNull()
+    .references(() => dataTables.id, { onDelete: "cascade" }),
+  columnId: text("column_id").notNull(),
+  targetValue: integer("target_value", { mode: "number" }).notNull(),
+  direction: text("direction", { enum: ["gte", "lte", "eq"] }).notNull().default("gte"),
+  aggregation: text("aggregation", {
+    enum: ["latest", "sum", "avg", "max", "min", "count"],
+  }).notNull().default("latest"),
+  label: text("label"),
+  deadline: text("deadline"),
+  createdBy: text("created_by", { enum: ["user", "ai"] }).notNull().default("user"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
 /** Real-time log chunks captured from Claude Code output */
 export const runLogs = sqliteTable("run_logs", {
   id: text("id").primaryKey(),

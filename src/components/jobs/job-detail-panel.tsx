@@ -6,6 +6,7 @@ import { X, Play, Clock, AlertTriangle, Archive, ArchiveRestore, Trash2, Calenda
 import { RunStatusBadge } from "@/components/shared/status-badge";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { TokensChart } from "@/components/shared/tokens-chart";
+import { TargetList } from "@/components/targets/target-list";
 import { useJobStore } from "@/stores/job-store";
 import { useRunStore } from "@/stores/run-store";
 import { useAppStore } from "@/stores/app-store";
@@ -229,6 +230,11 @@ export function JobDetailPanel({ job, runs, onClose }: JobDetailPanelProps) {
         <div className="mb-2">
           <h4 className="mb-2 text-xs font-medium text-muted-foreground">Token Usage</h4>
           <TokensChart jobIds={[job.id]} compact />
+        </div>
+
+        {/* Targets */}
+        <div className="mb-2">
+          <TargetList jobId={job.id} projectId={job.projectId} />
         </div>
 
         <Separator className="my-4" />

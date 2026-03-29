@@ -19,6 +19,7 @@ import {
   getSampleRows,
 } from "../../db/queries/data-tables.js";
 import { validateRowData } from "./validation.js";
+import { TARGET_TOOL_DEFINITIONS, handleTargetToolCall } from "./target-tools.js";
 import type { DataTableColumn, DataTableRow } from "@openhelm/shared";
 
 // ─── Tool definitions (MCP protocol format) ───
@@ -177,6 +178,7 @@ export const TOOL_DEFINITIONS = [
       required: ["columnName"],
     },
   },
+  ...TARGET_TOOL_DEFINITIONS,
 ];
 
 // ─── Tool handler ───
@@ -208,6 +210,12 @@ export function handleToolCall(
       return handleRenameColumn(args, projectId, runId);
     case "remove_column":
       return handleRemoveColumn(args, projectId, runId);
+    case "list_targets":
+    case "create_target":
+    case "update_target":
+    case "delete_target":
+    case "evaluate_targets":
+      return handleTargetToolCall(toolName, args, projectId);
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }

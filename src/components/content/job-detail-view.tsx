@@ -17,6 +17,7 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EmojiPicker } from "@/components/shared/emoji-picker";
 import { JobEditSheet } from "@/components/jobs/job-edit-sheet";
 import { CredentialTags } from "@/components/credentials/credential-tags";
+import { TargetList } from "@/components/targets/target-list";
 import { useJobStore } from "@/stores/job-store";
 import { useRunStore } from "@/stores/run-store";
 import { useAppStore } from "@/stores/app-store";
@@ -242,6 +243,11 @@ export function JobDetailView({ jobId }: JobDetailViewProps) {
             onCheckedChange={(checked) => toggleEnabled(job.id, checked)}
           />
         </div>
+      </div>
+
+      {/* Targets */}
+      <div className="mb-6">
+        <TargetList jobId={job.id} projectId={job.projectId} />
       </div>
 
       <Separator className="mb-6" />

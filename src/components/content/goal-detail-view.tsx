@@ -29,6 +29,7 @@ import { useAppStore } from "@/stores/app-store";
 import { formatSchedule, formatRelativeTime, formatTokenCount } from "@/lib/format";
 import { getJobTokenStats, generateAutopilotForGoal } from "@/lib/api";
 import { useAgentEvent } from "@/hooks/use-agent-event";
+import { TargetList } from "@/components/targets/target-list";
 import type { GoalStatus, JobTokenStat } from "@openhelm/shared";
 
 interface GoalDetailViewProps {
@@ -191,6 +192,13 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
       <div className="mb-4">
         <CredentialTags scopeType="goal" scopeId={goal.id} refreshKey={credentialRefreshKey} />
       </div>
+
+      {/* Targets */}
+      {activeProjectId && (
+        <div className="mb-4">
+          <TargetList goalId={goalId} projectId={activeProjectId} />
+        </div>
+      )}
 
       <Separator className="mb-6" />
 

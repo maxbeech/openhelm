@@ -29,6 +29,7 @@ import sql0024 from "./migrations/0024_nullable_inbox_run_id.sql";
 import sql0025 from "./migrations/0025_add_browser_injection.sql";
 import sql0026 from "./migrations/0026_add_data_tables.sql";
 import sql0027 from "./migrations/0027_add_claude_usage_snapshots.sql";
+import sql0028 from "./migrations/0028_add_targets.sql";
 
 export interface MigrationEntry {
   idx: number;
@@ -65,4 +66,5 @@ export const MIGRATIONS: MigrationEntry[] = [
   { idx: 25, tag: "0025_add_browser_injection", sql: sql0025 },
   { idx: 26, tag: "0026_add_data_tables", sql: sql0026 },
   { idx: 27, tag: "0027_add_claude_usage_snapshots", sql: sql0027 },
+  { idx: 28, tag: "0028_add_targets", sql: sql0028 },
 ];

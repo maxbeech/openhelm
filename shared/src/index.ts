@@ -1231,3 +1231,69 @@ export interface ListDataTableChangesParams {
   limit?: number;
   offset?: number;
 }
+
+// ─── Target Types ───
+
+export type TargetDirection = "gte" | "lte" | "eq";
+export type TargetAggregation = "latest" | "sum" | "avg" | "max" | "min" | "count";
+export type TargetCreatedBy = "user" | "ai";
+
+export interface Target {
+  id: string;
+  goalId: string | null;
+  jobId: string | null;
+  projectId: string;
+  dataTableId: string;
+  columnId: string;
+  targetValue: number;
+  direction: TargetDirection;
+  aggregation: TargetAggregation;
+  label: string | null;
+  deadline: string | null;
+  createdBy: TargetCreatedBy;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TargetEvaluation {
+  targetId: string;
+  currentValue: number | null;
+  targetValue: number;
+  direction: TargetDirection;
+  met: boolean;
+  progress: number;
+  rowCount: number;
+  label: string | null;
+  deadline: string | null;
+  isOverdue: boolean;
+}
+
+export interface CreateTargetParams {
+  goalId?: string;
+  jobId?: string;
+  projectId: string;
+  dataTableId: string;
+  columnId: string;
+  targetValue: number;
+  direction?: TargetDirection;
+  aggregation?: TargetAggregation;
+  label?: string;
+  deadline?: string;
+  createdBy?: TargetCreatedBy;
+}
+
+export interface UpdateTargetParams {
+  id: string;
+  targetValue?: number;
+  direction?: TargetDirection;
+  aggregation?: TargetAggregation;
+  label?: string | null;
+  deadline?: string | null;
+}
+
+export interface ListTargetsParams {
+  goalId?: string;
+  jobId?: string;
+  projectId?: string;
+  dataTableId?: string;
+}

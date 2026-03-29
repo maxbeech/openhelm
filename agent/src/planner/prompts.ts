@@ -166,6 +166,7 @@ Guidelines:
 - Prefer cron schedules for predictable timing (e.g. "0 9 * * 1" for Monday 9am)
 - Prompts should request CONCISE output (1-3 paragraphs)
 - Focus on: health monitoring, progress assessment, proactive issue detection
+- If target metrics are provided, consider generating jobs that track progress toward those targets, collect missing data, or take corrective action when targets are off-track. You can use the create_target, update_target, and evaluate_targets MCP tools.
 - DO NOT duplicate what the user's jobs already cover
 - DO NOT generate jobs that would require interactive input
 - Use the project working directory for all file operations

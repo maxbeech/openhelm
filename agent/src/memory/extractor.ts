@@ -78,8 +78,9 @@ export async function extractMemories(ctx: ExtractionContext): Promise<Memory[]>
         .sort((a, b) => b.sim - a.sim)
         .slice(0, 30);
       relevantExisting = scored.map((s) => s.mem);
-    } catch {
+    } catch (err) {
       // Fallback to chronological if embedding fails
+      console.error("[extractor] embedding generation failed for dedup context:", err);
       relevantExisting = allExisting.slice(0, 30);
     }
     existingSummary = `\n\nExisting memories (check these — use "ignore" if info is already captured):\n${
@@ -171,7 +172,7 @@ async function processExtractedMemory(
 
   if (ext.action === "update" && ext.mergeTargetId) {
     let embedding: number[] | undefined;
-    try { embedding = await generateEmbedding(ext.content); } catch { /* skip */ }
+    try { embedding = await generateEmbedding(ext.content); } catch (err) { console.error("[extractor] embedding generation failed (update):", err); }
     const mem = updateMemory(
       { id: ext.mergeTargetId, content: ext.content, importance, tags: ext.tags },
       embedding,
@@ -188,7 +189,7 @@ async function processExtractedMemory(
     if (existing) {
       const merged = `${existing.content}. ${ext.content}`;
       let embedding: number[] | undefined;
-      try { embedding = await generateEmbedding(merged); } catch { /* skip */ }
+      try { embedding = await generateEmbedding(merged); } catch (err) { console.error("[extractor] embedding generation failed (merge):", err); }
       const mem = updateMemory(
         { id: ext.mergeTargetId, content: merged, importance: Math.max(existing.importance, importance), tags: [...new Set([...existing.tags, ...ext.tags])] },
         embedding,
@@ -205,7 +206,7 @@ async function processExtractedMemory(
   // This catches duplicates the LLM missed (e.g. when the dupe is outside the 30-memory
   // context window, or subtle paraphrases).
   let embedding: number[] | undefined;
-  try { embedding = await generateEmbedding(ext.content); } catch { /* skip */ }
+  try { embedding = await generateEmbedding(ext.content); } catch (err) { console.error("[extractor] embedding generation failed (create):", err); }
 
   const NEAR_DUPE_THRESHOLD = 0.85;
   if (embedding) {

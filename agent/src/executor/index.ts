@@ -354,6 +354,21 @@ export class Executor {
       } catch (err) {
         console.error("[executor] data table retrieval error (non-fatal):", err);
       }
+
+      // Inject target progress into prompt
+      try {
+        const { listTargets } = await import("../db/queries/targets.js");
+        const { buildTargetSection } = await import("../data-tables/target-prompt-builder.js");
+        const jobTargets = listTargets({ jobId: job.id });
+        const goalTargets = job.goalId ? listTargets({ goalId: job.goalId }) : [];
+        const allTargets = [...jobTargets, ...goalTargets];
+        if (allTargets.length > 0) {
+          effectivePrompt += buildTargetSection(allTargets);
+          console.error(`[executor] injected ${allTargets.length} targets into run ${runId}`);
+        }
+      } catch (err) {
+        console.error("[executor] target injection error (non-fatal):", err);
+      }
     }
 
     // ── Credential injection ──
