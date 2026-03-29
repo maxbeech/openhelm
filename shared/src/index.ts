@@ -733,7 +733,7 @@ export interface RegenerateSystemJobsParams {
 
 // ─── Dashboard Types ───
 
-export type DashboardItemType = "permanent_failure" | "human_in_loop" | "autopilot_limit" | "captcha_intervention";
+export type DashboardItemType = "permanent_failure" | "human_in_loop" | "autopilot_limit" | "captcha_intervention" | "auth_required" | "mcp_unavailable";
 export type DashboardItemStatus = "open" | "resolved" | "dismissed";
 
 export interface DashboardItem {
