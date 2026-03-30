@@ -83,6 +83,10 @@ export class Executor {
 
   /** Try to dequeue and execute the next run if under concurrency limit */
   processNext(): void {
+    // Don't start new runs when the scheduler is paused — leave items in the
+    // queue so they execute once the user resumes.
+    if (getSetting("scheduler_paused")?.value === "true") return;
+
     if (this.activeRuns.size >= this.maxConcurrency) return;
 
     const item = jobQueue.dequeue();
@@ -361,7 +365,8 @@ export class Executor {
         const { buildTargetSection } = await import("../data-tables/target-prompt-builder.js");
         const jobTargets = listTargets({ jobId: job.id });
         const goalTargets = job.goalId ? listTargets({ goalId: job.goalId }) : [];
-        const allTargets = [...jobTargets, ...goalTargets];
+        // Deduplicate by id in case a target is somehow associated with both
+        const allTargets = [...new Map([...jobTargets, ...goalTargets].map((t) => [t.id, t])).values()];
         if (allTargets.length > 0) {
           effectivePrompt += buildTargetSection(allTargets);
           console.error(`[executor] injected ${allTargets.length} targets into run ${runId}`);
@@ -497,7 +502,7 @@ export class Executor {
     // Create redactor for log output
     const redact = createRedactor(allSecrets);
 
-    // ── MCP config (browser + data tables servers) ──
+    // ── MCP config (global + bundled browser + data tables servers) ──
     let mcpConfigPath: string | undefined;
     let hasBrowserMcp = false;
     try {
@@ -506,8 +511,8 @@ export class Executor {
     } catch { /* browser setup not available — non-fatal */ }
 
     try {
-      // Always write MCP config — data tables MCP is always available,
-      // browser MCP only when venv is ready. buildMcpConfig handles both.
+      // Write MCP config with bundled servers (openhelm-browser + openhelm-data).
+      // Passed via --mcp-config to ADD on top of the user's existing MCP environment.
       const { writeMcpConfigFile } = await import("../mcp-servers/mcp-config-builder.js");
       mcpConfigPath = writeMcpConfigFile(runId, hasBrowserMcp ? browserCredentialsFilePath : undefined, job.projectId) ?? undefined;
       if (mcpConfigPath) {

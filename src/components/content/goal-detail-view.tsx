@@ -30,6 +30,7 @@ import { formatSchedule, formatRelativeTime, formatTokenCount } from "@/lib/form
 import { getJobTokenStats, generateAutopilotForGoal } from "@/lib/api";
 import { useAgentEvent } from "@/hooks/use-agent-event";
 import { TargetList } from "@/components/targets/target-list";
+import { VisualizationList } from "@/components/visualizations/visualization-list";
 import type { GoalStatus, JobTokenStat } from "@openhelm/shared";
 
 interface GoalDetailViewProps {
@@ -197,6 +198,13 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
       {activeProjectId && (
         <div className="mb-4">
           <TargetList goalId={goalId} projectId={activeProjectId} />
+        </div>
+      )}
+
+      {/* Visualizations */}
+      {activeProjectId && (
+        <div className="mb-4">
+          <VisualizationList goalId={goalId} projectId={activeProjectId} />
         </div>
       )}
 

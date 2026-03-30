@@ -20,6 +20,7 @@ import {
 } from "../../db/queries/data-tables.js";
 import { validateRowData } from "./validation.js";
 import { TARGET_TOOL_DEFINITIONS, handleTargetToolCall } from "./target-tools.js";
+import { VISUALIZATION_TOOL_DEFINITIONS, handleVisualizationToolCall } from "./visualization-tools.js";
 import type { DataTableColumn, DataTableRow } from "@openhelm/shared";
 
 // ─── Tool definitions (MCP protocol format) ───
@@ -179,6 +180,7 @@ export const TOOL_DEFINITIONS = [
     },
   },
   ...TARGET_TOOL_DEFINITIONS,
+  ...VISUALIZATION_TOOL_DEFINITIONS,
 ];
 
 // ─── Tool handler ───
@@ -216,6 +218,11 @@ export function handleToolCall(
     case "delete_target":
     case "evaluate_targets":
       return handleTargetToolCall(toolName, args, projectId);
+    case "list_visualizations":
+    case "create_visualization":
+    case "update_visualization":
+    case "delete_visualization":
+      return handleVisualizationToolCall(toolName, args, projectId);
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }

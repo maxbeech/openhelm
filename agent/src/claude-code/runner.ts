@@ -248,11 +248,13 @@ function buildArgs(config: RunnerConfig): string[] {
     args.push("--resume", config.resumeSessionId);
   }
 
-  // MCP server config (e.g. built-in browser automation)
-  // Use --strict-mcp-config so only the per-run servers are loaded,
-  // preventing duplicate tools from globally configured MCPs.
+  // Add bundled MCP servers (openhelm-browser, openhelm-data) via --mcp-config.
+  // This ADDS them on top of the user's global (~/.claude.json) and project-level
+  // (.mcp.json) servers — Claude Code merges them automatically. No --strict-mcp-config
+  // is used so the user's full MCP environment is preserved. The prompt preamble
+  // directs Claude to prefer openhelm-browser over other browser MCPs.
   if (config.mcpConfigPath) {
-    args.push("--strict-mcp-config", "--mcp-config", config.mcpConfigPath);
+    args.push("--mcp-config", config.mcpConfigPath);
   }
 
   // Prompt is written to stdin (not as a positional arg) to avoid

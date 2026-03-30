@@ -7,24 +7,43 @@
  * Paths:
  * - Dev:  agent/dist/agent.js  →  __dirname = agent/dist/
  *         →  ../mcp-servers/browser/ = agent/mcp-servers/browser/
- * - Prod: bundled as Tauri resource (TODO: add to build.mjs copyBrowserMcp)
+ * - Prod: bundled as Tauri resource at Contents/Resources/mcp-servers/browser/
+ *         Venv is created at ~/.openhelm/browser-venv/ (outside app bundle)
  */
 
 import { existsSync } from "fs";
 import { join } from "path";
+import { homedir } from "os";
 import { execFile } from "child_process";
 import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
 
-// Resolve browser MCP dir relative to the bundled agent.
-// In CJS (__dirname = agent/dist/), this becomes agent/mcp-servers/browser/.
-// Override via env var for custom installs or production resource paths.
-const BROWSER_MCP_DIR =
-  process.env.OPENHELM_BROWSER_MCP_DIR ??
-  join(__dirname, "..", "mcp-servers", "browser");
+/**
+ * Resolve the browser MCP source directory.
+ * - Dev: join(__dirname, "..", "mcp-servers", "browser") → agent/mcp-servers/browser/
+ * - Prod: join(__dirname, "..", "Resources", "mcp-servers", "browser") → Contents/Resources/mcp-servers/browser/
+ */
+function resolveBrowserMcpDir(): string {
+  if (process.env.OPENHELM_BROWSER_MCP_DIR) {
+    return process.env.OPENHELM_BROWSER_MCP_DIR;
+  }
+  // Production: Tauri bundles resources at Contents/Resources/ (macOS)
+  const prodPath = join(__dirname, "..", "Resources", "mcp-servers", "browser");
+  if (existsSync(join(prodPath, "src", "server.py"))) return prodPath;
+  // Dev: relative to agent/dist/
+  return join(__dirname, "..", "mcp-servers", "browser");
+}
 
-const VENV_DIR = join(BROWSER_MCP_DIR, ".venv");
+const BROWSER_MCP_DIR = resolveBrowserMcpDir();
+
+// Venv lives outside the app bundle to avoid macOS code-signing issues.
+// In dev, it goes inside the source dir (as before). In prod, it goes in ~/.openhelm/.
+const DATA_DIR = process.env.OPENHELM_DATA_DIR ?? join(homedir(), ".openhelm");
+const isProduction = existsSync(join(__dirname, "..", "Resources"));
+const VENV_DIR = isProduction
+  ? join(DATA_DIR, "browser-venv")
+  : join(BROWSER_MCP_DIR, ".venv");
 const VENV_PYTHON = join(VENV_DIR, "bin", "python");
 const REQUIREMENTS_TXT = join(BROWSER_MCP_DIR, "requirements.txt");
 const SERVER_MODULE = join(BROWSER_MCP_DIR, "src", "server.py");

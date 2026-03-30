@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, primaryKey, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 /** Key-value settings store. Used for user preferences, API keys, etc. */
 export const settings = sqliteTable("settings", {
@@ -370,7 +370,7 @@ export const targets = sqliteTable("targets", {
     .notNull()
     .references(() => dataTables.id, { onDelete: "cascade" }),
   columnId: text("column_id").notNull(),
-  targetValue: integer("target_value", { mode: "number" }).notNull(),
+  targetValue: real("target_value").notNull(),
   direction: text("direction", { enum: ["gte", "lte", "eq"] }).notNull().default("gte"),
   aggregation: text("aggregation", {
     enum: ["latest", "sum", "avg", "max", "min", "count"],
@@ -378,6 +378,38 @@ export const targets = sqliteTable("targets", {
   label: text("label"),
   deadline: text("deadline"),
   createdBy: text("created_by", { enum: ["user", "ai"] }).notNull().default("user"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+/** Data table visualizations — charts linked to data table columns */
+export const visualizations = sqliteTable("visualizations", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  goalId: text("goal_id").references(() => goals.id, { onDelete: "set null" }),
+  jobId: text("job_id").references(() => jobs.id, { onDelete: "set null" }),
+  dataTableId: text("data_table_id")
+    .notNull()
+    .references(() => dataTables.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  chartType: text("chart_type", { enum: ["line", "bar", "area", "pie", "stat"] })
+    .notNull()
+    .default("line"),
+  /** JSON: VisualizationConfig */
+  config: text("config").notNull().default("{}"),
+  status: text("status", { enum: ["active", "suggested", "dismissed"] })
+    .notNull()
+    .default("active"),
+  source: text("source", { enum: ["user", "system"] })
+    .notNull()
+    .default("user"),
+  sortOrder: integer("sort_order").notNull().default(0),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

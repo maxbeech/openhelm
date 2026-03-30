@@ -30,6 +30,9 @@ export function registerTargetHandlers() {
     if (!p?.goalId && !p?.jobId) {
       throw new Error("Either goalId or jobId is required");
     }
+    if (p?.goalId && p?.jobId) {
+      throw new Error("Provide goalId OR jobId, not both");
+    }
     return targetQueries.createTarget(p);
   });
 

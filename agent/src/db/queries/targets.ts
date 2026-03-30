@@ -107,6 +107,7 @@ export function updateTarget(params: UpdateTargetParams): Target {
     .returning()
     .get();
 
+  if (!row) throw new Error(`Target disappeared during update: ${params.id}`);
   return rowToTarget(row);
 }
 

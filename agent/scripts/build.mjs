@@ -69,6 +69,14 @@ function copySidecarBinaries() {
   }
   console.error("[agent] copied to src-tauri/binaries/");
 
+  // Copy data-tables MCP server bundle alongside the sidecar so the agent can
+  // find it at runtime via join(__dirname, "mcp-data-tables.js").
+  const mcpBundle = resolve(__dirname, "..", "dist", "mcp-data-tables.js");
+  if (existsSync(mcpBundle)) {
+    copyFileSync(mcpBundle, resolve(binDir, "mcp-data-tables.js"));
+    console.error("[agent] copied mcp-data-tables.js to src-tauri/binaries/");
+  }
+
   // Copy browser MCP server alongside the sidecar so the agent can find it at
   // runtime via join(__dirname, "..", "mcp-servers", "browser").
   const browserMcpSrc = resolve(__dirname, "..", "mcp-servers", "browser");
@@ -77,7 +85,7 @@ function copySidecarBinaries() {
     mkdirSync(browserMcpDest, { recursive: true });
     cpSync(browserMcpSrc, browserMcpDest, {
       recursive: true,
-      filter: (src) => !src.includes("/.venv/") && !src.includes("/__pycache__/") && !src.includes("/element_clones/"),
+      filter: (src) => !src.includes("/.venv/") && !src.includes("/__pycache__/") && !src.includes("/element_clones/") && !src.includes("/.pytest_cache/") && !src.includes("/tests/"),
     });
     console.error("[agent] copied browser MCP server to src-tauri/mcp-servers/");
   }

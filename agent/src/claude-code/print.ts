@@ -147,16 +147,26 @@ export function runClaudeCodePrint(config: PrintConfig): Promise<PrintResult> {
         resolve({ text, exitCode: code });
       } else {
         const stderr = stderrChunks.join("\n");
+        // When stream-json is active, the actual error may live in the result
+        // event on stdout rather than stderr. Extract it so we surface useful info.
+        const streamJsonError = useStreamJson
+          ? extractErrorFromStreamJson(stdoutChunks)
+          : "";
+        const errorDetail = stderr || streamJsonError;
+
         console.error(
           `[print] Claude Code exited with code ${code}. ` +
             `stdout=${stdoutChunks.length} lines, stderr=${stderrChunks.length} lines` +
             (stderr
               ? `\n[print] stderr: ${stderr.slice(0, 1000)}`
-              : " (stderr empty)"),
+              : " (stderr empty)") +
+            (streamJsonError
+              ? `\n[print] stream-json error: ${streamJsonError.slice(0, 1000)}`
+              : ""),
         );
         reject(
           new PrintError(
-            `Claude Code exited with code ${code}${stderr ? `: ${stderr.slice(0, 500)}` : " (no stderr — the prompt may lack sufficient context)"}`,
+            `Claude Code exited with code ${code}${errorDetail ? `: ${errorDetail.slice(0, 500)}` : " (no output — may be a CLI issue, rate limit, or network error)"}`,
             code,
           ),
         );
@@ -256,6 +266,29 @@ function extractResultFromStreamJson(lines: string[], preferAssistantText = fals
     }
   }
   return parts.join("");
+}
+
+/**
+ * Extract error details from stream-json result events.
+ * Claude Code often reports errors (rate limit, API errors, etc.) in the
+ * result event on stdout rather than writing to stderr.
+ */
+function extractErrorFromStreamJson(lines: string[]): string {
+  for (const line of lines) {
+    let event: Record<string, unknown>;
+    try { event = JSON.parse(line); } catch { continue; }
+    if (event.type === "result" && event.is_error) {
+      // The result event may contain "error" or "result" fields with the message
+      const msg = (event.error as string) || (event.result as string) || "";
+      if (msg) return msg;
+    }
+    // Also check for system error events
+    if (event.type === "error" && typeof event.error === "object" && event.error) {
+      const err = event.error as Record<string, unknown>;
+      return (err.message as string) || JSON.stringify(err);
+    }
+  }
+  return "";
 }
 
 function buildPrintArgs(config: PrintConfig): string[] {

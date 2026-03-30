@@ -205,7 +205,9 @@ export async function attemptAuthResume(
   scheduler.start();
   emit("scheduler.statusChanged", { paused: false });
 
-  // Resolve all open auth_required dashboard items
+  // Resolve all open auth_required dashboard items across all projects.
+  // Auth is global to the Claude Code CLI (not per-project), so a successful
+  // re-authentication resumes all projects simultaneously.
   const db = getDb();
   const now = new Date().toISOString();
   db.update(dashboardItems)

@@ -1,6 +1,7 @@
 import { registerHandler } from "../handler.js";
 import { emit } from "../emitter.js";
 import * as dtQueries from "../../db/queries/data-tables.js";
+import { scheduleVisualizationCheck } from "../../data-tables/visualization-suggester.js";
 import type {
   CreateDataTableParams,
   UpdateDataTableParams,
@@ -85,6 +86,9 @@ export function registerDataTableHandlers() {
 
     const rows = dtQueries.insertDataTableRows(p);
     emit("dataTable.rowsChanged", { tableId: p.tableId });
+
+    // Schedule visualization suggestion check (debounced)
+    scheduleVisualizationCheck(p.tableId);
 
     // Update embedding if this is the first row (sample data now available)
     const table = dtQueries.getDataTable(p.tableId);

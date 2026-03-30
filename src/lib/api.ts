@@ -56,6 +56,10 @@ import type {
   CreateTargetParams,
   UpdateTargetParams,
   ListTargetsParams,
+  Visualization,
+  CreateVisualizationParams,
+  UpdateVisualizationParams,
+  ListVisualizationsParams,
   BulkReorderParams,
   ClaudeCodeDetectionResult,
   DetectClaudeCodeParams,
@@ -729,6 +733,48 @@ export function evaluateTarget(id: string): Promise<TargetEvaluation> {
 
 export function evaluateTargets(params: { goalId?: string; jobId?: string }): Promise<TargetEvaluation[]> {
   return agentClient.request<TargetEvaluation[]>("targets.evaluateAll", params);
+}
+
+// ─── Visualizations ───
+
+export function listVisualizations(params: ListVisualizationsParams): Promise<Visualization[]> {
+  return agentClient.request<Visualization[]>("visualizations.list", params);
+}
+
+export function listAllVisualizations(): Promise<Visualization[]> {
+  return agentClient.request<Visualization[]>("visualizations.listAll");
+}
+
+export function getVisualization(id: string): Promise<Visualization> {
+  return agentClient.request<Visualization>("visualizations.get", { id });
+}
+
+export function createVisualization(params: CreateVisualizationParams): Promise<Visualization> {
+  return agentClient.request<Visualization>("visualizations.create", params);
+}
+
+export function updateVisualization(params: UpdateVisualizationParams): Promise<Visualization> {
+  return agentClient.request<Visualization>("visualizations.update", params);
+}
+
+export function deleteVisualization(id: string): Promise<{ deleted: boolean }> {
+  return agentClient.request<{ deleted: boolean }>("visualizations.delete", { id });
+}
+
+export function acceptVisualization(id: string): Promise<Visualization> {
+  return agentClient.request<Visualization>("visualizations.accept", { id });
+}
+
+export function dismissVisualization(id: string): Promise<Visualization> {
+  return agentClient.request<Visualization>("visualizations.dismiss", { id });
+}
+
+export function countVisualizations(projectId: string): Promise<{ count: number }> {
+  return agentClient.request<{ count: number }>("visualizations.count", { projectId });
+}
+
+export function countAllVisualizations(): Promise<{ count: number }> {
+  return agentClient.request<{ count: number }>("visualizations.countAll");
 }
 
 // ─── Claude Code Usage ───

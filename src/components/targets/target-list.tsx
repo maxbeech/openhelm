@@ -18,6 +18,7 @@ export function TargetList({ goalId, jobId, projectId }: TargetListProps) {
     targets,
     evaluations,
     loading,
+    error,
     fetchTargets,
     fetchEvaluations,
     createTarget,
@@ -45,6 +46,7 @@ export function TargetList({ goalId, jobId, projectId }: TargetListProps) {
   };
 
   const handleDelete = async (id: string) => {
+    if (!window.confirm("Delete this target? This cannot be undone.")) return;
     await deleteTarget(id);
     loadData();
   };
@@ -69,6 +71,12 @@ export function TargetList({ goalId, jobId, projectId }: TargetListProps) {
   if (loading && targets.length === 0) {
     return (
       <div className="text-xs text-muted-foreground py-2">Loading targets...</div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-xs text-destructive py-2">{error}</div>
     );
   }
 

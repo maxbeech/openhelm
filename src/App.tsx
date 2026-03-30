@@ -20,8 +20,9 @@ import { useChatStore } from "./stores/chat-store";
 import { useUpdaterStore } from "./stores/updater-store";
 import { useCredentialStore } from "./stores/credential-store";
 import { useDataTableStore } from "./stores/data-table-store";
+import { useVisualizationStore } from "./stores/visualization-store";
 import { useAgentEvent } from "./hooks/use-agent-event";
-import type { RunStatus, ChatMessage, DashboardItem, Memory, Credential, DataTable } from "@openhelm/shared";
+import type { RunStatus, ChatMessage, DashboardItem, Memory, Credential, DataTable, Visualization } from "@openhelm/shared";
 import {
   notifyDashboardItem,
   notifyRunCompleted,
@@ -441,6 +442,31 @@ export default function App() {
   useAgentEvent("dataTable.updated", handleDataTableUpdated);
   useAgentEvent("dataTable.deleted", handleDataTableDeleted);
   useAgentEvent("dataTable.rowsChanged", handleDataTableRowsChanged);
+
+  // Visualization event handlers
+  const {
+    addToStore: addVizToStore,
+    updateInStore: updateVizInStore,
+    removeFromStore: removeVizFromStore,
+  } = useVisualizationStore();
+
+  const handleVizCreated = useCallback(
+    (viz: Visualization) => { addVizToStore(viz); },
+    [addVizToStore],
+  );
+  const handleVizUpdated = useCallback(
+    (viz: Visualization) => { updateVizInStore(viz); },
+    [updateVizInStore],
+  );
+  const handleVizDeleted = useCallback(
+    (data: { id: string }) => { removeVizFromStore(data.id); },
+    [removeVizFromStore],
+  );
+
+  useAgentEvent("visualization.created", handleVizCreated);
+  useAgentEvent("visualization.updated", handleVizUpdated);
+  useAgentEvent("visualization.deleted", handleVizDeleted);
+  useAgentEvent("visualization.suggested", handleVizCreated);
 
   // Start agent client
   useEffect(() => {

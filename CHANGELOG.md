@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed
+- Chat error reporting: extract error details from Claude Code stream-json result events when stderr is empty (fixes unhelpful "no stderr" error messages)
+- Chat resilience: auto-retry LLM calls on transient failures (exit code 1, timeouts) with up to 2 retries and exponential backoff
+
+### Added
+- Data Visualizations: chart rendering for data table contents using Recharts (line, bar, area, pie, stat chart types)
+- Dashboard redesigned with tabbed layout: Alerts & Actions, System, and Insights tabs
+- Insights tab: target progress grouped by goal, data table charts grouped by project
+- Visualization auto-suggestion: autopilot deterministically detects numeric data table columns and suggests charts (gated by autopilot mode)
+- Charts integrated into goal detail view and job detail panel
+- New MCP tools: `list_visualizations`, `create_visualization`, `update_visualization`, `delete_visualization` — AI jobs can create charts during runs
+- New `visualizations` DB table (migration 0029) with full CRUD, cascade delete on data table removal
+- Suggested charts appear on Dashboard with Accept/Dismiss actions
+- Startup backfill: auto-suggests visualizations for existing data tables with sufficient numeric data
+
 ## [0.4.2] - 2026-03-29
 
 ### Added

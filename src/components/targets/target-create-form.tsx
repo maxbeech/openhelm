@@ -40,6 +40,7 @@ export function TargetCreateForm({
   const [label, setLabel] = useState("");
   const [deadline, setDeadline] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTables(projectId);
@@ -51,6 +52,7 @@ export function TargetCreateForm({
   const handleSubmit = async () => {
     if (!tableId || !columnId || !targetValue) return;
     setSubmitting(true);
+    setError(null);
     try {
       await onSubmit({
         goalId,
@@ -64,6 +66,8 @@ export function TargetCreateForm({
         label: label || undefined,
         deadline: deadline || undefined,
       });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create target");
     } finally {
       setSubmitting(false);
     }
@@ -169,6 +173,10 @@ export function TargetCreateForm({
           />
         </div>
       </div>
+
+      {error && (
+        <p className="text-xs text-destructive">{error}</p>
+      )}
 
       <div className="flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>

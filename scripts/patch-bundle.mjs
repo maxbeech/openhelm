@@ -13,8 +13,11 @@
  *    Node.js version that compiled bundled-node-modules/better-sqlite3.node.
  *    Without this, a version manager (NVM, fnm) might shadow Homebrew and cause a
  *    NODE_MODULE_VERSION mismatch crash.
+ *
+ * 3. Copies mcp-data-tables.js alongside the agent binary so the data tables
+ *    MCP server is available in production.
  */
-import { writeFileSync, existsSync } from "fs";
+import { writeFileSync, existsSync, copyFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -47,3 +50,13 @@ console.log("[patch-bundle] Written package.json (CommonJS marker)");
 const nodeBinDir = dirname(process.execPath);
 writeFileSync(resolve(macosDir, ".node-bin-dir"), nodeBinDir);
 console.log(`[patch-bundle] Written .node-bin-dir → ${nodeBinDir}`);
+
+// 3. Copy mcp-data-tables.js alongside the agent binary so data tables MCP is
+//    available in production (getDataTablesMcpPath checks join(__dirname, "mcp-data-tables.js")).
+const mcpBundle = resolve(__dirname, "agent", "dist", "mcp-data-tables.js");
+if (existsSync(mcpBundle)) {
+  copyFileSync(mcpBundle, resolve(macosDir, "mcp-data-tables.js"));
+  console.log("[patch-bundle] Copied mcp-data-tables.js");
+} else {
+  console.error("[patch-bundle] WARNING: mcp-data-tables.js not found — data tables MCP will be unavailable in production");
+}

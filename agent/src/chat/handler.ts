@@ -3,7 +3,7 @@
  * Handles message storage, read-tool auto-execution, and pending write-action collection.
  */
 
-import { callLlmViaCli } from "../planner/llm-via-cli.js";
+import { callLlmViaCli, type LlmCallConfig } from "../planner/llm-via-cli.js";
 import { getProject } from "../db/queries/projects.js";
 import { getGoal } from "../db/queries/goals.js";
 import { getJob } from "../db/queries/jobs.js";
@@ -28,6 +28,26 @@ import type {
 
 const MAX_TOOL_LOOP_ITERATIONS = 5;
 const MAX_HISTORY_MESSAGES = 20;
+const MAX_LLM_RETRIES = 2;
+
+/** Retry callLlmViaCli on transient failures (exit code 1, network errors). */
+async function callLlmWithRetry(config: LlmCallConfig): Promise<string> {
+  let lastErr: Error | undefined;
+  for (let attempt = 0; attempt <= MAX_LLM_RETRIES; attempt++) {
+    try {
+      return await callLlmViaCli(config);
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      const isTransient = lastErr.message.includes("exited with code 1")
+        || lastErr.message.includes("timed out");
+      if (!isTransient || attempt === MAX_LLM_RETRIES) throw lastErr;
+      const delay = 2000 * (attempt + 1);
+      console.error(`[chat] LLM call failed (attempt ${attempt + 1}/${MAX_LLM_RETRIES + 1}), retrying in ${delay}ms: ${lastErr.message}`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
+}
 
 /** Format DB message history into a conversation string for the LLM. */
 function formatHistoryForLlm(history: ChatMessage[]): string {
@@ -139,7 +159,7 @@ export async function handleChatMessage(
     streamBuffer = "";
     insideToolCall = false;
     const userMessage = buildLlmUserMessage(history, content, toolExchange || undefined);
-    const rawResponse = await callLlmViaCli({
+    const rawResponse = await callLlmWithRetry({
       model: "chat",
       modelOverride,
       effort,

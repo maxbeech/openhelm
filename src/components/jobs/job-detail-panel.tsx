@@ -7,6 +7,7 @@ import { RunStatusBadge } from "@/components/shared/status-badge";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { TokensChart } from "@/components/shared/tokens-chart";
 import { TargetList } from "@/components/targets/target-list";
+import { VisualizationList } from "@/components/visualizations/visualization-list";
 import { useJobStore } from "@/stores/job-store";
 import { useRunStore } from "@/stores/run-store";
 import { useAppStore } from "@/stores/app-store";
@@ -235,6 +236,11 @@ export function JobDetailPanel({ job, runs, onClose }: JobDetailPanelProps) {
         {/* Targets */}
         <div className="mb-2">
           <TargetList jobId={job.id} projectId={job.projectId} />
+        </div>
+
+        {/* Charts */}
+        <div className="mb-2">
+          <VisualizationList jobId={job.id} projectId={job.projectId} compact />
         </div>
 
         <Separator className="my-4" />

@@ -1297,3 +1297,85 @@ export interface ListTargetsParams {
   projectId?: string;
   dataTableId?: string;
 }
+
+// ─── Visualization Types ───
+
+export type ChartType = "line" | "bar" | "area" | "pie" | "stat";
+export type VisualizationStatus = "active" | "suggested" | "dismissed";
+export type VisualizationSource = "user" | "system";
+
+export interface VisualizationSeriesConfig {
+  columnId: string;
+  label?: string;
+  color?: string;
+  aggregation?: TargetAggregation;
+}
+
+export interface VisualizationConfig {
+  /** X-axis column ID (typically date for line/area, category for bar) */
+  xColumnId?: string;
+  /** Y-axis series — one or more columns to plot */
+  series: VisualizationSeriesConfig[];
+  /** For pie charts: value column */
+  valueColumnId?: string;
+  /** For pie charts: label column */
+  labelColumnId?: string;
+  /** For stat cards: single column */
+  statColumnId?: string;
+  /** For stat cards: aggregation method */
+  statAggregation?: TargetAggregation;
+  /** Max rows to fetch (default: 500) */
+  rowLimit?: number;
+  /** Sort direction for x-axis */
+  sortDirection?: "asc" | "desc";
+  showLegend?: boolean;
+  showGrid?: boolean;
+  /** Custom color palette override */
+  colors?: string[];
+}
+
+export interface Visualization {
+  id: string;
+  projectId: string;
+  goalId: string | null;
+  jobId: string | null;
+  dataTableId: string;
+  name: string;
+  chartType: ChartType;
+  config: VisualizationConfig;
+  status: VisualizationStatus;
+  source: VisualizationSource;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateVisualizationParams {
+  projectId: string;
+  goalId?: string;
+  jobId?: string;
+  dataTableId: string;
+  name: string;
+  chartType: ChartType;
+  config: VisualizationConfig;
+  status?: VisualizationStatus;
+  source?: VisualizationSource;
+}
+
+export interface UpdateVisualizationParams {
+  id: string;
+  name?: string;
+  chartType?: ChartType;
+  config?: VisualizationConfig;
+  status?: VisualizationStatus;
+  goalId?: string | null;
+  jobId?: string | null;
+}
+
+export interface ListVisualizationsParams {
+  projectId?: string;
+  goalId?: string;
+  jobId?: string;
+  dataTableId?: string;
+  status?: VisualizationStatus;
+}

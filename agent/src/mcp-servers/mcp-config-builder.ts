@@ -13,12 +13,14 @@ import { fileURLToPath } from "url";
 import { getBrowserMcpPaths, type BrowserMcpPaths } from "./browser-setup.js";
 
 /**
- * Prepended to job prompts when the built-in browser MCP is available.
- * Encourages Claude to prefer openhelm-browser over any other browser MCP
- * configured globally, unless the prompt explicitly requests a different one.
+ * Prepended to job prompts when the bundled browser MCP is available.
+ * Strongly directs Claude to use openhelm-browser for all browser tasks,
+ * while still allowing an explicit user override in the prompt.
  */
 export const BROWSER_MCP_PREAMBLE =
-  "A browser MCP server is available. Close all browser instances when done.\n\n";
+  "IMPORTANT: For ALL browser automation use the openhelm-browser MCP server (not any other browser MCP). " +
+  "Only use a different browser MCP if the user's prompt explicitly names one. " +
+  "Close all browser instances when done.\n\n";
 
 /**
  * Prepended to job prompts to instruct Claude on CAPTCHA handling.
@@ -56,18 +58,17 @@ export interface McpConfigFile {
 /**
  * Resolve the path to the data-tables MCP server bundle.
  * In development: dist/mcp-data-tables.js (built by esbuild).
- * In production: alongside the agent binary.
+ * In production: alongside the agent binary in Contents/MacOS/.
  */
 function getDataTablesMcpPath(): string | null {
-  // __dirname in CJS bundle = directory of agent.js
-  // The MCP server is built alongside it as mcp-data-tables.js
   const candidates = [
-    join(__dirname, "mcp-data-tables.js"),      // production (same dir as agent)
-    join(__dirname, "..", "dist", "mcp-data-tables.js"), // dev (from src/)
+    join(__dirname, "mcp-data-tables.js"),                // production (same dir as agent)
+    join(__dirname, "..", "dist", "mcp-data-tables.js"),  // dev (from src/)
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;
   }
+  console.error("[mcp-config] WARNING: mcp-data-tables.js not found in any candidate path");
   return null;
 }
 
@@ -83,23 +84,29 @@ function getDbPath(): string {
 
 /**
  * Build the MCP config object for a run.
- * Returns null if no MCP servers are available.
+ *
+ * Contains only the bundled OpenHelm MCP servers (browser + data tables).
+ * Passed via --mcp-config to ADD these servers on top of the user's existing
+ * global (~/.claude.json) and project-level (.mcp.json) servers — Claude Code
+ * merges them automatically. No --strict-mcp-config is used, so the user's
+ * full MCP environment is preserved.
+ *
+ * Returns null if no bundled servers are available.
  *
  * @param runId — OpenHelm run ID, passed as `--run-id` for intervention context.
  * @param credentialsFilePath — path to a temp JSON file containing browser-injectable credentials.
- *   Passed as `--credentials-file` arg to the browser MCP server.
  * @param projectId — project ID, passed to the data tables MCP server.
  */
 export function buildMcpConfig(runId: string, credentialsFilePath?: string, projectId?: string): McpConfigFile | null {
   const servers: Record<string, McpServerEntry> = {};
 
+  // Bundled openhelm-browser (when venv is ready)
   const browserPaths = getBrowserMcpPaths();
   if (browserPaths) {
     const args = [
       browserPaths.serverModule,
       "--transport", "stdio",
       "--run-id", runId,
-      // Disable unused tool sections to reduce token overhead (~46 tools removed)
       "--disable-progressive-cloning",
       "--disable-file-extraction",
       "--disable-element-extraction",
@@ -116,7 +123,7 @@ export function buildMcpConfig(runId: string, credentialsFilePath?: string, proj
     };
   }
 
-  // Data tables MCP server
+  // Bundled openhelm-data (data tables MCP)
   const dataTablesMcpPath = getDataTablesMcpPath();
   if (dataTablesMcpPath) {
     const dtArgs = [dataTablesMcpPath, "--db-path", getDbPath(), "--run-id", runId];
@@ -124,7 +131,7 @@ export function buildMcpConfig(runId: string, credentialsFilePath?: string, proj
       dtArgs.push("--project-id", projectId);
     }
     servers["openhelm-data"] = {
-      command: process.execPath, // Node.js binary
+      command: process.execPath,
       args: dtArgs,
     };
   }
@@ -135,7 +142,7 @@ export function buildMcpConfig(runId: string, credentialsFilePath?: string, proj
 
 /**
  * Write the MCP config to a file and return the path.
- * Returns null if no MCP servers are available.
+ * Returns null if no bundled MCP servers are available.
  *
  * @param credentialsFilePath — forwarded to buildMcpConfig for browser credential injection.
  * @param projectId — forwarded to buildMcpConfig for data tables MCP server.

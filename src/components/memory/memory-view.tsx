@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Trash2, Waypoints } from "lucide-react";
+import { Plus, Trash2, Waypoints, CheckSquare } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useMemoryStore } from "@/stores/memory-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -33,6 +33,14 @@ export function MemoryView() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingMemory, setEditingMemory] = useState<Memory | null>(null);
   const [pruning, setPruning] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+
+  // Clear selection when memories change (e.g. after filter)
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [filterType, filterTag, searchQuery, showArchived, activeProjectId]);
 
   // Fetch when filters or project changes
   useEffect(() => {
@@ -66,6 +74,7 @@ export function MemoryView() {
   const handleDelete = useCallback(
     async (id: string) => {
       await deleteMemory(id);
+      setSelectedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
       fetchMemories(activeProjectId);
     },
     [activeProjectId, deleteMemory, fetchMemories],
@@ -87,16 +96,52 @@ export function MemoryView() {
     setPruning(false);
   }, [activeProjectId, pruneMemories, fetchMemories]);
 
+  const handleToggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleSelectAll = useCallback(() => {
+    setSelectedIds(new Set(memories.map((m) => m.id)));
+  }, [memories]);
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setConfirmBulkDelete(false);
+  }, []);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (!confirmBulkDelete) {
+      setConfirmBulkDelete(true);
+      return;
+    }
+    setBulkDeleting(true);
+    setConfirmBulkDelete(false);
+    for (const id of selectedIds) {
+      await deleteMemory(id);
+    }
+    setSelectedIds(new Set());
+    await fetchMemories(activeProjectId);
+    setBulkDeleting(false);
+  }, [confirmBulkDelete, selectedIds, deleteMemory, fetchMemories, activeProjectId]);
+
   // Resolve project name for cross-project view
   const getProjectName = useCallback(
     (projectId: string) => projects.find((p) => p.id === projectId)?.name,
     [projects],
   );
 
+  const allSelected = memories.length > 0 && selectedIds.size === memories.length;
+  const someSelected = selectedIds.size > 0;
+
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="space-y-6 px-6 pt-14 pb-8">
-        {/* Filters */}
+        {/* Header */}
         <section>
           <div className="mb-3 flex items-center gap-2">
             <h3 className="text-sm font-semibold text-muted-foreground">Filters</h3>
@@ -129,9 +174,54 @@ export function MemoryView() {
 
         {/* Memory list */}
         <section>
-          <h3 className="mb-3 text-sm font-semibold text-muted-foreground">
-            Memories{memories.length > 0 && ` (${memories.length})`}
-          </h3>
+          <div className="mb-3 flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-muted-foreground">
+              Memories{memories.length > 0 && ` (${memories.length})`}
+            </h3>
+
+            {/* Bulk action bar — only when items are selected */}
+            {someSelected && (
+              <div className="ml-auto flex items-center gap-2">
+                <span className="text-[11px] text-muted-foreground">
+                  {selectedIds.size} selected
+                </span>
+                {!allSelected && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                    onClick={handleSelectAll}
+                  >
+                    <CheckSquare className="size-3" />
+                    Select all
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-[11px] text-muted-foreground hover:text-foreground"
+                  onClick={handleClearSelection}
+                >
+                  Clear
+                </Button>
+                <Button
+                  size="sm"
+                  variant={confirmBulkDelete ? "destructive" : "outline"}
+                  className="h-7 gap-1 text-[11px]"
+                  disabled={bulkDeleting}
+                  onClick={handleBulkDelete}
+                >
+                  <Trash2 className="size-3" />
+                  {bulkDeleting
+                    ? "Deleting..."
+                    : confirmBulkDelete
+                      ? `Confirm delete ${selectedIds.size}`
+                      : `Delete ${selectedIds.size}`}
+                </Button>
+              </div>
+            )}
+          </div>
+
           {loading ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
               Loading memories...
@@ -159,6 +249,8 @@ export function MemoryView() {
                   key={mem.id}
                   memory={mem}
                   projectName={!activeProjectId ? getProjectName(mem.projectId) : undefined}
+                  isSelected={selectedIds.has(mem.id)}
+                  onToggleSelect={handleToggleSelect}
                   onEdit={setEditingMemory}
                   onDelete={handleDelete}
                   onArchive={handleArchive}

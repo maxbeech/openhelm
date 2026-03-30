@@ -79,7 +79,7 @@ function computeProgress(
       return Math.max(0, Math.min(1, current / target));
     case "lte":
       if (current <= target) return 1;
-      if (current === 0) return 1;
+      // current > target > 0: express how close current is to the target ceiling
       return Math.max(0, Math.min(1, target / current));
     case "eq": {
       const denom = Math.max(Math.abs(target), 1);
@@ -103,37 +103,42 @@ function isMet(current: number | null, target: number, direction: TargetDirectio
 
 /** Evaluate a single target against its data table. */
 export function evaluateTarget(target: Target): TargetEvaluation {
-  const table = getDataTable(target.dataTableId);
-  if (!table) {
+  try {
+    const table = getDataTable(target.dataTableId);
+    if (!table) {
+      return buildNullEval(target);
+    }
+
+    // Check column still exists
+    const colExists = table.columns.some((c) => c.id === target.columnId);
+    if (!colExists) {
+      return buildNullEval(target);
+    }
+
+    // Fetch all rows (up to 10000 for aggregation)
+    const rows = getDataTableRows({ tableId: target.dataTableId, limit: 10000 });
+    const values = extractColumnValues(rows, target.columnId);
+    const currentValue = aggregate(values, target.aggregation, rows, target.columnId);
+    const met = isMet(currentValue, target.targetValue, target.direction);
+    const progress = computeProgress(currentValue, target.targetValue, target.direction);
+    const isOverdue = !!target.deadline && !met && new Date(target.deadline) < new Date();
+
+    return {
+      targetId: target.id,
+      currentValue,
+      targetValue: target.targetValue,
+      direction: target.direction,
+      met,
+      progress,
+      rowCount: rows.length,
+      label: target.label,
+      deadline: target.deadline,
+      isOverdue,
+    };
+  } catch (err) {
+    console.error(`[target-evaluator] failed to evaluate target ${target.id}:`, err);
     return buildNullEval(target);
   }
-
-  // Check column still exists
-  const colExists = table.columns.some((c) => c.id === target.columnId);
-  if (!colExists) {
-    return buildNullEval(target);
-  }
-
-  // Fetch all rows (up to 10000 for aggregation)
-  const rows = getDataTableRows({ tableId: target.dataTableId, limit: 10000 });
-  const values = extractColumnValues(rows, target.columnId);
-  const currentValue = aggregate(values, target.aggregation, rows, target.columnId);
-  const met = isMet(currentValue, target.targetValue, target.direction);
-  const progress = computeProgress(currentValue, target.targetValue, target.direction);
-  const isOverdue = !!target.deadline && !met && new Date(target.deadline) < new Date();
-
-  return {
-    targetId: target.id,
-    currentValue,
-    targetValue: target.targetValue,
-    direction: target.direction,
-    met,
-    progress,
-    rowCount: rows.length,
-    label: target.label,
-    deadline: target.deadline,
-    isOverdue,
-  };
 }
 
 /** Evaluate multiple targets. */

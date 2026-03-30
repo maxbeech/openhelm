@@ -136,6 +136,7 @@ function handleListTargets(args: Record<string, unknown>) {
 function handleCreateTarget(args: Record<string, unknown>, projectId?: string) {
   if (!projectId) throw new Error("projectId is required");
   if (!args.goalId && !args.jobId) throw new Error("Either goalId or jobId is required");
+  if (args.goalId && args.jobId) throw new Error("Provide goalId OR jobId, not both");
 
   // Resolve table by name if needed
   let dataTableId = args.dataTableId as string | undefined;
