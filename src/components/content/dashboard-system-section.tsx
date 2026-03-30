@@ -28,8 +28,8 @@ export function DashboardSystemSection({
   jobs, projects, activeProjectId, onSelectRun, onRetryRun, onNewRun, onLoadMore,
 }: DashboardSystemSectionProps) {
   return (
-    <section className="pt-4">
-      <div className="sticky top-14 z-10 bg-background flex items-center gap-2.5 border-b border-border px-6 py-3">
+    <section>
+      <div className="sticky top-0 z-10 bg-background flex items-center gap-2.5 border-b border-border px-6 py-3">
         <Activity className="size-5 text-muted-foreground" />
         <h3 className="flex-1 text-base font-semibold">System</h3>
         <button onClick={onToggle} className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">

@@ -1,12 +1,21 @@
 import { registerHandler } from "../handler.js";
+import { handleChatMessage } from "../../chat/handler.js";
 import {
-  handleChatMessage,
   handleActionApproval,
   handleActionRejection,
   handleApproveAll,
   handleRejectAll,
-} from "../../chat/handler.js";
-import { listMessagesForProject, clearConversation } from "../../db/queries/conversations.js";
+} from "../../chat/action-handler.js";
+import {
+  listMessagesForProject,
+  listMessagesForConversation,
+  listConversationsForProject,
+  createConversation,
+  renameConversation,
+  deleteConversation,
+  reorderConversations,
+  clearConversation,
+} from "../../db/queries/conversations.js";
 import { emit } from "../emitter.js";
 import type {
   SendChatMessageParams,
@@ -16,6 +25,11 @@ import type {
   RejectAllChatActionsParams,
   ListChatMessagesParams,
   ClearChatParams,
+  ListConversationsParams,
+  CreateConversationParams,
+  RenameConversationParams,
+  DeleteConversationParams,
+  ReorderConversationsParams,
 } from "@openhelm/shared";
 
 /** Normalise projectId: treat undefined and empty string as null ("All Projects"). */
@@ -25,46 +39,39 @@ function normaliseProjectId(raw: unknown): string | null {
 }
 
 /**
- * Tracks which project threads have an in-flight handleChatMessage call.
- * Key is the normalised projectId (null serialised as "__all__").
+ * Tracks which conversations have an in-flight handleChatMessage call.
+ * Keyed by conversationId (or projectId fallback) so multiple threads
+ * within the same project can process simultaneously.
  */
 const activeChats = new Set<string>();
-function chatKey(projectId: string | null): string {
-  return projectId ?? "__all__";
+function chatKey(conversationId: string | undefined, projectId: string | null): string {
+  return conversationId ?? projectId ?? "__all__";
 }
 
 export function registerChatHandlers() {
-  // chat.send returns immediately — messages and errors arrive via events.
-  // This prevents frontend IPC timeouts on long-running LLM tool loops.
-  //
-  // IMPORTANT: handleChatMessage is deferred via setImmediate so its synchronous
-  // preamble (DB reads/writes via better-sqlite3) runs AFTER send(response) has
-  // already been written to stdout. Without this deferral, a SQLite busy-wait in
-  // the sync preamble would block the Node.js main thread before the IPC response
-  // is sent, causing the frontend to time out after REQUEST_TIMEOUT_MS (4 min).
   registerHandler("chat.send", (params) => {
     const p = params as SendChatMessageParams;
     const projectId = normaliseProjectId(p?.projectId);
+    const conversationId = p?.conversationId || undefined;
     if (!p?.content?.trim()) throw new Error("content is required");
 
-    const key = chatKey(projectId);
+    const key = chatKey(conversationId, projectId);
     if (activeChats.has(key)) {
-      // A message is already being processed for this thread — reject so the
-      // frontend can show "busy" instead of silently losing the message.
       throw new Error("A message is already being processed. Please wait for the current response.");
     }
 
     activeChats.add(key);
 
     setImmediate(() => {
-      handleChatMessage(projectId, p.content.trim(), p.context, p.model, p.modelEffort, p.permissionMode)
+      handleChatMessage(projectId, p.content.trim(), p.context, p.model, p.modelEffort, p.permissionMode, conversationId)
         .catch((err) => {
           console.error("[chat] send failed:", err);
           emit("chat.error", {
             projectId,
+            conversationId,
             error: err instanceof Error ? err.message : String(err),
           });
-          emit("chat.status", { status: "done", projectId });
+          emit("chat.status", { status: "done", projectId, conversationId });
         })
         .finally(() => {
           activeChats.delete(key);
@@ -104,6 +111,9 @@ export function registerChatHandlers() {
 
   registerHandler("chat.listMessages", (params) => {
     const p = params as ListChatMessagesParams;
+    if (p?.conversationId) {
+      return listMessagesForConversation(p.conversationId, p?.limit, p?.beforeId);
+    }
     const projectId = normaliseProjectId(p?.projectId);
     return listMessagesForProject(projectId, p?.limit, p?.beforeId);
   });
@@ -111,7 +121,42 @@ export function registerChatHandlers() {
   registerHandler("chat.clear", (params) => {
     const p = params as ClearChatParams;
     const projectId = normaliseProjectId(p?.projectId);
-    clearConversation(projectId);
+    clearConversation(projectId, p?.conversationId || undefined);
     return { cleared: true };
+  });
+
+  // ─── Thread CRUD ───
+
+  registerHandler("chat.listConversations", (params) => {
+    const p = params as ListConversationsParams;
+    const projectId = normaliseProjectId(p?.projectId);
+    return listConversationsForProject(projectId);
+  });
+
+  registerHandler("chat.createConversation", (params) => {
+    const p = params as CreateConversationParams;
+    const projectId = normaliseProjectId(p?.projectId);
+    return createConversation(projectId, p?.title);
+  });
+
+  registerHandler("chat.renameConversation", (params) => {
+    const p = params as RenameConversationParams;
+    if (!p?.conversationId) throw new Error("conversationId is required");
+    if (!p?.title) throw new Error("title is required");
+    return renameConversation(p.conversationId, p.title);
+  });
+
+  registerHandler("chat.deleteConversation", (params) => {
+    const p = params as DeleteConversationParams;
+    if (!p?.conversationId) throw new Error("conversationId is required");
+    deleteConversation(p.conversationId);
+    return { deleted: true };
+  });
+
+  registerHandler("chat.reorderConversations", (params) => {
+    const p = params as ReorderConversationsParams;
+    if (!p?.conversationIds?.length) throw new Error("conversationIds is required");
+    reorderConversations(p.conversationIds);
+    return { reordered: true };
   });
 }

@@ -3,6 +3,9 @@
 ## [0.5.0] - 2026-03-30
 
 ### Added
+- Multi-thread chat: users can create multiple conversation threads per project with horizontal scrollable pill tabs
+- Thread management: create, rename, delete, and drag-to-reorder chat threads
+- Simultaneous conversations: switch between threads while LLM processes in another — each thread tracks its own sending/streaming state independently
 - Data Visualizations: chart rendering for data table contents using Recharts (line, bar, area, pie, stat chart types)
 - Dashboard redesigned with tabbed layout: Alerts & Actions, System, and Insights tabs
 - Insights tab: target progress grouped by goal, data table charts grouped by project
@@ -13,7 +16,19 @@
 - Suggested charts appear on Dashboard with Accept/Dismiss actions
 - Startup backfill: auto-suggests visualizations for existing data tables with sufficient numeric data
 
+### Improved
+- Chat response speed: pre-warm embedding model at agent startup (eliminates 2-5s first-message delay)
+- Chat response speed: session reuse within tool loops (avoids CLI cold-start on subsequent iterations)
+- Chat response speed: cache static system prompt sections (tools, rules, native tools)
+- Chat response speed: parallelize async prompt building with sync DB operations
+- Chat default model changed from Sonnet to Haiku for faster time-to-first-token (users can still select Sonnet/Opus)
+
+### Refactored
+- Extracted chat action handlers to `agent/src/chat/action-handler.ts` (handler.ts file size reduction)
+- Extracted print stream parsers to `agent/src/claude-code/print-parser.ts` (print.ts file size reduction)
+
 ### Fixed
+- Thread tab switching: clicking an inactive thread pill now switches to it correctly; dropdown (rename/delete) is now accessed via a separate chevron button on each pill
 - Chat error reporting: extract error details from Claude Code stream-json result events when stderr is empty (fixes unhelpful "no stderr" error messages)
 - Chat resilience: auto-retry LLM calls on transient failures (exit code 1, timeouts) with up to 2 retries and exponential backoff
 

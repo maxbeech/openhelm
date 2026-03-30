@@ -62,7 +62,7 @@ export async function analyzeFailure(
     const previousSection = buildPreviousAttemptsSection(previousAttempts);
     const userMessage = `Original task prompt:\n${originalPrompt}${contextSection}${previousSection}\n\nRun output (failed):\n${truncated}`;
 
-    const text = await callLlmViaCli({
+    const { text } = await callLlmViaCli({
       model: "classification",
       systemPrompt: FAILURE_ANALYSIS_SYSTEM_PROMPT,
       userMessage,

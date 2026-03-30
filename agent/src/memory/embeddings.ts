@@ -30,6 +30,18 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 }
 
 /**
+ * Pre-warm the embedding model so the first chat message doesn't pay the
+ * 2-5 second model load cost. Call fire-and-forget at agent startup.
+ */
+export async function preWarmEmbedder(): Promise<void> {
+  try {
+    await getEmbedder();
+  } catch (err) {
+    console.error("[embeddings] pre-warm failed (non-fatal):", err);
+  }
+}
+
+/**
  * Cosine similarity between two normalized vectors.
  * Since vectors are L2-normalized, dot product = cosine similarity.
  */

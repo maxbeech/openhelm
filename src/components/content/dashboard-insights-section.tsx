@@ -71,8 +71,8 @@ export function DashboardInsightsSection({ collapsed = false, onToggle }: Props)
   }, [targets, evaluations]);
 
   return (
-    <section className="pt-4">
-      <div className="sticky top-14 z-10 bg-background flex items-center gap-2.5 border-b border-border px-6 py-3">
+    <section>
+      <div className="sticky top-0 z-10 bg-background flex items-center gap-2.5 border-b border-border px-6 py-3">
         <BarChart3 className="size-5 text-muted-foreground" />
         <h3 className="flex-1 text-base font-semibold">Insights</h3>
         {onToggle && (

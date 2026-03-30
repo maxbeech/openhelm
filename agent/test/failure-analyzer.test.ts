@@ -43,11 +43,11 @@ describe("analyzeFailure", () => {
     const run = createRun({ jobId: job.id, triggerSource: "manual" });
     createRunLog({ runId: run.id, stream: "stderr", text: "Error: file not found /src/foo.ts" });
 
-    mockLlm.mockResolvedValueOnce(JSON.stringify({
+    mockLlm.mockResolvedValueOnce({ text: JSON.stringify({
       fixable: true,
       correction: "The file is at /src/bar.ts, not /src/foo.ts. Use the correct path.",
       reason: "Wrong file path referenced",
-    }));
+    }), sessionId: null });
 
     const result = await analyzeFailure(run.id, job.prompt);
 
@@ -68,11 +68,11 @@ describe("analyzeFailure", () => {
     const run = createRun({ jobId: job.id, triggerSource: "manual" });
     createRunLog({ runId: run.id, stream: "stderr", text: "ECONNREFUSED" });
 
-    mockLlm.mockResolvedValueOnce(JSON.stringify({
+    mockLlm.mockResolvedValueOnce({ text: JSON.stringify({
       fixable: false,
       correction: null,
       reason: "Network connectivity issue — infrastructure problem",
-    }));
+    }), sessionId: null });
 
     const result = await analyzeFailure(run.id, job.prompt);
 
@@ -109,7 +109,7 @@ describe("analyzeFailure", () => {
     const run = createRun({ jobId: job.id, triggerSource: "manual" });
     createRunLog({ runId: run.id, stream: "stderr", text: "some error" });
 
-    mockLlm.mockResolvedValueOnce("not valid json at all");
+    mockLlm.mockResolvedValueOnce({ text: "not valid json at all", sessionId: null });
 
     const result = await analyzeFailure(run.id, job.prompt);
     expect(result).toBeNull();
@@ -126,11 +126,11 @@ describe("analyzeFailure", () => {
     const run = createRun({ jobId: job.id, triggerSource: "manual" });
     createRunLog({ runId: run.id, stream: "stderr", text: "timed out waiting" });
 
-    mockLlm.mockResolvedValueOnce(JSON.stringify({
+    mockLlm.mockResolvedValueOnce({ text: JSON.stringify({
       fixable: true,
       correction: "Try a different approach",
       reason: "Silence timeout — got stuck",
-    }));
+    }), sessionId: null });
 
     await analyzeFailure(run.id, job.prompt, "The run was killed due to silence timeout.");
 
@@ -150,11 +150,11 @@ describe("analyzeFailure", () => {
     const run = createRun({ jobId: job.id, triggerSource: "manual" });
     createRunLog({ runId: run.id, stream: "stderr", text: "some error" });
 
-    mockLlm.mockResolvedValueOnce(JSON.stringify({
+    mockLlm.mockResolvedValueOnce({ text: JSON.stringify({
       fixable: false,
       correction: null,
       reason: "Unknown error",
-    }));
+    }), sessionId: null });
 
     await analyzeFailure(run.id, job.prompt);
 

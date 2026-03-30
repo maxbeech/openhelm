@@ -8,6 +8,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Button } from "@/components/ui/button";
 import * as api from "@/lib/api";
 import { setAnalyticsEnabled } from "@/lib/sentry";
+import { setRecordingEnabled } from "@/lib/posthog";
 import { ensureNotificationPermission } from "@/lib/notifications";
 import { useUpdater } from "@/hooks/use-updater";
 import { useUpdaterStore } from "@/stores/updater-store";
@@ -72,6 +73,7 @@ export function ApplicationSection() {
   const toggleAnalytics = (checked: boolean) => {
     setAnalyticsEnabledState(checked);
     setAnalyticsEnabled(checked);
+    setRecordingEnabled(checked);
     api.setSetting({ key: "analytics_enabled", value: String(checked) }).catch(() => {});
   };
 

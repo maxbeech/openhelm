@@ -39,7 +39,7 @@ export async function evaluateCorrectionNote(
 
     const userMessage = `Job prompt:\n${jobPrompt}\n\nCorrection note:\n${correctionNote}\n\nSuccessful run output:\n${truncated}`;
 
-    const text = await callLlmViaCli({
+    const { text } = await callLlmViaCli({
       model: "classification",
       systemPrompt: SYSTEM_PROMPT,
       userMessage,

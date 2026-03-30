@@ -103,7 +103,7 @@ describe("generateRunSummary", () => {
     createRunLog({ runId: run.id, stream: "stdout", text: "All tests passed." });
 
     callLlmViaCliMock.mockResolvedValueOnce(
-      "The run completed successfully. All tests passed without errors.",
+      { text: "The run completed successfully. All tests passed without errors.", sessionId: null },
     );
 
     const summary = await generateRunSummary(run.id, "succeeded");
@@ -129,7 +129,7 @@ describe("generateRunSummary", () => {
     createRunLog({ runId: run.id, stream: "stderr", text: "Error: module not found" });
 
     callLlmViaCliMock.mockResolvedValueOnce(
-      "The run failed due to a missing module dependency.",
+      { text: "The run failed due to a missing module dependency.", sessionId: null },
     );
 
     const summary = await generateRunSummary(run.id, "failed");
@@ -194,7 +194,7 @@ describe("generateRunSummary", () => {
     const run = createRun({ jobId: job.id, triggerSource: "manual" });
     createRunLog({ runId: run.id, stream: "stdout", text: "output" });
 
-    callLlmViaCliMock.mockResolvedValueOnce("");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "", sessionId: null });
 
     const summary = await generateRunSummary(run.id, "succeeded");
     expect(summary).toBeNull();
@@ -211,7 +211,7 @@ describe("generateRunSummary", () => {
     const run = createRun({ jobId: job.id, triggerSource: "manual" });
     createRunLog({ runId: run.id, stream: "stdout", text: "done" });
 
-    callLlmViaCliMock.mockResolvedValueOnce("Summary.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Summary.", sessionId: null });
 
     await generateRunSummary(run.id, "cancelled");
 
@@ -234,7 +234,7 @@ describe("generateRunSummary", () => {
     const longText = "x".repeat(12_000);
     createRunLog({ runId: run.id, stream: "stdout", text: longText });
 
-    callLlmViaCliMock.mockResolvedValueOnce("Summary of long output.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Summary of long output.", sessionId: null });
 
     await generateRunSummary(run.id, "succeeded");
 

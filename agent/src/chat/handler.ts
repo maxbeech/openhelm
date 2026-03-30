@@ -3,7 +3,7 @@
  * Handles message storage, read-tool auto-execution, and pending write-action collection.
  */
 
-import { callLlmViaCli, type LlmCallConfig } from "../planner/llm-via-cli.js";
+import { callLlmViaCli, type LlmCallConfig, type LlmCallResult } from "../planner/llm-via-cli.js";
 import { getProject } from "../db/queries/projects.js";
 import { getGoal } from "../db/queries/goals.js";
 import { getJob } from "../db/queries/jobs.js";
@@ -11,17 +11,13 @@ import { getRun } from "../db/queries/runs.js";
 import {
   getOrCreateConversation,
   createMessage,
-  getMessage,
-  updateMessagePendingActions,
-  listMessagesForProject,
-  getProjectIdForMessage,
+  listMessagesForConversation,
 } from "../db/queries/conversations.js";
 import { buildChatSystemPromptAsync, buildAllProjectsSystemPromptAsync } from "./system-prompt.js";
 import { parseLlmResponse, buildTextResponse } from "./response-parser.js";
 import { isWriteTool, describeAction } from "./tools.js";
-import { executeReadTool, executeWriteTool } from "./tool-executor.js";
+import { executeReadTool } from "./tool-executor.js";
 import { emit } from "../ipc/emitter.js";
-import { generateAndHandleSystemJobs } from "../autopilot/index.js";
 import type {
   ChatMessage, ChatContext, ChatToolCall, ChatToolResult, PendingAction,
 } from "@openhelm/shared";
@@ -31,7 +27,7 @@ const MAX_HISTORY_MESSAGES = 20;
 const MAX_LLM_RETRIES = 2;
 
 /** Retry callLlmViaCli on transient failures (exit code 1, network errors). */
-async function callLlmWithRetry(config: LlmCallConfig): Promise<string> {
+async function callLlmWithRetry(config: LlmCallConfig): Promise<LlmCallResult> {
   let lastErr: Error | undefined;
   for (let attempt = 0; attempt <= MAX_LLM_RETRIES; attempt++) {
     try {
@@ -87,6 +83,7 @@ export async function handleChatMessage(
   modelOverride?: string,
   effort?: "low" | "medium" | "high",
   permissionMode?: string,
+  conversationId?: string,
 ): Promise<ChatMessage[]> {
   // Resolve project — null means "All Projects" thread
   const project = projectId ? getProject(projectId) : null;
@@ -107,19 +104,23 @@ export async function handleChatMessage(
     }
   }
 
-  const conv = getOrCreateConversation(projectId);
-  const history = listMessagesForProject(projectId, MAX_HISTORY_MESSAGES);
+  // Start async system prompt build early so it overlaps with sync DB work below
+  const systemPromptPromise = project
+    ? buildChatSystemPromptAsync({ project, viewingGoal, viewingJob, viewingRun })
+    : buildAllProjectsSystemPromptAsync();
+
+  const conv = getOrCreateConversation(projectId, conversationId);
+  const convId = conv.id;
+  const history = listMessagesForConversation(convId, MAX_HISTORY_MESSAGES);
 
   // Store user message
-  const userMsg = createMessage({ conversationId: conv.id, role: "user", content });
-  emit("chat.messageCreated", { ...userMsg, projectId });
+  const userMsg = createMessage({ conversationId: convId, role: "user", content });
+  emit("chat.messageCreated", { ...userMsg, projectId, conversationId: convId });
 
   // Emit early "thinking" so the UI shows feedback during async prompt build
-  emit("chat.status", { status: "thinking", projectId });
+  emit("chat.status", { status: "thinking", projectId, conversationId: convId });
 
-  const systemPrompt = project
-    ? await buildChatSystemPromptAsync({ project, viewingGoal, viewingJob, viewingRun })
-    : await buildAllProjectsSystemPromptAsync();
+  const systemPrompt = await systemPromptPromise;
 
   // Tool loop
   const allToolCalls: ChatToolCall[] = [];
@@ -153,13 +154,17 @@ export async function handleChatMessage(
     return output.trimEnd();
   }
 
+  // Session ID captured from first CLI call, reused in subsequent tool loop iterations
+  // to avoid CLI cold-start overhead.
+  let sessionId: string | null = null;
+
   for (let iter = 0; iter < MAX_TOOL_LOOP_ITERATIONS; iter++) {
-    emit("chat.status", { status: iter === 0 ? "thinking" : "analyzing", projectId });
+    emit("chat.status", { status: iter === 0 ? "thinking" : "analyzing", projectId, conversationId: convId });
     // Reset stream buffer state for each LLM iteration
     streamBuffer = "";
     insideToolCall = false;
     const userMessage = buildLlmUserMessage(history, content, toolExchange || undefined);
-    const rawResponse = await callLlmWithRetry({
+    const llmResult = await callLlmWithRetry({
       model: "chat",
       modelOverride,
       effort,
@@ -169,14 +174,17 @@ export async function handleChatMessage(
       workingDirectory: project?.directoryPath,
       permissionMode: permissionMode || "plan",
       preferRawText: true,
+      resumeSessionId: sessionId ?? undefined,
       onTextChunk: (text) => {
         const stripped = sanitizeStreamChunk(text);
-        if (stripped) emit("chat.streaming", { text: stripped, projectId });
+        if (stripped) emit("chat.streaming", { text: stripped, projectId, conversationId: convId });
       },
       onToolUse: (toolName) => {
-        emit("chat.status", { status: "reading", tools: [toolName], projectId });
+        emit("chat.status", { status: "reading", tools: [toolName], projectId, conversationId: convId });
       },
     });
+    const rawResponse = llmResult.text;
+    if (!sessionId && llmResult.sessionId) sessionId = llmResult.sessionId;
     const parsed = parseLlmResponse(rawResponse);
     finalTextSegments = parsed.textSegments;
 
@@ -191,11 +199,11 @@ export async function handleChatMessage(
     // Execute read tools immediately (status already emitted via onToolUse for native tools;
     // this covers app-level XML tool calls)
     if (readCalls.length > 0) {
-      emit("chat.status", { status: "reading", tools: readCalls.map((c) => c.tool), projectId });
+      emit("chat.status", { status: "reading", tools: readCalls.map((c) => c.tool), projectId, conversationId: convId });
     }
     const readResults: ChatToolResult[] = readCalls.map((call) => {
       const result = executeReadTool(call, projectId);
-      emit("chat.toolExecuted", { callId: call.id, tool: call.tool, result: result.result, projectId });
+      emit("chat.toolExecuted", { callId: call.id, tool: call.tool, result: result.result, projectId, conversationId: convId });
       return result;
     });
     allToolResults.push(...readResults);
@@ -232,7 +240,7 @@ export async function handleChatMessage(
     if (readResults.length === 0) break;
   }
 
-  emit("chat.status", { status: "done", projectId });
+  emit("chat.status", { status: "done", projectId, conversationId: convId });
   const finalContent = buildTextResponse(finalTextSegments);
 
   // Fallback: if the LLM produced no text (only tool calls), provide a contextual summary
@@ -247,7 +255,7 @@ export async function handleChatMessage(
 
   // Store assistant message
   const assistantMsg = createMessage({
-    conversationId: conv.id,
+    conversationId: convId,
     role: "assistant",
     content: displayContent,
     toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
@@ -255,144 +263,11 @@ export async function handleChatMessage(
     pendingActions: pendingActions.length > 0 ? pendingActions : undefined,
   });
 
-  emit("chat.messageCreated", { ...assistantMsg, projectId });
+  emit("chat.messageCreated", { ...assistantMsg, projectId, conversationId: convId });
   if (pendingActions.length > 0) {
-    emit("chat.actionPending", { messageId: assistantMsg.id, actions: pendingActions, projectId });
+    emit("chat.actionPending", { messageId: assistantMsg.id, actions: pendingActions, projectId, conversationId: convId });
   }
 
   return [userMsg, assistantMsg];
-}
-
-export async function handleActionApproval(
-  messageId: string,
-  callId: string,
-  projectId: string,
-): Promise<ChatMessage> {
-  const msg = getMessage(messageId);
-  if (!msg) throw new Error(`Message not found: ${messageId}`);
-
-  const pending = msg.pendingActions ?? [];
-  const action = pending.find((a) => a.callId === callId);
-  if (!action) throw new Error(`Action not found: ${callId}`);
-  if (action.status !== "pending") throw new Error(`Action already resolved: ${callId}`);
-
-  // Execute the write tool
-  const call: ChatToolCall = { id: callId, tool: action.tool, args: action.args };
-  const result = await executeWriteTool(call, projectId);
-
-  // Mark approved
-  let updated = pending.map((a) => a.callId === callId ? { ...a, status: "approved" as const } : a);
-
-  // When a goal is created, link its sibling create_job actions to the real goal ID.
-  // Jobs are linked by ordering: jobs after this goal but before the next goal belong to it.
-  if (action.tool === "create_goal" && result.result && !result.error) {
-    const createdGoalId = (result.result as { id: string }).id;
-    const thisIdx = updated.findIndex((a) => a.callId === callId);
-    // Find the next create_goal action after this one (if any)
-    const nextGoalIdx = updated.findIndex((a, i) => i > thisIdx && a.tool === "create_goal");
-    const endIdx = nextGoalIdx === -1 ? updated.length : nextGoalIdx;
-
-    updated = updated.map((a, i) => {
-      // Only update jobs between this goal and the next goal
-      if (i > thisIdx && i < endIdx && a.tool === "create_job" && a.status === "pending" && a.args.goalId) {
-        // The system prompt instructs the LLM to use the sentinel string "pending"
-        // as a placeholder goalId for jobs whose goal hasn't been created yet.
-        // If getGoal returns null (i.e. no real goal with this ID exists, including
-        // the "pending" sentinel), rewrite the goalId to the newly created goal's real ID.
-        const existing = getGoal(a.args.goalId as string);
-        if (!existing) {
-          return { ...a, args: { ...a.args, goalId: createdGoalId } };
-        }
-      }
-      return a;
-    });
-
-    // Trigger autopilot here — createdGoalId is the real DB ID from the execution
-    // result, which was never available in triggerAutopilotForCreatedGoals.
-    generateAndHandleSystemJobs(createdGoalId, projectId).catch((err) =>
-      console.error("[chat] autopilot generation failed:", err),
-    );
-  }
-
-  const updatedMsg = updateMessagePendingActions(messageId, updated);
-
-  emit("chat.actionResolved", { messageId, callId, status: "approved", projectId });
-  return updatedMsg;
-}
-
-export function handleActionRejection(messageId: string, callId: string): ChatMessage {
-  const msg = getMessage(messageId);
-  if (!msg) throw new Error(`Message not found: ${messageId}`);
-  const projectId = getProjectIdForMessage(messageId);
-
-  const pending = msg.pendingActions ?? [];
-  const action = pending.find((a) => a.callId === callId);
-  if (!action) throw new Error(`Action not found: ${callId}`);
-  if (action.status !== "pending") throw new Error(`Action already resolved: ${callId}`);
-
-  const updated = pending.map((a) => a.callId === callId ? { ...a, status: "rejected" as const } : a);
-  const updatedMsg = updateMessagePendingActions(messageId, updated);
-
-  emit("chat.actionResolved", { messageId, callId, status: "rejected", projectId });
-  return updatedMsg;
-}
-
-/**
- * Approve all pending actions on a message in order.
- * Goal actions are processed first so FK linking works for sibling jobs.
- */
-export async function handleApproveAll(
-  messageId: string,
-  projectId: string,
-): Promise<ChatMessage> {
-  const msg = getMessage(messageId);
-  if (!msg) throw new Error(`Message not found: ${messageId}`);
-
-  const pending = msg.pendingActions ?? [];
-  const pendingCallIds = pending
-    .filter((a) => a.status === "pending")
-    // Sort so create_goal actions run before create_job actions. This ensures
-    // the FK-linking logic in handleActionApproval can resolve the real goal ID
-    // even if the LLM emitted jobs before their parent goal in its response.
-    .sort((a, b) => {
-      if (a.tool === "create_goal" && b.tool !== "create_goal") return -1;
-      if (b.tool === "create_goal" && a.tool !== "create_goal") return 1;
-      return 0;
-    })
-    .map((a) => a.callId);
-
-  if (pendingCallIds.length === 0) throw new Error("No pending actions to approve");
-
-  // Process sequentially — goal before jobs for FK linking
-  let current: ChatMessage = msg;
-  for (const callId of pendingCallIds) {
-    current = await handleActionApproval(messageId, callId, projectId);
-  }
-
-  return current;
-}
-
-/**
- * Reject all pending actions on a message at once.
- */
-export function handleRejectAll(messageId: string): ChatMessage {
-  const msg = getMessage(messageId);
-  if (!msg) throw new Error(`Message not found: ${messageId}`);
-  const projectId = getProjectIdForMessage(messageId);
-
-  const pending = msg.pendingActions ?? [];
-  const pendingActions = pending.filter((a) => a.status === "pending");
-  if (pendingActions.length === 0) throw new Error("No pending actions to reject");
-
-  const updated = pending.map((a) =>
-    a.status === "pending" ? { ...a, status: "rejected" as const } : a,
-  );
-  const updatedMsg = updateMessagePendingActions(messageId, updated);
-
-  for (const a of pendingActions) {
-    emit("chat.actionResolved", { messageId, callId: a.callId, status: "rejected", projectId });
-  }
-
-  return updatedMsg;
 }
 

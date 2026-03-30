@@ -116,7 +116,7 @@ export const runs = sqliteTable("runs", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
-/** A conversation thread for the AI chat sidebar (one per project, plus one for "All Projects") */
+/** A conversation thread for the AI chat sidebar (multiple per project supported) */
 export const conversations = sqliteTable("conversations", {
   id: text("id").primaryKey(),
   /** NULL = "All Projects" thread; non-null = project-specific thread */
@@ -125,6 +125,8 @@ export const conversations = sqliteTable("conversations", {
   /** Channel source — 'app' for the desktop UI, extensible for WhatsApp/Slack/etc. */
   channel: text("channel").notNull().default("app"),
   title: text("title"),
+  /** User-controlled ordering within a project's thread list */
+  sortOrder: integer("sort_order").notNull().default(0),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

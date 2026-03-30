@@ -1,15 +1,24 @@
 import { useState, useRef, useEffect } from "react";
-import type { DataTableColumn } from "@openhelm/shared";
+import type { DataTableColumn, DataTableRow } from "@openhelm/shared";
 import { SelectCell, MultiSelectCell } from "./select-cell";
+import { RelationCell, type RelatedTableData } from "./relation-cell";
+import { PhoneCell } from "./phone-cell";
+import { FilesCell } from "./files-cell";
+import { RollupCell } from "./rollup-cell";
+import { FormulaCell } from "./formula-cell";
+import { TimestampCell } from "./timestamp-cell";
 
 interface Props {
   column: DataTableColumn;
   value: unknown;
   onChange: (value: unknown) => void;
   onColumnConfigUpdate?: (config: Record<string, unknown>) => void;
+  relatedData?: Map<string, RelatedTableData>;
+  row?: DataTableRow;
+  allColumns?: DataTableColumn[];
 }
 
-export function DataTableCell({ column, value, onChange, onColumnConfigUpdate }: Props) {
+export function DataTableCell({ column, value, onChange, onColumnConfigUpdate, relatedData, row, allColumns }: Props) {
   const noop = () => {};
   switch (column.type) {
     case "checkbox":
@@ -32,6 +41,44 @@ export function DataTableCell({ column, value, onChange, onColumnConfigUpdate }:
           onColumnConfigUpdate={onColumnConfigUpdate ?? noop}
         />
       );
+    case "relation":
+      return (
+        <RelationCell
+          column={column}
+          value={value}
+          onChange={onChange}
+          relatedData={relatedData ?? new Map()}
+        />
+      );
+    case "phone":
+      return <PhoneCell value={value} onChange={onChange} />;
+    case "files":
+      return <FilesCell value={value} onChange={onChange} />;
+    case "rollup": {
+      // Get the relation column value from the same row for rollup computation
+      const config = column.config as { relationColumnId?: string };
+      const relationValue = config.relationColumnId && row ? row.data[config.relationColumnId] : [];
+      return (
+        <RollupCell
+          column={column}
+          relationValue={relationValue}
+          relatedData={relatedData ?? new Map()}
+          allColumns={allColumns ?? []}
+        />
+      );
+    }
+    case "formula":
+      return (
+        <FormulaCell
+          column={column}
+          rowData={row?.data ?? {}}
+          allColumns={allColumns ?? []}
+        />
+      );
+    case "created_time":
+      return <TimestampCell value={row?.createdAt ?? null} />;
+    case "updated_time":
+      return <TimestampCell value={row?.updatedAt ?? null} />;
     default:
       return <TextCell value={value} onChange={onChange} type={column.type} />;
   }

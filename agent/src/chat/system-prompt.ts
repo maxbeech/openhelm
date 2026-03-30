@@ -17,8 +17,17 @@ export interface ChatSystemContext {
   viewingRun?: Run | null;
 }
 
+// Module-level caches for static prompt sections (never change at runtime)
+let cachedNativeToolsSection: string | null = null;
+let cachedToolsSection: string | null = null;
+let cachedRulesSection: string | null = null;
+let cachedMcpSection: string | null = null;
+let mcpCacheTime = 0;
+const MCP_CACHE_TTL_MS = 60_000;
+
 function buildNativeToolsSection(): string {
-  return `## Built-in Claude Code Tools (use directly — NOT via XML)
+  if (cachedNativeToolsSection) return cachedNativeToolsSection;
+  cachedNativeToolsSection = `## Built-in Claude Code Tools (use directly — NOT via XML)
 
 You have Claude Code's built-in tools available. These work automatically — just use them:
 - **WebSearch** — search the web for current information
@@ -28,9 +37,11 @@ You have Claude Code's built-in tools available. These work automatically — ju
 
 These are completely separate from the OpenHelm CRUD tools below. Never use XML <tool_call> syntax for these.
 When the user asks you to search the web, look something up, or read a file — use these built-in tools directly.`;
+  return cachedNativeToolsSection;
 }
 
 function buildToolsSection(): string {
+  if (cachedToolsSection) return cachedToolsSection;
   const toolDocs = TOOLS.map((t) => {
     const params = Object.entries(t.parameters)
       .map(([k, v]) => `    ${k}${v.required ? " (required)" : ""}: ${v.type} — ${v.description}`)
@@ -42,7 +53,7 @@ function buildToolsSection(): string {
     ].join("\n");
   }).join("\n\n");
 
-  return `## Available Tools
+  cachedToolsSection = `## Available Tools
 
 IMPORTANT: To perform actions, you MUST output tool calls in this exact XML format on their own line:
 <tool_call>{"tool": "tool_name", "args": {"param": "value"}}</tool_call>
@@ -70,6 +81,7 @@ I'll set up two goals with jobs.
 ---
 
 ${toolDocs}`;
+  return cachedToolsSection;
 }
 
 function buildCurrentViewSection(ctx: ChatSystemContext): string {
@@ -94,13 +106,16 @@ function buildCurrentViewSection(ctx: ChatSystemContext): string {
 }
 
 function buildMcpSection(): string {
+  if (cachedMcpSection !== null && Date.now() - mcpCacheTime < MCP_CACHE_TTL_MS) return cachedMcpSection;
   const servers = getConfiguredMcpServers();
-  if (servers.length === 0) return "";
-  return `## Claude Code MCP Servers
+  if (servers.length === 0) { cachedMcpSection = ""; mcpCacheTime = Date.now(); return ""; }
+  cachedMcpSection = `## Claude Code MCP Servers
 The user has these MCP servers configured in their Claude Code installation:
 ${servers.map((s) => `- ${s}`).join("\n")}
 
 Jobs run as Claude Code sessions and will have access to these MCP servers. Keep this in mind when writing job prompts — leverage existing MCP capabilities rather than suggesting separate tool installations.`;
+  mcpCacheTime = Date.now();
+  return cachedMcpSection;
 }
 
 /**
@@ -175,7 +190,8 @@ Directory: ${ctx.project.directoryPath}${ctx.project.description ? `\nDescriptio
 }
 
 function buildRulesSection(): string {
-  return `## Rules
+  if (cachedRulesSection) return cachedRulesSection;
+  cachedRulesSection = `## Rules
 - Never fabricate data — call a read tool first if you need information.
 - Before creating a goal or job, check what already exists by calling list_goals or list_jobs. If the user's request maps to an existing entity, use update_goal or update_job instead of creating a duplicate. Only create new entities when nothing suitable exists.
 - When the user is viewing a specific goal or job (shown in Current View), default to modifying that entity unless they explicitly ask for something new.
@@ -184,6 +200,7 @@ function buildRulesSection(): string {
 - Keep responses concise. Use bullet points for lists.
 - You are synchronous. You cannot send follow-up messages, monitor progress, or check back later. Each response is complete and final. Never say "while that runs" or "I'll check on that."
 - Write actions do not execute until the user explicitly approves them. Do not describe proposed actions as already happening or running.`;
+  return cachedRulesSection;
 }
 
 /**

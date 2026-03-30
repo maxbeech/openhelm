@@ -9,6 +9,12 @@
 import { spawn } from "child_process";
 import { createInterface } from "readline";
 import { tmpdir } from "os";
+import {
+  parseStreamJsonLine,
+  extractResultFromStreamJson,
+  extractErrorFromStreamJson,
+  extractSessionId,
+} from "./print-parser.js";
 
 export interface PrintConfig {
   /** Path to the Claude Code binary */
@@ -49,11 +55,14 @@ export interface PrintConfig {
    * XML blocks survive for parsing by response-parser.ts.
    */
   preferRawText?: boolean;
+  /** Resume a previous session (skips --no-session-persistence) */
+  resumeSessionId?: string;
 }
 
 export interface PrintResult {
   text: string;
   exitCode: number | null;
+  sessionId: string | null;
 }
 
 export class PrintError extends Error {
@@ -143,8 +152,10 @@ export function runClaudeCodePrint(config: PrintConfig): Promise<PrintResult> {
         text = stdoutChunks.join("\n");
       }
 
+      const sessionId = useStreamJson ? extractSessionId(stdoutChunks) : null;
+
       if (code === 0) {
-        resolve({ text, exitCode: code });
+        resolve({ text, exitCode: code, sessionId });
       } else {
         const stderr = stderrChunks.join("\n");
         // When stream-json is active, the actual error may live in the result
@@ -180,115 +191,6 @@ export function runClaudeCodePrint(config: PrintConfig): Promise<PrintResult> {
       reject(new PrintError(`Failed to spawn Claude Code: ${err.message}`, null));
     });
   });
-}
-
-/** Parse a single stream-json line and fire the appropriate callbacks. */
-function parseStreamJsonLine(line: string, config: PrintConfig): void {
-  let event: Record<string, unknown>;
-  try {
-    event = JSON.parse(line);
-  } catch {
-    return;
-  }
-
-  const type = event.type as string;
-  if (type !== "assistant") return;
-
-  const message = event.message as Record<string, unknown> | undefined;
-  const content = message?.content;
-  if (!Array.isArray(content)) return;
-
-  for (const block of content as Array<Record<string, unknown>>) {
-    if (block.type === "text" && typeof block.text === "string" && block.text) {
-      config.onTextChunk?.(block.text);
-    } else if (block.type === "tool_use" && typeof block.name === "string") {
-      config.onToolUse?.(block.name);
-    }
-  }
-}
-
-/**
- * Extract the final result text from collected stream-json lines.
- * @param preferAssistantText - When true (jsonSchema mode), extract structured
- *   output from the result event or StructuredOutput tool calls, falling back
- *   to assistant text blocks.
- */
-function extractResultFromStreamJson(lines: string[], preferAssistantText = false): string {
-  // For jsonSchema mode: the CLI returns structured output via a
-  // StructuredOutput tool call and/or a `structured_output` field in the
-  // result event — NOT as a text block in the assistant message.
-  if (preferAssistantText) {
-    // 1. Check `structured_output` in the result event (highest priority)
-    for (const line of lines) {
-      let event: Record<string, unknown>;
-      try { event = JSON.parse(line); } catch { continue; }
-      if (event.type === "result" && event.structured_output != null) {
-        return JSON.stringify(event.structured_output);
-      }
-    }
-    // 2. Check for StructuredOutput tool_use blocks in assistant messages
-    for (const line of lines) {
-      let event: Record<string, unknown>;
-      try { event = JSON.parse(line); } catch { continue; }
-      if (event.type !== "assistant") continue;
-      const message = event.message as Record<string, unknown> | undefined;
-      const content = message?.content;
-      if (!Array.isArray(content)) continue;
-      for (const block of content as Array<Record<string, unknown>>) {
-        if (block.type === "tool_use" && block.name === "StructuredOutput" && block.input != null) {
-          return JSON.stringify(block.input);
-        }
-      }
-    }
-  } else {
-    // Non-jsonSchema: use the result event's prose summary
-    for (const line of lines) {
-      let event: Record<string, unknown>;
-      try { event = JSON.parse(line); } catch { continue; }
-      if (event.type === "result" && typeof event.result === "string") {
-        return event.result;
-      }
-    }
-  }
-  // Fallback: concatenate all text blocks from assistant events
-  const parts: string[] = [];
-  for (const line of lines) {
-    let event: Record<string, unknown>;
-    try { event = JSON.parse(line); } catch { continue; }
-    if (event.type !== "assistant") continue;
-    const message = event.message as Record<string, unknown> | undefined;
-    const content = message?.content;
-    if (!Array.isArray(content)) continue;
-    for (const block of content as Array<Record<string, unknown>>) {
-      if (block.type === "text" && typeof block.text === "string") {
-        parts.push(block.text);
-      }
-    }
-  }
-  return parts.join("");
-}
-
-/**
- * Extract error details from stream-json result events.
- * Claude Code often reports errors (rate limit, API errors, etc.) in the
- * result event on stdout rather than writing to stderr.
- */
-function extractErrorFromStreamJson(lines: string[]): string {
-  for (const line of lines) {
-    let event: Record<string, unknown>;
-    try { event = JSON.parse(line); } catch { continue; }
-    if (event.type === "result" && event.is_error) {
-      // The result event may contain "error" or "result" fields with the message
-      const msg = (event.error as string) || (event.result as string) || "";
-      if (msg) return msg;
-    }
-    // Also check for system error events
-    if (event.type === "error" && typeof event.error === "object" && event.error) {
-      const err = event.error as Record<string, unknown>;
-      return (err.message as string) || JSON.stringify(err);
-    }
-  }
-  return "";
 }
 
 function buildPrintArgs(config: PrintConfig): string[] {
@@ -334,9 +236,14 @@ function buildPrintArgs(config: PrintConfig): string[] {
     args.push("--effort", config.effort);
   }
 
-  // Prevent session state from being saved/loaded so internal LLM calls
-  // do not bleed across invocations or load unrelated session history.
-  args.push("--no-session-persistence");
+  // Resume a previous session (for tool loop continuation)
+  if (config.resumeSessionId) {
+    args.push("--resume", config.resumeSessionId);
+  } else {
+    // Prevent session state from being saved/loaded so internal LLM calls
+    // do not bleed across invocations or load unrelated session history.
+    args.push("--no-session-persistence");
+  }
 
   return args;
 }

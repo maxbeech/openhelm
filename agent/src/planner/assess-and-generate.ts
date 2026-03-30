@@ -41,7 +41,7 @@ export async function assessAndGenerate(
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= JSON_PARSE_MAX_RETRIES; attempt++) {
-    const text = await callLlmViaCli({
+    const { text } = await callLlmViaCli({
       model: "planning",
       systemPrompt: ASSESS_AND_GENERATE_SYSTEM_PROMPT,
       userMessage,

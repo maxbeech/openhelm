@@ -10,6 +10,11 @@ vi.mock("@/lib/api", () => ({
   approveAllChatActions: vi.fn(),
   rejectAllChatActions: vi.fn(),
   clearChat: vi.fn(),
+  listConversations: vi.fn(),
+  createConversation: vi.fn(),
+  renameConversation: vi.fn(),
+  deleteConversation: vi.fn(),
+  reorderConversations: vi.fn(),
 }));
 
 import * as api from "@/lib/api";
@@ -29,7 +34,16 @@ function makeMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
 }
 
 beforeEach(() => {
-  useChatStore.setState({ messages: [], loading: false, sending: false, error: null, panelOpen: false, statusText: null });
+  useChatStore.setState({
+    messages: [],
+    loading: false,
+    error: null,
+    panelOpen: false,
+    conversations: [],
+    activeConversationId: null,
+    activeConversationIds: {},
+    conversationStates: {},
+  });
   vi.clearAllMocks();
 });
 
@@ -60,7 +74,7 @@ describe("fetchMessages", () => {
 
     await useChatStore.getState().fetchMessages("project-1");
 
-    expect(api.listChatMessages).toHaveBeenCalledWith({ projectId: "project-1", limit: 100 });
+    expect(api.listChatMessages).toHaveBeenCalledWith({ projectId: "project-1", conversationId: undefined, limit: 100 });
     expect(useChatStore.getState().messages).toEqual(msgs);
     expect(useChatStore.getState().loading).toBe(false);
   });
@@ -76,30 +90,33 @@ describe("fetchMessages", () => {
 });
 
 describe("sendMessage", () => {
-  it("calls API and keeps sending true (cleared by events)", async () => {
+  it("calls API and sets per-conversation sending state", async () => {
+    useChatStore.setState({ activeConversationId: "conv-1" });
     vi.mocked(api.sendChatMessage).mockResolvedValue({ started: true });
 
     await useChatStore.getState().sendMessage("project-1", "Hello");
 
     expect(api.sendChatMessage).toHaveBeenCalledWith({
       projectId: "project-1",
+      conversationId: "conv-1",
       content: "Hello",
       context: undefined,
-      model: "sonnet",
+      model: "haiku",
       modelEffort: "medium",
       permissionMode: "plan",
     });
-    // sending stays true — cleared when assistant message or chat.error event arrives
-    expect(useChatStore.getState().sending).toBe(true);
+    // sending stays true on the conversation — cleared when assistant message event arrives
+    expect(useChatStore.getState().conversationStates["conv-1"]?.sending).toBe(true);
   });
 
-  it("sets error and clears sending on transport failure", async () => {
+  it("clears per-conversation sending on transport failure", async () => {
+    useChatStore.setState({ activeConversationId: "conv-1" });
     vi.mocked(api.sendChatMessage).mockRejectedValue(new Error("send failed"));
 
     await useChatStore.getState().sendMessage("project-1", "Hi");
 
     expect(useChatStore.getState().error).toBeTruthy();
-    expect(useChatStore.getState().sending).toBe(false);
+    expect(useChatStore.getState().conversationStates["conv-1"]?.sending).toBe(false);
   });
 });
 
@@ -257,21 +274,82 @@ describe("updateMessageInStore", () => {
     const other = makeMessage({ id: "other-id", content: "New" });
     useChatStore.getState().updateMessageInStore(other);
 
-    // Original message unchanged, no new message added
     expect(useChatStore.getState().messages).toHaveLength(1);
     expect(useChatStore.getState().messages[0].content).toBe("Hello");
   });
 });
 
-describe("setStatusText", () => {
-  it("sets status text", () => {
-    useChatStore.getState().setStatusText("Looking up goals...");
-    expect(useChatStore.getState().statusText).toBe("Looking up goals...");
+describe("per-conversation state", () => {
+  it("setConvStatus sets and clears per-conversation status", () => {
+    useChatStore.getState().setConvStatus("conv-1", "Looking up goals...");
+    expect(useChatStore.getState().conversationStates["conv-1"]?.statusText).toBe("Looking up goals...");
+
+    useChatStore.getState().setConvStatus("conv-1", null);
+    expect(useChatStore.getState().conversationStates["conv-1"]?.statusText).toBeNull();
   });
 
-  it("clears status text with null", () => {
-    useChatStore.getState().setStatusText("Thinking...");
-    useChatStore.getState().setStatusText(null);
-    expect(useChatStore.getState().statusText).toBeNull();
+  it("appendConvStreaming accumulates text", () => {
+    useChatStore.getState().appendConvStreaming("conv-1", "Hello ");
+    useChatStore.getState().appendConvStreaming("conv-1", "world");
+    expect(useChatStore.getState().conversationStates["conv-1"]?.streamingText).toBe("Hello world");
+  });
+
+  it("clearConvStreaming resets streaming text", () => {
+    useChatStore.getState().appendConvStreaming("conv-1", "text");
+    useChatStore.getState().clearConvStreaming("conv-1");
+    expect(useChatStore.getState().conversationStates["conv-1"]?.streamingText).toBe("");
+  });
+});
+
+describe("thread management", () => {
+  it("fetchConversations loads threads and sets active", async () => {
+    const convs = [
+      { id: "conv-1", projectId: "p1", channel: "app" as const, title: "Thread 1", sortOrder: 0, createdAt: "", updatedAt: "" },
+      { id: "conv-2", projectId: "p1", channel: "app" as const, title: "Thread 2", sortOrder: 1, createdAt: "", updatedAt: "" },
+    ];
+    vi.mocked(api.listConversations).mockResolvedValue(convs);
+    vi.mocked(api.listChatMessages).mockResolvedValue([]);
+
+    await useChatStore.getState().fetchConversations("p1");
+
+    expect(useChatStore.getState().conversations).toEqual(convs);
+    expect(useChatStore.getState().activeConversationId).toBe("conv-1");
+  });
+
+  it("createThread creates and sets as active", async () => {
+    const conv = { id: "conv-new", projectId: "p1", channel: "app" as const, title: "New", sortOrder: 0, createdAt: "", updatedAt: "" };
+    vi.mocked(api.createConversation).mockResolvedValue(conv);
+
+    await useChatStore.getState().createThread("p1", "New");
+
+    expect(useChatStore.getState().conversations).toContainEqual(conv);
+    expect(useChatStore.getState().activeConversationId).toBe("conv-new");
+    expect(useChatStore.getState().messages).toHaveLength(0);
+  });
+
+  it("deleteThread removes and switches to next", async () => {
+    const convs = [
+      { id: "conv-1", projectId: "p1", channel: "app" as const, title: "T1", sortOrder: 0, createdAt: "", updatedAt: "" },
+      { id: "conv-2", projectId: "p1", channel: "app" as const, title: "T2", sortOrder: 1, createdAt: "", updatedAt: "" },
+    ];
+    useChatStore.setState({ conversations: convs, activeConversationId: "conv-1" });
+    vi.mocked(api.deleteConversation).mockResolvedValue({ deleted: true });
+    vi.mocked(api.listChatMessages).mockResolvedValue([]);
+
+    await useChatStore.getState().deleteThread("conv-1", "p1");
+
+    expect(useChatStore.getState().conversations).toHaveLength(1);
+    expect(useChatStore.getState().activeConversationId).toBe("conv-2");
+  });
+
+  it("renameThread updates the conversation title", async () => {
+    const conv = { id: "conv-1", projectId: "p1", channel: "app" as const, title: "Old", sortOrder: 0, createdAt: "", updatedAt: "" };
+    useChatStore.setState({ conversations: [conv] });
+    const renamed = { ...conv, title: "New Name" };
+    vi.mocked(api.renameConversation).mockResolvedValue(renamed);
+
+    await useChatStore.getState().renameThread("conv-1", "New Name");
+
+    expect(useChatStore.getState().conversations[0].title).toBe("New Name");
   });
 });

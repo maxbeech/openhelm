@@ -29,7 +29,7 @@ export async function assessPrompt(
     prompt,
   );
 
-  const text = await callLlmViaCli({
+  const { text } = await callLlmViaCli({
     model: "classification",
     systemPrompt: PROMPT_ASSESSMENT_SYSTEM_PROMPT,
     userMessage,

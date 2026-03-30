@@ -9,7 +9,7 @@
  * - Booleans: accept "true"/"false"/"yes"/"no" strings
  */
 
-import type { DataTableColumn } from "@openhelm/shared";
+import type { DataTableColumn, FileReference } from "@openhelm/shared";
 
 /**
  * Validate and coerce row data in-place.
@@ -26,7 +26,12 @@ export function validateRowData(
     const col = columns.find((c) => c.id === colId);
     if (!col) continue; // Extra keys are ignored (not an error)
 
-    data[colId] = coerceValue(col, value);
+    const coerced = coerceValue(col, value);
+    if (coerced === undefined) {
+      delete data[colId]; // Strip computed/system columns from writes
+    } else {
+      data[colId] = coerced;
+    }
   }
 }
 
@@ -69,6 +74,38 @@ function coerceValue(col: DataTableColumn, value: unknown): unknown {
       const values = Array.isArray(value) ? value : [value];
       return values.map((v) => resolveSelectOption(col.name, options, v));
     }
+
+    case "relation": {
+      const arr = Array.isArray(value) ? value : [value];
+      return arr.map((v) => String(v));
+    }
+
+    case "phone":
+      return String(value);
+
+    case "files": {
+      const arr = Array.isArray(value) ? value : [value];
+      return arr.map((v) => {
+        if (typeof v === "string") {
+          return { id: crypto.randomUUID().slice(0, 8), name: v, url: v } as FileReference;
+        }
+        const obj = v as Record<string, unknown>;
+        return {
+          id: obj.id ?? crypto.randomUUID().slice(0, 8),
+          name: obj.name ?? obj.url ?? "file",
+          url: obj.url ?? obj.path ?? "",
+          size: obj.size,
+          mimeType: obj.mimeType ?? obj.type,
+        } as FileReference;
+      });
+    }
+
+    // Computed/system columns — AI should not write to these
+    case "rollup":
+    case "formula":
+    case "created_time":
+    case "updated_time":
+      return undefined; // strip from writes
 
     default:
       return value;

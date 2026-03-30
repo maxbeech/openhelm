@@ -21,7 +21,9 @@ import {
 import { validateRowData } from "./validation.js";
 import { TARGET_TOOL_DEFINITIONS, handleTargetToolCall } from "./target-tools.js";
 import { VISUALIZATION_TOOL_DEFINITIONS, handleVisualizationToolCall } from "./visualization-tools.js";
-import type { DataTableColumn, DataTableRow } from "@openhelm/shared";
+import type { DataTableColumn, DataTableRow, RollupAggregation } from "@openhelm/shared";
+import { evaluateFormula } from "@openhelm/shared";
+import { computeRollup } from "@openhelm/shared";
 
 // ─── Tool definitions (MCP protocol format) ───
 
@@ -73,8 +75,8 @@ export const TOOL_DEFINITIONS = [
             type: "object",
             properties: {
               name: { type: "string" },
-              type: { type: "string", enum: ["text", "number", "date", "checkbox", "select", "multi_select", "url", "email"] },
-              config: { type: "object", description: "Type-specific config (e.g. options for select)" },
+              type: { type: "string", enum: ["text", "number", "date", "checkbox", "select", "multi_select", "url", "email", "relation", "phone", "files", "rollup", "formula", "created_time", "updated_time"] },
+              config: { type: "object", description: "Type-specific config. For select: { options: [{ label }] }. For relation: { targetTableName: string }. For rollup: { relationColumnName: string, sourceColumnName: string, aggregation: 'count'|'sum'|'average'|'min'|'max'|'count_values'|'count_unique'|'percent_empty'|'percent_not_empty'|'show_original' }. For formula: { expression: string }." },
             },
             required: ["name", "type"],
           },
@@ -146,8 +148,8 @@ export const TOOL_DEFINITIONS = [
         tableId: { type: "string", description: "Table ID" },
         tableName: { type: "string", description: "Table name (alternative to tableId)" },
         name: { type: "string", description: "Column name" },
-        type: { type: "string", enum: ["text", "number", "date", "checkbox", "select", "multi_select", "url", "email"] },
-        config: { type: "object", description: "Type-specific config" },
+        type: { type: "string", enum: ["text", "number", "date", "checkbox", "select", "multi_select", "url", "email", "relation", "phone", "files", "rollup", "formula", "created_time", "updated_time"] },
+        config: { type: "object", description: "Type-specific config. For relation: { targetTableName: string }. For rollup: { relationColumnName, sourceColumnName, aggregation }. For formula: { expression }." },
       },
       required: ["name", "type"],
     },
@@ -259,9 +261,129 @@ function nameToIdData(columns: DataTableColumn[], data: Record<string, unknown>)
 function idToNameData(columns: DataTableColumn[], row: DataTableRow): Record<string, unknown> {
   const result: Record<string, unknown> = { _rowId: row.id };
   for (const col of columns) {
-    result[col.name] = row.data[col.id] ?? null;
+    const val = row.data[col.id] ?? null;
+
+    // Relation: resolve row IDs to display titles
+    if (col.type === "relation" && Array.isArray(val) && val.length > 0) {
+      const config = col.config as { targetTableId?: string };
+      if (config.targetTableId) {
+        const targetTable = getDataTable(config.targetTableId);
+        if (targetTable) {
+          result[col.name] = val.map((rowId: string) => {
+            const targetRow = getDataTableRow(rowId);
+            return targetRow ? getRowTitle(targetTable, targetRow) : `[deleted:${rowId.slice(0, 8)}]`;
+          });
+          continue;
+        }
+      }
+    }
+
+    // Rollup: compute from related data
+    if (col.type === "rollup") {
+      result[col.name] = computeRollupForRow(columns, row, col);
+      continue;
+    }
+
+    // Formula: evaluate expression
+    if (col.type === "formula") {
+      const config = col.config as { expression?: string };
+      if (config.expression) {
+        const colNameToId: Record<string, string> = {};
+        for (const c of columns) { colNameToId[c.name] = c.id; }
+        result[col.name] = evaluateFormula(config.expression, row.data, colNameToId);
+      } else {
+        result[col.name] = null;
+      }
+      continue;
+    }
+
+    // System timestamps
+    if (col.type === "created_time") { result[col.name] = row.createdAt; continue; }
+    if (col.type === "updated_time") { result[col.name] = row.updatedAt; continue; }
+
+    result[col.name] = val;
   }
   return result;
+}
+
+/** Compute a rollup value for a specific row */
+function computeRollupForRow(columns: DataTableColumn[], row: DataTableRow, rollupCol: DataTableColumn): unknown {
+  const config = rollupCol.config as { relationColumnId?: string; sourceColumnId?: string; aggregation?: RollupAggregation };
+  if (!config.relationColumnId || !config.sourceColumnId) return null;
+  const aggregation = config.aggregation ?? "count";
+
+  // Find the relation column
+  const relCol = columns.find((c) => c.id === config.relationColumnId);
+  if (!relCol || relCol.type !== "relation") return null;
+
+  const relConfig = relCol.config as { targetTableId?: string };
+  if (!relConfig.targetTableId) return null;
+
+  // Get related row IDs
+  const relatedIds = Array.isArray(row.data[relCol.id]) ? row.data[relCol.id] as string[] : [];
+  if (relatedIds.length === 0) return aggregation === "count" ? 0 : null;
+
+  // Fetch values from related rows
+  const values: unknown[] = [];
+  for (const rid of relatedIds) {
+    const targetRow = getDataTableRow(rid);
+    if (targetRow) values.push(targetRow.data[config.sourceColumnId] ?? null);
+  }
+
+  return computeRollup(aggregation, values);
+}
+
+/** Resolve name-based references in column config to IDs */
+function resolveColumnConfig(
+  colType: string,
+  config: Record<string, unknown>,
+  projectId?: string,
+  existingColumns?: DataTableColumn[],
+): Record<string, unknown> {
+  if (colType === "relation") {
+    if (config.targetTableId) return config;
+    if (config.targetTableName && projectId) {
+      const tables = listDataTables({ projectId });
+      const target = tables.find((t) => t.name.toLowerCase() === (config.targetTableName as string).toLowerCase());
+      if (!target) throw new Error(`Target table "${config.targetTableName}" not found in this project`);
+      return { ...config, targetTableId: target.id };
+    }
+    throw new Error("Relation columns require targetTableId or targetTableName in config");
+  }
+
+  if (colType === "rollup" && existingColumns) {
+    const resolved = { ...config };
+    // Resolve relationColumnName → relationColumnId
+    if (config.relationColumnName && !config.relationColumnId) {
+      const relCol = existingColumns.find(
+        (c) => c.type === "relation" && c.name.toLowerCase() === (config.relationColumnName as string).toLowerCase(),
+      );
+      if (!relCol) throw new Error(`Relation column "${config.relationColumnName}" not found in this table`);
+      resolved.relationColumnId = relCol.id;
+      // Also resolve the target table's column
+      const targetTableId = (relCol.config as { targetTableId?: string }).targetTableId;
+      if (targetTableId && config.sourceColumnName && !config.sourceColumnId) {
+        const targetTable = getDataTable(targetTableId);
+        if (targetTable) {
+          const srcCol = targetTable.columns.find(
+            (c) => c.name.toLowerCase() === (config.sourceColumnName as string).toLowerCase(),
+          );
+          if (srcCol) resolved.sourceColumnId = srcCol.id;
+        }
+      }
+    }
+    if (!resolved.aggregation) resolved.aggregation = "count";
+    return resolved;
+  }
+
+  return config;
+}
+
+/** Get display title for a row (first text column value, or row ID) */
+function getRowTitle(table: { columns: DataTableColumn[] }, row: DataTableRow): string {
+  const textCol = table.columns.find((c) => c.type === "text");
+  if (textCol && row.data[textCol.id]) return String(row.data[textCol.id]);
+  return row.id.slice(0, 8);
 }
 
 // ─── Handlers ───
@@ -328,7 +450,7 @@ function handleCreateTable(args: Record<string, unknown>, projectId?: string) {
     id: `col_${crypto.randomUUID().slice(0, 8)}`,
     name: c.name,
     type: c.type as DataTableColumn["type"],
-    config: c.config ?? {},
+    config: resolveColumnConfig(c.type, c.config ?? {}, projectId),
   }));
 
   const table = createDataTable({ projectId, name, description, columns, createdBy: "ai" });
@@ -384,11 +506,13 @@ function handleDeleteRows(args: Record<string, unknown>, runId?: string) {
 
 function handleAddColumn(args: Record<string, unknown>, projectId?: string, runId?: string) {
   const table = requireTable(args, projectId);
+  const colType = args.type as string;
+  const rawConfig = (args.config as Record<string, unknown>) ?? {};
   const column: DataTableColumn = {
     id: `col_${crypto.randomUUID().slice(0, 8)}`,
     name: args.name as string,
-    type: args.type as DataTableColumn["type"],
-    config: (args.config as Record<string, unknown>) ?? {},
+    type: colType as DataTableColumn["type"],
+    config: resolveColumnConfig(colType, rawConfig, projectId, table.columns),
   };
 
   const updated = addColumn({ tableId: table.id, column, actor: "ai", runId });

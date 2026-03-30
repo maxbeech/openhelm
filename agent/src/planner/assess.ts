@@ -28,7 +28,7 @@ export async function assessGoal(
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= JSON_PARSE_MAX_RETRIES; attempt++) {
-    const text = await callLlmViaCli({
+    const { text } = await callLlmViaCli({
       model: "classification",
       systemPrompt: ASSESSMENT_SYSTEM_PROMPT,
       userMessage,

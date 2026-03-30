@@ -83,7 +83,7 @@ export function DashboardView() {
   const alertCount = items.length + proposals.length + suggestedVizs.length;
 
   return (
-    <div className="pt-14 pb-8">
+    <div className="pt-4 pb-8">
       {/* Overview stats */}
       <section className="px-6 mb-6">
         <div className="grid grid-cols-3 gap-3">

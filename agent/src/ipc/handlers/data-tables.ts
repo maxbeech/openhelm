@@ -66,8 +66,22 @@ export function registerDataTableHandlers() {
   registerHandler("dataTables.delete", (params) => {
     const { id } = params as { id: string };
     if (!id) throw new Error("id is required");
+
+    // Before deleting, clean up relation columns in other tables pointing to this one
+    const table = dtQueries.getDataTable(id);
+    let modifiedTableIds: string[] = [];
+    if (table) {
+      modifiedTableIds = dtQueries.cleanupRelationColumnsForDeletedTable(id, table.projectId);
+    }
+
     const deleted = dtQueries.deleteDataTable(id);
-    if (deleted) emit("dataTable.deleted", { id });
+    if (deleted) {
+      emit("dataTable.deleted", { id });
+      for (const modId of modifiedTableIds) {
+        const modTable = dtQueries.getDataTable(modId);
+        if (modTable) emit("dataTable.updated", modTable);
+      }
+    }
     return { deleted };
   });
 
@@ -87,11 +101,22 @@ export function registerDataTableHandlers() {
     const rows = dtQueries.insertDataTableRows(p);
     emit("dataTable.rowsChanged", { tableId: p.tableId });
 
+    // Reciprocal sync for relation columns on newly inserted rows
+    const table = dtQueries.getDataTable(p.tableId);
+    if (table) {
+      const affectedTargetTableIds = new Set<string>();
+      for (const insertedRow of rows) {
+        syncRelationColumnsForRow(table, insertedRow.id, {}, insertedRow.data, affectedTargetTableIds);
+      }
+      for (const targetId of affectedTargetTableIds) {
+        emit("dataTable.rowsChanged", { tableId: targetId });
+      }
+    }
+
     // Schedule visualization suggestion check (debounced)
     scheduleVisualizationCheck(p.tableId);
 
     // Update embedding if this is the first row (sample data now available)
-    const table = dtQueries.getDataTable(p.tableId);
     if (table && table.rowCount <= p.rows.length) {
       scheduleEmbeddingUpdate(p.tableId);
     }
@@ -104,8 +129,25 @@ export function registerDataTableHandlers() {
     if (!p?.id) throw new Error("id is required");
     if (!p?.data) throw new Error("data is required");
 
+    // Get old data before update for relation diffing
+    const oldRow = dtQueries.getDataTableRow(p.id);
+    const oldData = oldRow?.data ?? {};
+
     const row = dtQueries.updateDataTableRow(p);
     emit("dataTable.rowsChanged", { tableId: row.tableId });
+
+    // Reciprocal sync for relation columns (skip if this was a system update)
+    if (p.actor !== "system") {
+      const table = dtQueries.getDataTable(row.tableId);
+      if (table) {
+        const affectedTargetTableIds = new Set<string>();
+        syncRelationColumnsForRow(table, row.id, oldData, row.data, affectedTargetTableIds);
+        for (const targetId of affectedTargetTableIds) {
+          emit("dataTable.rowsChanged", { tableId: targetId });
+        }
+      }
+    }
+
     return row;
   });
 
@@ -118,6 +160,8 @@ export function registerDataTableHandlers() {
     const deleted = dtQueries.deleteDataTableRows(p);
     if (firstRow && deleted > 0) {
       emit("dataTable.rowsChanged", { tableId: firstRow.tableId });
+      // Clean up relation references in other tables
+      dtQueries.cleanupRelationReferences(p.rowIds, firstRow.tableId);
     }
     return { deleted };
   });
@@ -129,9 +173,73 @@ export function registerDataTableHandlers() {
     if (!p?.tableId) throw new Error("tableId is required");
     if (!p?.column) throw new Error("column is required");
 
+    // Resolve rollup config: relationColumnId from name if needed
+    if (p.column.type === "rollup") {
+      const existing = dtQueries.getDataTable(p.tableId);
+      if (existing) {
+        const cfg = p.column.config as Record<string, unknown>;
+        if (cfg.relationColumnName && !cfg.relationColumnId) {
+          const relCol = existing.columns.find(
+            (c) => c.type === "relation" && c.name.toLowerCase() === (cfg.relationColumnName as string).toLowerCase(),
+          );
+          if (relCol) {
+            cfg.relationColumnId = relCol.id;
+            const targetId = (relCol.config as { targetTableId?: string }).targetTableId;
+            if (targetId && cfg.sourceColumnName && !cfg.sourceColumnId) {
+              const targetTable = dtQueries.getDataTable(targetId);
+              if (targetTable) {
+                const srcCol = targetTable.columns.find(
+                  (c) => c.name.toLowerCase() === (cfg.sourceColumnName as string).toLowerCase(),
+                );
+                if (srcCol) cfg.sourceColumnId = srcCol.id;
+              }
+            }
+          }
+        }
+      }
+    }
+
     const table = dtQueries.addColumn(p);
     scheduleEmbeddingUpdate(table.id);
     emit("dataTable.updated", table);
+
+    // If this is a relation column with reciprocal enabled, create the paired column
+    const config = p.column.config as { targetTableId?: string; reciprocal?: boolean };
+    if (p.column.type === "relation" && config.targetTableId && config.reciprocal) {
+      const sourceTable = dtQueries.getDataTable(p.tableId);
+      const reciprocalColId = `col_${crypto.randomUUID().slice(0, 8)}`;
+      const reciprocalColumn = {
+        id: reciprocalColId,
+        name: sourceTable?.name ?? "Related",
+        type: "relation" as const,
+        config: {
+          targetTableId: p.tableId,
+          reciprocalColumnId: p.column.id,
+        },
+      };
+
+      // Add reciprocal column to target table
+      const targetTable = dtQueries.addColumn({ tableId: config.targetTableId, column: reciprocalColumn, actor: "system" });
+
+      // Update source column config with reciprocal column ID
+      dtQueries.updateColumnConfig({
+        tableId: p.tableId,
+        columnId: p.column.id,
+        config: { ...p.column.config, reciprocalColumnId: reciprocalColId },
+        actor: "system",
+      });
+
+      scheduleEmbeddingUpdate(config.targetTableId);
+      emit("dataTable.updated", targetTable);
+
+      // Re-fetch and return the updated source table
+      const updatedSource = dtQueries.getDataTable(p.tableId);
+      if (updatedSource) {
+        emit("dataTable.updated", updatedSource);
+        return updatedSource;
+      }
+    }
+
     return table;
   });
 
@@ -193,6 +301,49 @@ export function registerDataTableHandlers() {
   registerHandler("dataTables.countAll", () => {
     return { count: dtQueries.countAllDataTables() };
   });
+}
+
+// ─── Relation sync helpers ───
+
+import type { DataTable } from "@openhelm/shared";
+
+/**
+ * Diff relation columns between old and new row data, then call
+ * syncReciprocalRelation for each changed relation column.
+ */
+function syncRelationColumnsForRow(
+  table: DataTable,
+  rowId: string,
+  oldData: Record<string, unknown>,
+  newData: Record<string, unknown>,
+  affectedTargetTableIds: Set<string>,
+): void {
+  for (const col of table.columns) {
+    if (col.type !== "relation") continue;
+    const config = col.config as { targetTableId?: string; reciprocalColumnId?: string };
+    if (!config.targetTableId || !config.reciprocalColumnId) continue;
+
+    const oldIds = Array.isArray(oldData[col.id]) ? oldData[col.id] as string[] : [];
+    const newIds = Array.isArray(newData[col.id]) ? newData[col.id] as string[] : [];
+
+    const oldSet = new Set(oldIds);
+    const newSet = new Set(newIds);
+    const added = newIds.filter((id) => !oldSet.has(id));
+    const removed = oldIds.filter((id) => !newSet.has(id));
+
+    if (added.length === 0 && removed.length === 0) continue;
+
+    dtQueries.syncReciprocalRelation({
+      sourceTableId: table.id,
+      sourceRowId: rowId,
+      targetTableId: config.targetTableId,
+      targetColumnId: config.reciprocalColumnId,
+      addedRowIds: added,
+      removedRowIds: removed,
+    });
+
+    affectedTargetTableIds.add(config.targetTableId);
+  }
 }
 
 // ─── Embedding helpers ───

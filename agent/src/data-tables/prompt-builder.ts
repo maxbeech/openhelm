@@ -35,7 +35,7 @@ export function buildDataTableSection(scored: ScoredDataTable[]): string {
       sections.push("| Column | Type |");
       sections.push("|--------|------|");
       for (const col of table.columns) {
-        sections.push(`| ${col.name} | ${formatColumnType(col)} |`);
+        sections.push(`| ${col.name} | ${formatColumnType(col, scored)} |`);
       }
     }
 
@@ -45,8 +45,8 @@ export function buildDataTableSection(scored: ScoredDataTable[]): string {
   return `\n---\n\n${sections.join("\n")}`;
 }
 
-function formatColumnType(col: DataTableColumn): string {
-  let desc = col.type;
+function formatColumnType(col: DataTableColumn, scoredTables?: ScoredDataTable[]): string {
+  let desc = col.type as string;
   const config = col.config;
 
   if (col.type === "select" || col.type === "multi_select") {
@@ -60,6 +60,29 @@ function formatColumnType(col: DataTableColumn): string {
   if (col.type === "number" && config?.format) {
     desc += ` (${config.format})`;
   }
+
+  if (col.type === "relation") {
+    const targetId = config?.targetTableId as string | undefined;
+    if (targetId && scoredTables) {
+      const target = scoredTables.find((s) => s.table.id === targetId);
+      if (target) desc += ` (→ ${target.table.name})`;
+    }
+  }
+
+  if (col.type === "rollup") {
+    const agg = config?.aggregation as string | undefined;
+    desc += agg ? ` (${agg}, computed)` : " (computed)";
+  }
+
+  if (col.type === "formula") {
+    const expr = config?.expression as string | undefined;
+    desc += expr ? ` (${expr})` : " (computed)";
+  }
+
+  if (col.type === "phone") desc += " (phone number)";
+  if (col.type === "files") desc += " (attachments)";
+  if (col.type === "created_time") desc += " (auto, read-only)";
+  if (col.type === "updated_time") desc += " (auto, read-only)";
 
   return desc;
 }

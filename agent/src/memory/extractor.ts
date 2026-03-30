@@ -91,7 +91,7 @@ export async function extractMemories(ctx: ExtractionContext): Promise<Memory[]>
   const userMessage = `Content to analyze:\n${ctx.content}${existingSummary}`;
 
   console.error(`[extractor] calling LLM (${ctx.sourceType}, content: ${ctx.content.length} chars, msg: ${userMessage.length} chars)`);
-  const rawText = await callLlmViaCli({
+  const { text: rawText } = await callLlmViaCli({
     model: "classification",
     systemPrompt: EXTRACTION_SYSTEM_PROMPT,
     userMessage,

@@ -39,7 +39,7 @@ export function DashboardAlertsSection({
   const firstGroup = alertGroups[0];
 
   return (
-    <section className="pt-4">
+    <section>
       <SectionHeader icon={AlertTriangle} title="Alerts & Actions"
         iconColor={alertCount > 0 ? "text-destructive" : undefined}
         badge={alertCount > 0 ? alertCount : undefined} collapsed={collapsed} onToggle={onToggle} />
@@ -168,7 +168,7 @@ function SectionHeader({ icon: Icon, title, iconColor, badge, collapsed, onToggl
   collapsed: boolean; onToggle: () => void;
 }) {
   return (
-    <div className="sticky top-14 z-10 bg-background flex items-center gap-2.5 border-b border-border px-6 py-3">
+    <div className="sticky top-0 z-10 bg-background flex items-center gap-2.5 border-b border-border px-6 py-3">
       <Icon className={cn("size-5", iconColor ?? "text-muted-foreground")} />
       <h3 className="flex-1 text-base font-semibold">{title}</h3>
       {badge !== undefined && badge > 0 && (

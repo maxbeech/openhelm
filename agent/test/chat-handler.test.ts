@@ -23,13 +23,13 @@ vi.mock("../src/autopilot/index.js", () => ({
   generateAndHandleSystemJobs: (...args: unknown[]) => generateAndHandleSystemJobsMock(...args),
 }));
 
+import { handleChatMessage } from "../src/chat/handler.js";
 import {
-  handleChatMessage,
   handleActionApproval,
   handleActionRejection,
   handleApproveAll,
   handleRejectAll,
-} from "../src/chat/handler.js";
+} from "../src/chat/action-handler.js";
 
 let cleanup: () => void;
 let projectId: string;
@@ -55,7 +55,7 @@ beforeEach(() => {
 
 describe("handleChatMessage — native tool wiring", () => {
   it("passes disableTools: false to callLlmViaCli", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce("Done.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Done.", sessionId: null });
 
     await handleChatMessage(projectId, "Search the web");
 
@@ -65,7 +65,7 @@ describe("handleChatMessage — native tool wiring", () => {
   });
 
   it("passes the project directoryPath as workingDirectory", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce("Done.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Done.", sessionId: null });
 
     await handleChatMessage(projectId, "Read a file");
 
@@ -75,7 +75,7 @@ describe("handleChatMessage — native tool wiring", () => {
   });
 
   it("passes permissionMode 'plan' for read-only native tool access", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce("Done.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Done.", sessionId: null });
 
     await handleChatMessage(projectId, "Search something");
 
@@ -87,7 +87,7 @@ describe("handleChatMessage — native tool wiring", () => {
 
 describe("handleChatMessage — plain text response", () => {
   it("stores user and assistant messages and returns both", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce("Here is some helpful info.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Here is some helpful info.", sessionId: null });
 
     const msgs = await handleChatMessage(projectId, "Tell me about the project");
 
@@ -99,7 +99,7 @@ describe("handleChatMessage — plain text response", () => {
   });
 
   it("emits chat.messageCreated for user and assistant messages", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce("Great question.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Great question.", sessionId: null });
 
     await handleChatMessage(projectId, "What are goals?");
 
@@ -109,7 +109,7 @@ describe("handleChatMessage — plain text response", () => {
 
   it("persists messages to the database", async () => {
     const proj = createProject({ name: "Persist Test", directoryPath: "/tmp/persist" });
-    callLlmViaCliMock.mockResolvedValueOnce("I understand.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "I understand.", sessionId: null });
 
     await handleChatMessage(proj.id, "Hello");
 
@@ -119,7 +119,7 @@ describe("handleChatMessage — plain text response", () => {
   });
 
   it("uses the chat model tier", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce("Sure.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Sure.", sessionId: null });
 
     await handleChatMessage(projectId, "Any question");
 
@@ -137,10 +137,10 @@ describe("handleChatMessage — read tool auto-execution", () => {
   it("auto-executes a read tool and continues to produce a response", async () => {
     // First call returns a read tool call
     callLlmViaCliMock.mockResolvedValueOnce(
-      `Let me check.\n<tool_call>{"tool":"list_goals","args":{}}</tool_call>`,
+      { text: `Let me check.\n<tool_call>{"tool":"list_goals","args":{}}</tool_call>`, sessionId: null },
     );
     // Second call (after tool result injected) returns final text
-    callLlmViaCliMock.mockResolvedValueOnce("You have no goals yet.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "You have no goals yet.", sessionId: null });
 
     const msgs = await handleChatMessage(projectId, "What goals do I have?");
 
@@ -154,7 +154,7 @@ describe("handleChatMessage — read tool auto-execution", () => {
 describe("handleChatMessage — write tool pending actions", () => {
   it("stores write tools as pending actions without executing them", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      `I'll create that goal.\n<tool_call>{"tool":"create_goal","args":{"name":"My Goal"}}</tool_call>`,
+      { text: `I'll create that goal.\n<tool_call>{"tool":"create_goal","args":{"name":"My Goal"}}</tool_call>`, sessionId: null },
     );
 
     const msgs = await handleChatMessage(projectId, "Create a goal called My Goal");
@@ -169,7 +169,7 @@ describe("handleChatMessage — write tool pending actions", () => {
 
   it("emits chat.actionPending when write tools are present", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"create_goal","args":{"name":"Another Goal"}}</tool_call>`,
+      { text: `<tool_call>{"tool":"create_goal","args":{"name":"Another Goal"}}</tool_call>`, sessionId: null },
     );
 
     await handleChatMessage(projectId, "Make a goal");
@@ -180,7 +180,7 @@ describe("handleChatMessage — write tool pending actions", () => {
 
   it("does not call LLM again when write tools are pending", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"archive_goal","args":{"goalId":"g1"}}</tool_call>`,
+      { text: `<tool_call>{"tool":"archive_goal","args":{"goalId":"g1"}}</tool_call>`, sessionId: null },
     );
 
     await handleChatMessage(projectId, "Archive that goal");
@@ -194,7 +194,7 @@ describe("handleActionApproval", () => {
   it("executes the write tool and marks action as approved", async () => {
     const proj = createProject({ name: "Approve Test", directoryPath: "/tmp/approve" });
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"create_goal","args":{"name":"Approved Goal"}}</tool_call>`,
+      { text: `<tool_call>{"tool":"create_goal","args":{"name":"Approved Goal"}}</tool_call>`, sessionId: null },
     );
 
     const msgs = await handleChatMessage(proj.id, "Create a goal");
@@ -210,7 +210,7 @@ describe("handleActionApproval", () => {
   it("emits chat.actionResolved with status approved", async () => {
     const proj = createProject({ name: "Approve Emit Test", directoryPath: "/tmp/approve-emit" });
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"create_goal","args":{"name":"Emit Goal"}}</tool_call>`,
+      { text: `<tool_call>{"tool":"create_goal","args":{"name":"Emit Goal"}}</tool_call>`, sessionId: null },
     );
 
     const msgs = await handleChatMessage(proj.id, "Create goal");
@@ -227,7 +227,7 @@ describe("handleActionApproval", () => {
   it("triggers autopilot with the real goal ID after create_goal approval", async () => {
     const proj = createProject({ name: "Autopilot Trigger Test", directoryPath: "/tmp/autopilot-trigger" });
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"create_goal","args":{"name":"Autopilot Goal"}}</tool_call>`,
+      { text: `<tool_call>{"tool":"create_goal","args":{"name":"Autopilot Goal"}}</tool_call>`, sessionId: null },
     );
 
     const msgs = await handleChatMessage(proj.id, "Create a goal");
@@ -253,7 +253,7 @@ describe("handleActionApproval", () => {
     const goal = createGoal({ projectId: proj.id, name: "Existing Goal" });
 
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"create_job","args":{"name":"A Job","prompt":"run tests","goalId":"${goal.id}","scheduleType":"once"}}</tool_call>`,
+      { text: `<tool_call>{"tool":"create_job","args":{"name":"A Job","prompt":"run tests","goalId":"${goal.id}","scheduleType":"once"}}</tool_call>`, sessionId: null },
     );
 
     const msgs = await handleChatMessage(proj.id, "Create a job");
@@ -306,7 +306,7 @@ describe("handleActionRejection", () => {
   it("marks the action as rejected without executing the tool", async () => {
     const proj = createProject({ name: "Reject Test", directoryPath: "/tmp/reject" });
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"create_goal","args":{"name":"Rejected Goal"}}</tool_call>`,
+      { text: `<tool_call>{"tool":"create_goal","args":{"name":"Rejected Goal"}}</tool_call>`, sessionId: null },
     );
 
     const msgs = await handleChatMessage(proj.id, "Create a goal");
@@ -319,7 +319,7 @@ describe("handleActionRejection", () => {
   it("emits chat.actionResolved with status rejected", async () => {
     const proj = createProject({ name: "Reject Emit", directoryPath: "/tmp/reject-emit" });
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"create_goal","args":{"name":"r"}}</tool_call>`,
+      { text: `<tool_call>{"tool":"create_goal","args":{"name":"r"}}</tool_call>`, sessionId: null },
     );
 
     const msgs = await handleChatMessage(proj.id, "Create");
@@ -341,11 +341,11 @@ describe("handleActionApproval — goal+job FK linking", () => {
   it("updates sibling create_job goalId after create_goal approval", async () => {
     const proj = createProject({ name: "FK Link Test", directoryPath: "/tmp/fk-link" });
     callLlmViaCliMock.mockResolvedValueOnce(
-      [
+      { text: [
         `I'll set that up.`,
         `<tool_call>{"tool":"create_goal","args":{"name":"FK Test Goal"}}</tool_call>`,
         `<tool_call>{"tool":"create_job","args":{"name":"FK Test Job","prompt":"run tests","goalId":"placeholder-id","scheduleType":"once"}}</tool_call>`,
-      ].join("\n"),
+      ].join("\n"), sessionId: null },
     );
 
     const msgs = await handleChatMessage(proj.id, "Create goal and job");
@@ -391,7 +391,7 @@ describe("handleActionApproval — goal+job FK linking", () => {
 
     // Create a pre-existing goal first
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"create_goal","args":{"name":"Pre-existing Goal"}}</tool_call>`,
+      { text: `<tool_call>{"tool":"create_goal","args":{"name":"Pre-existing Goal"}}</tool_call>`, sessionId: null },
     );
     const setupMsgs = await handleChatMessage(proj.id, "Setup");
     const setupMsg = setupMsgs[1];
@@ -407,10 +407,10 @@ describe("handleActionApproval — goal+job FK linking", () => {
     // Now create a new goal+job where job's goalId points to the pre-existing goal
     vi.clearAllMocks();
     callLlmViaCliMock.mockResolvedValueOnce(
-      [
+      { text: [
         `<tool_call>{"tool":"create_goal","args":{"name":"Another Goal"}}</tool_call>`,
         `<tool_call>{"tool":"create_job","args":{"name":"Linked Job","prompt":"test","goalId":"${preExistingGoal.id}","scheduleType":"once"}}</tool_call>`,
-      ].join("\n"),
+      ].join("\n"), sessionId: null },
     );
 
     const msgs = await handleChatMessage(proj.id, "Another goal+job");
@@ -428,14 +428,14 @@ describe("handleActionApproval — goal+job FK linking", () => {
   it("links jobs to correct goals when multiple goals are created in one batch", async () => {
     const proj = createProject({ name: "Multi-Goal FK", directoryPath: "/tmp/multi-goal-fk" });
     callLlmViaCliMock.mockResolvedValueOnce(
-      [
+      { text: [
         `I'll set up two goals with jobs.`,
         `<tool_call>{"tool":"create_goal","args":{"name":"Goal Alpha"}}</tool_call>`,
         `<tool_call>{"tool":"create_job","args":{"name":"Job A1","prompt":"test a1","goalId":"pending","scheduleType":"once"}}</tool_call>`,
         `<tool_call>{"tool":"create_job","args":{"name":"Job A2","prompt":"test a2","goalId":"pending","scheduleType":"once"}}</tool_call>`,
         `<tool_call>{"tool":"create_goal","args":{"name":"Goal Beta"}}</tool_call>`,
         `<tool_call>{"tool":"create_job","args":{"name":"Job B1","prompt":"test b1","goalId":"pending","scheduleType":"once"}}</tool_call>`,
-      ].join("\n"),
+      ].join("\n"), sessionId: null },
     );
 
     const msgs = await handleChatMessage(proj.id, "Create two goals with jobs");
@@ -471,7 +471,7 @@ describe("handleActionApproval — goal+job FK linking", () => {
 
 describe("handleChatMessage — status events", () => {
   it("emits chat.status thinking before LLM call", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce("Hello.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Hello.", sessionId: null });
 
     await handleChatMessage(projectId, "Hi");
 
@@ -483,9 +483,9 @@ describe("handleChatMessage — status events", () => {
 
   it("emits reading status when read tools are executed", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"list_goals","args":{}}</tool_call>`,
+      { text: `<tool_call>{"tool":"list_goals","args":{}}</tool_call>`, sessionId: null },
     );
-    callLlmViaCliMock.mockResolvedValueOnce("No goals.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "No goals.", sessionId: null });
 
     await handleChatMessage(projectId, "List goals");
 
@@ -497,9 +497,9 @@ describe("handleChatMessage — status events", () => {
 
   it("emits analyzing status on second LLM call", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"list_goals","args":{}}</tool_call>`,
+      { text: `<tool_call>{"tool":"list_goals","args":{}}</tool_call>`, sessionId: null },
     );
-    callLlmViaCliMock.mockResolvedValueOnce("Done.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Done.", sessionId: null });
 
     await handleChatMessage(projectId, "Check goals");
 
@@ -513,11 +513,11 @@ describe("handleApproveAll", () => {
   it("approves all pending actions in one call", async () => {
     const proj = createProject({ name: "ApproveAll Test", directoryPath: "/tmp/approve-all" });
     callLlmViaCliMock.mockResolvedValueOnce(
-      [
+      { text: [
         `I'll set that up.`,
         `<tool_call>{"tool":"create_goal","args":{"name":"Batch Goal"}}</tool_call>`,
         `<tool_call>{"tool":"create_job","args":{"name":"Batch Job","prompt":"test","goalId":"placeholder","scheduleType":"once"}}</tool_call>`,
-      ].join("\n"),
+      ].join("\n"), sessionId: null },
     );
 
     const msgs = await handleChatMessage(proj.id, "Create goal and job");
@@ -561,10 +561,10 @@ describe("handleRejectAll", () => {
   it("rejects all pending actions at once", async () => {
     const proj = createProject({ name: "RejectAll Test", directoryPath: "/tmp/reject-all" });
     callLlmViaCliMock.mockResolvedValueOnce(
-      [
+      { text: [
         `<tool_call>{"tool":"create_goal","args":{"name":"Reject Me"}}</tool_call>`,
         `<tool_call>{"tool":"create_job","args":{"name":"Reject Job","prompt":"x","scheduleType":"once"}}</tool_call>`,
-      ].join("\n"),
+      ].join("\n"), sessionId: null },
     );
 
     const msgs = await handleChatMessage(proj.id, "Create stuff");
@@ -604,9 +604,9 @@ describe("handleChatMessage — projectId in all events (Bug 1)", () => {
   it("includes projectId in every chat event", async () => {
     const proj = createProject({ name: "EventPid Test", directoryPath: "/tmp/event-pid" });
     callLlmViaCliMock.mockResolvedValueOnce(
-      `Let me check.\n<tool_call>{"tool":"list_goals","args":{}}</tool_call>`,
+      { text: `Let me check.\n<tool_call>{"tool":"list_goals","args":{}}</tool_call>`, sessionId: null },
     );
-    callLlmViaCliMock.mockResolvedValueOnce("Here you go.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Here you go.", sessionId: null });
 
     await handleChatMessage(proj.id, "Test events");
 
@@ -621,7 +621,7 @@ describe("handleChatMessage — projectId in all events (Bug 1)", () => {
   it("includes projectId in actionResolved from handleActionRejection", async () => {
     const proj = createProject({ name: "RejectPid Test", directoryPath: "/tmp/reject-pid" });
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"create_goal","args":{"name":"Pid Goal"}}</tool_call>`,
+      { text: `<tool_call>{"tool":"create_goal","args":{"name":"Pid Goal"}}</tool_call>`, sessionId: null },
     );
 
     const msgs = await handleChatMessage(proj.id, "Create goal");
@@ -635,7 +635,7 @@ describe("handleChatMessage — projectId in all events (Bug 1)", () => {
   it("includes projectId in actionResolved from handleRejectAll", async () => {
     const proj = createProject({ name: "RejectAllPid", directoryPath: "/tmp/rejectall-pid" });
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"create_goal","args":{"name":"r"}}</tool_call>`,
+      { text: `<tool_call>{"tool":"create_goal","args":{"name":"r"}}</tool_call>`, sessionId: null },
     );
 
     const msgs = await handleChatMessage(proj.id, "Make it");
@@ -654,7 +654,7 @@ describe("handleChatMessage — cross-project context validation (Bug 2)", () =>
 
     // Create a goal in project A via chat
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"create_goal","args":{"name":"Goal in A"}}</tool_call>`,
+      { text: `<tool_call>{"tool":"create_goal","args":{"name":"Goal in A"}}</tool_call>`, sessionId: null },
     );
     const msgs = await handleChatMessage(projA.id, "Create goal");
     await handleActionApproval(msgs[1].id, msgs[1].pendingActions![0].callId, projA.id);
@@ -665,7 +665,7 @@ describe("handleChatMessage — cross-project context validation (Bug 2)", () =>
 
     // Now send a message in project B with project A's goal as context
     vi.clearAllMocks();
-    callLlmViaCliMock.mockResolvedValueOnce("I'll help with your project.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "I'll help with your project.", sessionId: null });
 
     await handleChatMessage(projB.id, "Help me", { viewingGoalId: goalInA.id });
 
@@ -678,7 +678,7 @@ describe("handleChatMessage — cross-project context validation (Bug 2)", () =>
 describe("handleChatMessage — empty content fallback (Bug 3)", () => {
   it("provides fallback content when LLM returns only write tool calls", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"create_goal","args":{"name":"Orphan Goal"}}</tool_call>`,
+      { text: `<tool_call>{"tool":"create_goal","args":{"name":"Orphan Goal"}}</tool_call>`, sessionId: null },
     );
 
     const msgs = await handleChatMessage(projectId, "Create a goal");
@@ -691,10 +691,10 @@ describe("handleChatMessage — empty content fallback (Bug 3)", () => {
   it("provides fallback content when LLM returns only read tool calls with no final text", async () => {
     // First call: only tool calls, no text
     callLlmViaCliMock.mockResolvedValueOnce(
-      `<tool_call>{"tool":"list_goals","args":{}}</tool_call>`,
+      { text: `<tool_call>{"tool":"list_goals","args":{}}</tool_call>`, sessionId: null },
     );
     // Second call: empty response
-    callLlmViaCliMock.mockResolvedValueOnce("");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "", sessionId: null });
 
     const msgs = await handleChatMessage(projectId, "Show goals");
     const assistant = msgs[1];
@@ -704,7 +704,7 @@ describe("handleChatMessage — empty content fallback (Bug 3)", () => {
   });
 
   it("preserves original content when LLM provides text", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce("Here is my detailed response.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Here is my detailed response.", sessionId: null });
 
     const msgs = await handleChatMessage(projectId, "Tell me something");
     expect(msgs[1].content).toBe("Here is my detailed response.");
@@ -713,7 +713,7 @@ describe("handleChatMessage — empty content fallback (Bug 3)", () => {
 
 describe("handleChatMessage — preferRawText flag (Issue 1 fix)", () => {
   it("passes preferRawText: true to callLlmViaCli for chat", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce("Sure.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Sure.", sessionId: null });
 
     await handleChatMessage(projectId, "Test raw text");
 
@@ -725,7 +725,7 @@ describe("handleChatMessage — preferRawText flag (Issue 1 fix)", () => {
 
 describe("handleChatMessage — early thinking status (Issue 2 fix)", () => {
   it("emits thinking status before callLlmViaCli is invoked", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce("Done.");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Done.", sessionId: null });
 
     await handleChatMessage(projectId, "Quick check");
 
@@ -754,7 +754,7 @@ describe("handleChatMessage — streaming sanitizer (Issue 3 fix)", () => {
     callLlmViaCliMock.mockImplementationOnce(async (config: Record<string, unknown>) => {
       const onTextChunk = config.onTextChunk as (text: string) => void;
       onTextChunk('Here is my plan.\n<tool_call>{"tool":"create_goal","args":{"name":"Test"}}</tool_call>\nAll done.');
-      return 'Here is my plan.\n<tool_call>{"tool":"create_goal","args":{"name":"Test"}}</tool_call>\nAll done.';
+      return { text: 'Here is my plan.\n<tool_call>{"tool":"create_goal","args":{"name":"Test"}}</tool_call>\nAll done.', sessionId: null };
     });
 
     await handleChatMessage(projectId, "Test streaming single chunk");
@@ -774,7 +774,7 @@ describe("handleChatMessage — streaming sanitizer (Issue 3 fix)", () => {
       onTextChunk("Before text.\n<tool_call>{\"tool\":");
       onTextChunk("\"create_goal\",\"args\":{\"name\":\"Test\"}}");
       onTextChunk("</tool_call>\nAfter text.");
-      return 'Before text.\n<tool_call>{"tool":"create_goal","args":{"name":"Test"}}</tool_call>\nAfter text.';
+      return { text: 'Before text.\n<tool_call>{"tool":"create_goal","args":{"name":"Test"}}</tool_call>\nAfter text.', sessionId: null };
     });
 
     await handleChatMessage(projectId, "Test streaming multi chunk");
@@ -794,7 +794,7 @@ describe("handleChatMessage — streaming sanitizer (Issue 3 fix)", () => {
       // Closing tag split: chunk 1 ends mid-way through </tool_call>
       onTextChunk("Intro.\n<tool_call>data</tool_ca");
       onTextChunk("ll>Conclusion.");
-      return "Intro.\nConclusion.";
+      return { text: "Intro.\nConclusion.", sessionId: null };
     });
 
     await handleChatMessage(projectId, "Test split closing tag");
@@ -813,7 +813,7 @@ describe("handleChatMessage — streaming sanitizer (Issue 3 fix)", () => {
       const onTextChunk = config.onTextChunk as (text: string) => void;
       onTextChunk("Some text <tool_call>{\"tool\":\"create_goal\"");
       // Stream ends without </tool_call>
-      return "Some text";
+      return { text: "Some text", sessionId: null };
     });
 
     await handleChatMessage(projectId, "Test incomplete tool call");

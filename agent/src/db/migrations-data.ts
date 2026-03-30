@@ -31,6 +31,7 @@ import sql0026 from "./migrations/0026_add_data_tables.sql";
 import sql0027 from "./migrations/0027_add_claude_usage_snapshots.sql";
 import sql0028 from "./migrations/0028_add_targets.sql";
 import sql0029 from "./migrations/0029_add_visualizations.sql";
+import sql0030 from "./migrations/0030_add_conversation_sort_order.sql";
 
 export interface MigrationEntry {
   idx: number;
@@ -69,4 +70,5 @@ export const MIGRATIONS: MigrationEntry[] = [
   { idx: 27, tag: "0027_add_claude_usage_snapshots", sql: sql0027 },
   { idx: 28, tag: "0028_add_targets", sql: sql0028 },
   { idx: 29, tag: "0029_add_visualizations", sql: sql0029 },
+  { idx: 30, tag: "0030_add_conversation_sort_order", sql: sql0030 },
 ];

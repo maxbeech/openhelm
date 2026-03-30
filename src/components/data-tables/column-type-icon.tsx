@@ -7,6 +7,13 @@ import {
   ListChecks,
   Link,
   Mail,
+  ArrowUpRight,
+  Phone,
+  Paperclip,
+  Calculator,
+  FunctionSquare,
+  Clock,
+  RefreshCw,
 } from "lucide-react";
 import type { DataTableColumnType } from "@openhelm/shared";
 import { cn } from "@/lib/utils";
@@ -25,6 +32,13 @@ const ICON_MAP: Record<DataTableColumnType, React.ComponentType<{ className?: st
   multi_select: ListChecks,
   url: Link,
   email: Mail,
+  relation: ArrowUpRight,
+  phone: Phone,
+  files: Paperclip,
+  rollup: Calculator,
+  formula: FunctionSquare,
+  created_time: Clock,
+  updated_time: RefreshCw,
 };
 
 export function ColumnTypeIcon({ type, className }: ColumnTypeIconProps) {

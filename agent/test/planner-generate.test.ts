@@ -64,7 +64,7 @@ beforeEach(() => {
 
 describe("generatePlan", () => {
   it("should parse a valid plan response", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(VALID_PLAN));
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(VALID_PLAN), sessionId: null });
 
     const plan = await generatePlan(projectId, "Improve test coverage");
 
@@ -82,8 +82,8 @@ describe("generatePlan", () => {
       ],
     };
 
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(invalidPlan));
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(invalidPlan)); // retry also fails
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(invalidPlan), sessionId: null });
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(invalidPlan), sessionId: null }); // retry also fails
 
     await expect(
       generatePlan(projectId, "Do something"),
@@ -104,8 +104,8 @@ describe("generatePlan", () => {
       ],
     };
 
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(tooFew));
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(tooFew)); // retry also fails
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(tooFew), sessionId: null });
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(tooFew), sessionId: null }); // retry also fails
 
     await expect(
       generatePlan(projectId, "Simple goal"),
@@ -124,8 +124,8 @@ describe("generatePlan", () => {
       })),
     };
 
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(tooMany));
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(tooMany)); // retry also fails
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(tooMany), sessionId: null });
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(tooMany), sessionId: null }); // retry also fails
 
     await expect(
       generatePlan(projectId, "Lots of jobs"),
@@ -154,8 +154,8 @@ describe("generatePlan", () => {
       ],
     };
 
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(badSchedule));
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(badSchedule)); // retry also fails
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(badSchedule), sessionId: null });
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(badSchedule), sessionId: null }); // retry also fails
 
     await expect(
       generatePlan(projectId, "Invalid schedule"),
@@ -184,8 +184,8 @@ describe("generatePlan", () => {
       ],
     };
 
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(emptyFields));
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(emptyFields)); // retry also fails
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(emptyFields), sessionId: null });
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(emptyFields), sessionId: null }); // retry also fails
 
     await expect(
       generatePlan(projectId, "Empty fields"),
@@ -193,7 +193,7 @@ describe("generatePlan", () => {
   });
 
   it("should pass jsonSchema to the LLM call", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(VALID_PLAN));
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(VALID_PLAN), sessionId: null });
 
     await generatePlan(projectId, "Test coverage");
 
@@ -214,7 +214,7 @@ describe("generatePlan", () => {
   });
 
   it("should include clarification answers in message", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(VALID_PLAN));
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(VALID_PLAN), sessionId: null });
 
     await generatePlan(projectId, "Improve code", {
       "What type?": "Performance",
@@ -226,7 +226,7 @@ describe("generatePlan", () => {
   });
 
   it("should use planning model", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(VALID_PLAN));
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(VALID_PLAN), sessionId: null });
 
     await generatePlan(projectId, "Test");
 
@@ -238,7 +238,7 @@ describe("generatePlan", () => {
   });
 
   it("should include datetime context in the message", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(VALID_PLAN));
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(VALID_PLAN), sessionId: null });
 
     await generatePlan(projectId, "Test");
 
@@ -270,8 +270,8 @@ describe("generatePlan", () => {
       ],
     };
 
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(planWithBadCron));
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify(planWithBadCron)); // retry
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(planWithBadCron), sessionId: null });
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify(planWithBadCron), sessionId: null }); // retry
 
     await expect(
       generatePlan(projectId, "Bad cron"),

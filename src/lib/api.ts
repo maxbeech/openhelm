@@ -80,6 +80,12 @@ import type {
   RejectAllChatActionsParams,
   ListChatMessagesParams,
   ClearChatParams,
+  Conversation,
+  ListConversationsParams,
+  CreateConversationParams,
+  RenameConversationParams,
+  DeleteConversationParams,
+  ReorderConversationsParams,
   LicenseStatus,
   RequestEmailVerificationParams,
   EmailVerificationResult,
@@ -368,6 +374,28 @@ export function listChatMessages(
 
 export function clearChat(params: ClearChatParams): Promise<{ cleared: boolean }> {
   return agentClient.request<{ cleared: boolean }>("chat.clear", params);
+}
+
+// ─── Conversation Threads ───
+
+export function listConversations(params: ListConversationsParams): Promise<Conversation[]> {
+  return agentClient.request<Conversation[]>("chat.listConversations", params);
+}
+
+export function createConversation(params: CreateConversationParams): Promise<Conversation> {
+  return agentClient.request<Conversation>("chat.createConversation", params);
+}
+
+export function renameConversation(params: RenameConversationParams): Promise<Conversation> {
+  return agentClient.request<Conversation>("chat.renameConversation", params);
+}
+
+export function deleteConversation(params: DeleteConversationParams): Promise<{ deleted: boolean }> {
+  return agentClient.request<{ deleted: boolean }>("chat.deleteConversation", params);
+}
+
+export function reorderConversations(params: ReorderConversationsParams): Promise<{ reordered: boolean }> {
+  return agentClient.request<{ reordered: boolean }>("chat.reorderConversations", params);
 }
 
 // ─── Dashboard ───

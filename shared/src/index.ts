@@ -1,3 +1,6 @@
+export { evaluateFormula } from "./formula-evaluator.js";
+export { computeRollup } from "./rollup-evaluator.js";
+
 // ─── IPC Protocol Types ───
 
 /** IPC request sent from UI to agent via stdin */
@@ -457,6 +460,7 @@ export interface Conversation {
   projectId: string | null;
   channel: ChatChannel;
   title: string | null;
+  sortOrder: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -502,6 +506,8 @@ export interface ChatContext {
 export interface SendChatMessageParams {
   /** NULL = "All Projects" thread */
   projectId: string | null;
+  /** Target a specific conversation thread. Falls back to default if omitted. */
+  conversationId?: string;
   content: string;
   context?: ChatContext;
   model?: string;
@@ -532,6 +538,8 @@ export interface RejectAllChatActionsParams {
 export interface ListChatMessagesParams {
   /** NULL = "All Projects" thread */
   projectId: string | null;
+  /** Target a specific conversation thread. Falls back to default if omitted. */
+  conversationId?: string;
   limit?: number;
   beforeId?: string;
 }
@@ -539,6 +547,33 @@ export interface ListChatMessagesParams {
 export interface ClearChatParams {
   /** NULL = "All Projects" thread */
   projectId: string | null;
+  /** Target a specific conversation thread. Falls back to default if omitted. */
+  conversationId?: string;
+}
+
+// ─── Conversation Thread CRUD Types ───
+
+export interface ListConversationsParams {
+  projectId: string | null;
+}
+
+export interface CreateConversationParams {
+  projectId: string | null;
+  title?: string;
+}
+
+export interface RenameConversationParams {
+  conversationId: string;
+  title: string;
+}
+
+export interface DeleteConversationParams {
+  conversationId: string;
+}
+
+export interface ReorderConversationsParams {
+  /** Ordered list of conversation IDs — index becomes new sortOrder */
+  conversationIds: string[];
 }
 
 // ─── Claude Code Integration Types ───
@@ -1099,12 +1134,53 @@ export type DataTableColumnType =
   | "select"
   | "multi_select"
   | "url"
-  | "email";
+  | "email"
+  | "relation"
+  | "phone"
+  | "files"
+  | "rollup"
+  | "formula"
+  | "created_time"
+  | "updated_time";
 
 export interface SelectOption {
   id: string;
   label: string;
   color?: string;
+}
+
+/** File reference stored in a files column cell */
+export interface FileReference {
+  id: string;
+  name: string;
+  url: string; // local file path or external URL
+  size?: number;
+  mimeType?: string;
+}
+
+/** Rollup aggregation functions */
+export type RollupAggregation =
+  | "count"
+  | "count_values"
+  | "count_unique"
+  | "sum"
+  | "average"
+  | "min"
+  | "max"
+  | "percent_empty"
+  | "percent_not_empty"
+  | "show_original";
+
+/** Rollup column config shape */
+export interface RollupConfig {
+  relationColumnId: string; // which relation column in this table to follow
+  sourceColumnId: string;   // which column in the target table to aggregate
+  aggregation: RollupAggregation;
+}
+
+/** Formula column config shape */
+export interface FormulaConfig {
+  expression: string;
 }
 
 export interface DataTableColumn {

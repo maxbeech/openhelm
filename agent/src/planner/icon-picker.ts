@@ -54,7 +54,7 @@ export async function pickIcon(
       ? `Name: ${name}\nDescription: ${description}`
       : `Name: ${name}`;
 
-    const result = await callLlmViaCli({
+    const { text: result } = await callLlmViaCli({
       model: "classification",
       systemPrompt: SYSTEM_PROMPT,
       userMessage,

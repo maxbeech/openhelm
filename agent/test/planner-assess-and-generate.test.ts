@@ -73,7 +73,7 @@ beforeEach(() => {
 
 describe("assessAndGenerate", () => {
   it("should return plan when no clarification needed", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce(VALID_PLAN_RESPONSE);
+    callLlmViaCliMock.mockResolvedValueOnce({ text: VALID_PLAN_RESPONSE, sessionId: null });
 
     const result = await assessAndGenerate(projectId, "Improve code quality");
 
@@ -85,7 +85,7 @@ describe("assessAndGenerate", () => {
   });
 
   it("should return questions when clarification needed", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce(CLARIFICATION_RESPONSE);
+    callLlmViaCliMock.mockResolvedValueOnce({ text: CLARIFICATION_RESPONSE, sessionId: null });
 
     const result = await assessAndGenerate(projectId, "Improve things");
 
@@ -97,7 +97,7 @@ describe("assessAndGenerate", () => {
   });
 
   it("should use planning model tier (Sonnet)", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce(VALID_PLAN_RESPONSE);
+    callLlmViaCliMock.mockResolvedValueOnce({ text: VALID_PLAN_RESPONSE, sessionId: null });
 
     await assessAndGenerate(projectId, "Clear goal");
 
@@ -109,7 +109,7 @@ describe("assessAndGenerate", () => {
   });
 
   it("should include datetime context in message", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce(VALID_PLAN_RESPONSE);
+    callLlmViaCliMock.mockResolvedValueOnce({ text: VALID_PLAN_RESPONSE, sessionId: null });
 
     await assessAndGenerate(projectId, "Test goal");
 
@@ -120,7 +120,7 @@ describe("assessAndGenerate", () => {
   });
 
   it("should include project context in message", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce(VALID_PLAN_RESPONSE);
+    callLlmViaCliMock.mockResolvedValueOnce({ text: VALID_PLAN_RESPONSE, sessionId: null });
 
     await assessAndGenerate(projectId, "Test goal");
 
@@ -131,7 +131,7 @@ describe("assessAndGenerate", () => {
   });
 
   it("should pass jsonSchema to LLM call", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce(VALID_PLAN_RESPONSE);
+    callLlmViaCliMock.mockResolvedValueOnce({ text: VALID_PLAN_RESPONSE, sessionId: null });
 
     await assessAndGenerate(projectId, "Test goal");
 
@@ -146,7 +146,7 @@ describe("assessAndGenerate", () => {
   });
 
   it("should pass onProgress callback", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce(VALID_PLAN_RESPONSE);
+    callLlmViaCliMock.mockResolvedValueOnce({ text: VALID_PLAN_RESPONSE, sessionId: null });
 
     await assessAndGenerate(projectId, "Test goal");
 
@@ -164,8 +164,8 @@ describe("assessAndGenerate", () => {
   });
 
   it("should throw on invalid JSON after retries", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce("not json");
-    callLlmViaCliMock.mockResolvedValueOnce("still not json");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "not json", sessionId: null });
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "still not json", sessionId: null });
 
     await expect(
       assessAndGenerate(projectId, "Goal"),
@@ -174,10 +174,10 @@ describe("assessAndGenerate", () => {
 
   it("should throw when plan path missing plan object", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      JSON.stringify({ needsClarification: false }),
+      { text: JSON.stringify({ needsClarification: false }), sessionId: null },
     );
     callLlmViaCliMock.mockResolvedValueOnce(
-      JSON.stringify({ needsClarification: false }),
+      { text: JSON.stringify({ needsClarification: false }), sessionId: null },
     );
 
     await expect(
@@ -210,8 +210,8 @@ describe("assessAndGenerate", () => {
       },
     });
 
-    callLlmViaCliMock.mockResolvedValueOnce(badCronResponse);
-    callLlmViaCliMock.mockResolvedValueOnce(badCronResponse);
+    callLlmViaCliMock.mockResolvedValueOnce({ text: badCronResponse, sessionId: null });
+    callLlmViaCliMock.mockResolvedValueOnce({ text: badCronResponse, sessionId: null });
 
     await expect(
       assessAndGenerate(projectId, "Goal"),

@@ -16,6 +16,11 @@ vi.mock("@/lib/api", () => ({
   approveAllChatActions: vi.fn(),
   rejectAllChatActions: vi.fn(),
   clearChat: vi.fn().mockResolvedValue(undefined),
+  listConversations: vi.fn().mockResolvedValue([]),
+  createConversation: vi.fn(),
+  renameConversation: vi.fn(),
+  deleteConversation: vi.fn(),
+  reorderConversations: vi.fn(),
 }));
 
 function makeMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
@@ -33,7 +38,16 @@ function makeMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
 }
 
 beforeEach(() => {
-  useChatStore.setState({ messages: [], sending: false, panelOpen: true, error: null, loading: false });
+  useChatStore.setState({
+    messages: [],
+    panelOpen: true,
+    error: null,
+    loading: false,
+    conversations: [],
+    activeConversationId: null,
+    activeConversationIds: {},
+    conversationStates: {},
+  });
   useAppStore.setState({
     contentView: "home",
     selectedGoalId: null,
@@ -122,7 +136,10 @@ describe("ChatPanel", () => {
   });
 
   it("renders Thinking... spinner while sending", () => {
-    useChatStore.setState({ sending: true });
+    useChatStore.setState({
+      activeConversationId: "conv-1",
+      conversationStates: { "conv-1": { sending: true, statusText: null, streamingText: "" } },
+    });
     render(<ChatPanel projectId="p1" />);
     expect(screen.getByText("Thinking...")).toBeInTheDocument();
   });

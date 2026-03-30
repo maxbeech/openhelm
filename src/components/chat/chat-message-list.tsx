@@ -13,8 +13,10 @@ interface ChatMessageListProps {
 }
 
 export function ChatMessageList({ messages, sending, projectId }: ChatMessageListProps) {
-  const statusText = useChatStore((s) => s.statusText);
-  const streamingText = useChatStore((s) => s.streamingText);
+  const activeConvId = useChatStore((s) => s.activeConversationId);
+  const convState = useChatStore((s) => activeConvId ? s.conversationStates[activeConvId] : null);
+  const statusText = convState?.statusText ?? null;
+  const streamingText = convState?.streamingText ?? "";
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom on new messages or streaming chunks

@@ -31,12 +31,14 @@ export interface LlmCallConfig {
   onToolUse?: (toolName: string) => void;
   /** Use raw assistant text blocks instead of result event summary */
   preferRawText?: boolean;
+  /** Resume a previous session (avoids CLI cold start in tool loops) */
+  resumeSessionId?: string;
 }
 
 const MODEL_MAP: Record<ModelTier, string> = {
   planning: "sonnet",
   classification: "claude-haiku-4-5-20251001",
-  chat: "sonnet",
+  chat: "claude-haiku-4-5-20251001",
 };
 
 // Tier-specific timeouts: sonnet is slower than haiku, allow generous headroom.
@@ -50,7 +52,12 @@ const TIMEOUT_MAP: Record<ModelTier, number> = {
  * Call the LLM via the Claude Code CLI in --print mode.
  * All internal LLM calls (planning, assessment, summarisation) route through here.
  */
-export async function callLlmViaCli(config: LlmCallConfig): Promise<string> {
+export interface LlmCallResult {
+  text: string;
+  sessionId: string | null;
+}
+
+export async function callLlmViaCli(config: LlmCallConfig): Promise<LlmCallResult> {
   const binaryPath = getClaudeCodePath();
 
   const tier = config.model ?? "planning";
@@ -75,10 +82,11 @@ export async function callLlmViaCli(config: LlmCallConfig): Promise<string> {
     onTextChunk: config.onTextChunk,
     onToolUse: config.onToolUse,
     preferRawText: config.preferRawText,
+    resumeSessionId: config.resumeSessionId,
   });
 
   console.error(`[llm] ${model} completed in ${Date.now() - t0}ms (${result.text.length} chars)`);
-  return result.text;
+  return { text: result.text, sessionId: result.sessionId };
 }
 
 function getClaudeCodePath(): string {

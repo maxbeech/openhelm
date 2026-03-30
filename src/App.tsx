@@ -5,10 +5,12 @@ import { agentClient } from "./lib/agent-client";
 import * as api from "./lib/api";
 import { friendlyError } from "./lib/utils";
 import { initFrontendSentry, setAnalyticsEnabled } from "./lib/sentry";
+import { initPostHog, setRecordingEnabled, captureEvent } from "./lib/posthog";
 import { AppErrorBoundary } from "./components/shared/error-boundary";
 
-// Initialize Sentry before first render — idempotent, safe to call at module level
+// Initialize Sentry and PostHog before first render — both are idempotent
 initFrontendSentry();
+initPostHog();
 import { useAppStore } from "./stores/app-store";
 import { useProjectStore } from "./stores/project-store";
 import { useGoalStore } from "./stores/goal-store";
@@ -95,13 +97,20 @@ export default function App() {
   const { fetchRuns, updateRunInStore } = useRunStore();
   const {
     messages: chatMessages,
-    sending: chatSending,
-    fetchMessages,
+    fetchConversations,
     addMessageToStore,
     updateMessageInStore,
-    appendStreamingText,
-    clearStreamingText,
+    setConvSending,
+    setConvStatus,
+    appendConvStreaming,
+    clearConvStreaming,
   } = useChatStore();
+  // Must be at top level — cannot be called after early returns
+  const activeConvId = useChatStore((s) => s.activeConversationId);
+  const chatSending = useChatStore((s) => {
+    const convId = s.activeConversationId;
+    return convId ? (s.conversationStates[convId]?.sending ?? false) : false;
+  });
   const {
     fetchItems: fetchDashboardItems,
     fetchOpenCount: fetchDashboardCount,
@@ -198,6 +207,7 @@ export default function App() {
             data.summary,
           );
         }
+        captureEvent("run_completed", { status: data.status });
       }
     },
     [updateRunInStore],
@@ -245,69 +255,60 @@ export default function App() {
   useAgentEvent("job.iconUpdated", handleJobIconUpdated);
   useAgentEvent("job.updated", handleJobUpdated);
 
-  // Chat event handlers — filter by projectId so cross-thread events are ignored.
-  // null projectId on both sides means "All Projects" thread.
+  // Chat event handlers — filter by conversationId so cross-thread events are isolated.
+  // This enables simultaneous conversations across different threads.
   const handleChatMessageCreated = useCallback(
-    (data: ChatMessage & { projectId?: string | null }) => {
-      const currentProject = useAppStore.getState().activeProjectId;
-      // Match: both null (All Projects) OR same string
-      const eventProject = data.projectId ?? null;
-      if (eventProject !== currentProject) return;
-
-      const existing = useChatStore
-        .getState()
-        .messages.find((m) => m.id === data.id);
-      if (existing) {
-        updateMessageInStore(data);
-      } else {
-        addMessageToStore(data);
+    (data: ChatMessage & { projectId?: string | null; conversationId?: string }) => {
+      const activeConvId = useChatStore.getState().activeConversationId;
+      const eventConvId = data.conversationId;
+      // Only update message list when viewing the same conversation
+      if (eventConvId && eventConvId === activeConvId) {
+        const existing = useChatStore.getState().messages.find((m) => m.id === data.id);
+        if (existing) {
+          updateMessageInStore(data);
+        } else {
+          addMessageToStore(data);
+        }
       }
-      // Assistant message arrived — clear streaming preview and sending state
-      if (data.role === "assistant") {
-        clearStreamingText();
-        useChatStore.setState({ sending: false });
+      // Clear per-conversation transient state regardless of which thread is active
+      if (data.role === "assistant" && eventConvId) {
+        clearConvStreaming(eventConvId);
+        setConvSending(eventConvId, false);
       }
     },
-    [addMessageToStore, updateMessageInStore, clearStreamingText],
+    [addMessageToStore, updateMessageInStore, clearConvStreaming, setConvSending],
   );
 
   const handleChatStatus = useCallback(
-    (data: { status: string; tools?: string[]; projectId?: string | null }) => {
-      const currentProject = useAppStore.getState().activeProjectId;
-      if ((data.projectId ?? null) !== currentProject) return;
-
-      const { setStatusText } = useChatStore.getState();
+    (data: { status: string; tools?: string[]; projectId?: string | null; conversationId?: string }) => {
+      const convId = data.conversationId;
+      if (!convId) return;
       if (data.status === "done") {
-        setStatusText(null);
+        setConvStatus(convId, null);
         return;
       }
-      // Clear streaming preview on each new LLM iteration so stale chunks don't linger
-      clearStreamingText();
+      clearConvStreaming(convId);
       if (data.status === "reading" && data.tools) {
-        const label = data.tools
-          .map((t) => t.replace(/_/g, " "))
-          .join(", ");
-        setStatusText(`Looking up ${label}...`);
+        const label = data.tools.map((t) => t.replace(/_/g, " ")).join(", ");
+        setConvStatus(convId, `Looking up ${label}...`);
       } else if (data.status === "analyzing") {
-        setStatusText("Analyzing results...");
+        setConvStatus(convId, "Analyzing results...");
       } else {
-        setStatusText("Thinking...");
+        setConvStatus(convId, "Thinking...");
       }
     },
-    [clearStreamingText],
+    [clearConvStreaming, setConvStatus],
   );
 
   const handleChatStreaming = useCallback(
-    (data: { text: string; projectId?: string | null }) => {
-      const currentProject = useAppStore.getState().activeProjectId;
-      if ((data.projectId ?? null) !== currentProject) return;
-      appendStreamingText(data.text);
+    (data: { text: string; projectId?: string | null; conversationId?: string }) => {
+      if (data.conversationId) appendConvStreaming(data.conversationId, data.text);
     },
-    [appendStreamingText],
+    [appendConvStreaming],
   );
 
   const handleChatActionResolved = useCallback(
-    (data: { projectId?: string | null }) => {
+    (data: { projectId?: string | null; conversationId?: string }) => {
       const currentProject = useAppStore.getState().activeProjectId;
       if ((data.projectId ?? null) !== currentProject) return;
       fetchGoals(activeProjectId);
@@ -318,21 +319,21 @@ export default function App() {
   );
 
   const handleChatError = useCallback(
-    (data: { projectId?: string | null; error: string }) => {
-      const currentProject = useAppStore.getState().activeProjectId;
-      const matches = (data.projectId ?? null) === currentProject;
-      // Always clear sending/status so the UI never gets stuck in a
-      // permanent "sending" state — even if the user switched projects
-      // while the LLM was processing.
-      useChatStore.setState({
-        sending: false,
-        statusText: null,
-        streamingText: "",
-        // Only show the error banner when still on the same thread
-        ...(matches ? { error: friendlyError(new Error(data.error), "Chat failed") } : {}),
-      });
+    (data: { projectId?: string | null; conversationId?: string; error: string }) => {
+      const convId = data.conversationId;
+      // Always clear per-conversation sending/status so UI never gets stuck
+      if (convId) {
+        setConvSending(convId, false);
+        setConvStatus(convId, null);
+        clearConvStreaming(convId);
+      }
+      // Only show error banner when viewing the same conversation
+      const activeConvId = useChatStore.getState().activeConversationId;
+      if (convId && convId === activeConvId) {
+        useChatStore.setState({ error: friendlyError(new Error(data.error), "Chat failed") });
+      }
     },
-    [],
+    [setConvSending, setConvStatus, clearConvStreaming],
   );
 
   useAgentEvent("chat.messageCreated", handleChatMessageCreated);
@@ -529,13 +530,16 @@ export default function App() {
         // Fetch cross-project dashboard right away
         fetchDashboardItems();
         fetchDashboardCount();
-        // Configure Sentry analytics opt-out (read after projects load)
+        // Configure Sentry opt-out and PostHog session recording (read after projects load)
         try {
           const s = await api.getSetting("analytics_enabled");
-          setAnalyticsEnabled(s?.value !== "false");
+          const enabled = s?.value !== "false";
+          setAnalyticsEnabled(enabled);
+          setRecordingEnabled(enabled);
         } catch {
-          // Keep optimistic default (enabled)
+          // Keep optimistic defaults (enabled)
         }
+        captureEvent("app_opened");
         // Enable auto-update check unless user has explicitly opted out or running in dev mode
         if (!import.meta.env.DEV) {
           try {
@@ -558,10 +562,8 @@ export default function App() {
 
   // Fetch data when project filter changes (null = All Projects)
   useEffect(() => {
-    // Clear transient chat state from previous project so it doesn't leak
-    useChatStore.setState({ sending: false, error: null });
-    useChatStore.getState().setStatusText(null);
-    useChatStore.getState().clearStreamingText();
+    // Clear transient chat state from previous project
+    useChatStore.setState({ error: null });
 
     fetchGoals(activeProjectId);
     fetchJobs(activeProjectId);
@@ -572,17 +574,24 @@ export default function App() {
     fetchDataTableCount(activeProjectId);
     fetchDashboardItems(activeProjectId ?? undefined);
     fetchDashboardCount(activeProjectId ?? undefined);
-    // Always fetch messages — null = "All Projects" thread
-    fetchMessages(activeProjectId);
+    // Fetch conversations (threads) for this project — also loads messages for the active thread
+    fetchConversations(activeProjectId);
     if (activeProjectId) {
       api
         .setSetting({ key: "active_project", value: activeProjectId })
         .catch(() => {});
     }
-  }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns, fetchMessages, fetchMemories, fetchMemoryCount, fetchCredentialCount, fetchDataTableCount, fetchDashboardItems, fetchDashboardCount]);
+  }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns, fetchConversations, fetchMemories, fetchMemoryCount, fetchCredentialCount, fetchDataTableCount, fetchDashboardItems, fetchDashboardCount]);
 
   // Notification permission is now requested during onboarding (Permissions step)
   // and can be re-requested via Settings > Permissions. No startup prompt needed.
+
+  // Track view navigation
+  useEffect(() => {
+    if (agentReady && onboardingComplete) {
+      captureEvent("view_changed", { view: contentView });
+    }
+  }, [contentView, agentReady, onboardingComplete]);
 
   const handleOnboardingComplete = useCallback(
     (projectId: string) => {
@@ -593,6 +602,7 @@ export default function App() {
           api.setSetting({ key: "active_project", value: projectId }).catch(() => {}),
           api.setSetting({ key: "onboarding_complete", value: "true" }).catch(() => {}),
         ]);
+        captureEvent("onboarding_completed");
         setActiveProjectId(projectId);
         setOnboardingComplete(true);
       });

@@ -480,6 +480,154 @@ export function getSampleRows(tableId: string, limit = 5): DataTableRow[] {
     .map(rowToTableRow);
 }
 
+// ─── Relation helpers ───
+
+/**
+ * Sync reciprocal relation column when a relation cell is updated.
+ * For each added target row, appends sourceRowId to its reciprocal column.
+ * For each removed target row, removes sourceRowId from its reciprocal column.
+ */
+export function syncReciprocalRelation(params: {
+  sourceTableId: string;
+  sourceRowId: string;
+  targetTableId: string;
+  targetColumnId: string;
+  addedRowIds: string[];
+  removedRowIds: string[];
+}): void {
+  const db = getDb();
+
+  for (const targetRowId of params.addedRowIds) {
+    const row = db.select().from(dataTableRows).where(eq(dataTableRows.id, targetRowId)).get();
+    if (!row) continue;
+    const data = JSON.parse(row.data || "{}") as Record<string, unknown>;
+    const existing = Array.isArray(data[params.targetColumnId]) ? data[params.targetColumnId] as string[] : [];
+    if (!existing.includes(params.sourceRowId)) {
+      data[params.targetColumnId] = [...existing, params.sourceRowId];
+      db.update(dataTableRows)
+        .set({ data: JSON.stringify(data), updatedAt: new Date().toISOString() })
+        .where(eq(dataTableRows.id, targetRowId))
+        .run();
+      logChange({
+        tableId: params.targetTableId,
+        rowId: targetRowId,
+        action: "update",
+        actor: "system",
+        diff: { reciprocalAdd: { columnId: params.targetColumnId, addedId: params.sourceRowId } },
+      });
+    }
+  }
+
+  for (const targetRowId of params.removedRowIds) {
+    const row = db.select().from(dataTableRows).where(eq(dataTableRows.id, targetRowId)).get();
+    if (!row) continue;
+    const data = JSON.parse(row.data || "{}") as Record<string, unknown>;
+    const existing = Array.isArray(data[params.targetColumnId]) ? data[params.targetColumnId] as string[] : [];
+    const filtered = existing.filter((id) => id !== params.sourceRowId);
+    if (filtered.length !== existing.length) {
+      data[params.targetColumnId] = filtered;
+      db.update(dataTableRows)
+        .set({ data: JSON.stringify(data), updatedAt: new Date().toISOString() })
+        .where(eq(dataTableRows.id, targetRowId))
+        .run();
+      logChange({
+        tableId: params.targetTableId,
+        rowId: targetRowId,
+        action: "update",
+        actor: "system",
+        diff: { reciprocalRemove: { columnId: params.targetColumnId, removedId: params.sourceRowId } },
+      });
+    }
+  }
+}
+
+/**
+ * Clean up relation references when rows are deleted.
+ * Scans all tables in the same project for relation columns pointing to
+ * the source table, and removes the deleted row IDs from those cells.
+ */
+export function cleanupRelationReferences(deletedRowIds: string[], sourceTableId: string): void {
+  const db = getDb();
+  const sourceTable = getDataTable(sourceTableId);
+  if (!sourceTable) return;
+
+  // Find all tables in the same project
+  const allTables = listDataTables({ projectId: sourceTable.projectId });
+
+  for (const table of allTables) {
+    const relationCols = table.columns.filter(
+      (c) => c.type === "relation" && (c.config as { targetTableId?: string }).targetTableId === sourceTableId,
+    );
+    if (relationCols.length === 0) continue;
+
+    const rows = db
+      .select()
+      .from(dataTableRows)
+      .where(eq(dataTableRows.tableId, table.id))
+      .all();
+
+    for (const row of rows) {
+      const data = JSON.parse(row.data || "{}") as Record<string, unknown>;
+      let changed = false;
+
+      for (const col of relationCols) {
+        const arr = Array.isArray(data[col.id]) ? data[col.id] as string[] : [];
+        const filtered = arr.filter((id) => !deletedRowIds.includes(id));
+        if (filtered.length !== arr.length) {
+          data[col.id] = filtered;
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        db.update(dataTableRows)
+          .set({ data: JSON.stringify(data), updatedAt: new Date().toISOString() })
+          .where(eq(dataTableRows.id, row.id))
+          .run();
+      }
+    }
+  }
+}
+
+/**
+ * Remove relation columns in other tables that point to a deleted table.
+ * Returns the IDs of tables that were modified (for event emission).
+ */
+export function cleanupRelationColumnsForDeletedTable(deletedTableId: string, projectId: string): string[] {
+  const db = getDb();
+  const allTables = listDataTables({ projectId });
+  const modifiedTableIds: string[] = [];
+
+  for (const table of allTables) {
+    if (table.id === deletedTableId) continue;
+    const relationCols = table.columns.filter(
+      (c) => c.type === "relation" && (c.config as { targetTableId?: string }).targetTableId === deletedTableId,
+    );
+    if (relationCols.length === 0) continue;
+
+    const colIdsToRemove = new Set(relationCols.map((c) => c.id));
+    const filteredColumns = table.columns.filter((c) => !colIdsToRemove.has(c.id));
+
+    db.update(dataTables)
+      .set({ columns: JSON.stringify(filteredColumns), updatedAt: new Date().toISOString() })
+      .where(eq(dataTables.id, table.id))
+      .run();
+
+    for (const col of relationCols) {
+      logChange({
+        tableId: table.id,
+        action: "schema_change",
+        actor: "system",
+        diff: { removedRelationColumn: col, reason: "target_table_deleted" },
+      });
+    }
+
+    modifiedTableIds.push(table.id);
+  }
+
+  return modifiedTableIds;
+}
+
 // ─── Cross-project queries (All Projects mode) ───
 
 export function listAllDataTables(): DataTable[] {

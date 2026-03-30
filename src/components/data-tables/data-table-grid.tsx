@@ -2,6 +2,7 @@ import { Trash2 } from "lucide-react";
 import type { DataTableColumn, DataTableRow } from "@openhelm/shared";
 import { ColumnTypeIcon } from "./column-type-icon";
 import { DataTableCell } from "./data-table-cell";
+import type { RelatedTableData } from "./relation-cell";
 
 interface Props {
   columns: DataTableColumn[];
@@ -11,9 +12,10 @@ interface Props {
   onDeleteRow: (rowId: string) => void;
   onColumnRemove: (columnId: string) => void;
   onColumnConfigUpdate: (columnId: string, config: Record<string, unknown>) => void;
+  relatedData?: Map<string, RelatedTableData>;
 }
 
-export function DataTableGrid({ columns, rows, loading, onCellChange, onDeleteRow, onColumnRemove, onColumnConfigUpdate }: Props) {
+export function DataTableGrid({ columns, rows, loading, onCellChange, onDeleteRow, onColumnRemove, onColumnConfigUpdate, relatedData }: Props) {
   if (loading && rows.length === 0) {
     return (
       <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
@@ -69,6 +71,9 @@ export function DataTableGrid({ columns, rows, loading, onCellChange, onDeleteRo
                   value={row.data[col.id]}
                   onChange={(value) => onCellChange(row.id, col.id, value)}
                   onColumnConfigUpdate={(config) => onColumnConfigUpdate(col.id, config)}
+                  relatedData={relatedData}
+                  row={row}
+                  allColumns={columns}
                 />
               </td>
             ))}

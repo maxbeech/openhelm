@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ChatMessage, ChatContext } from "@openhelm/shared";
+import type { ChatMessage, ChatContext, Conversation } from "@openhelm/shared";
 import * as api from "@/lib/api";
 import { friendlyError } from "@/lib/utils";
 
@@ -27,29 +27,55 @@ export const CHAT_PERMISSION_MODES = [
 
 export type ChatPermissionModeValue = typeof CHAT_PERMISSION_MODES[number]["value"];
 
+/** Per-conversation transient state (sending, streaming, status). */
+export interface ConversationTransientState {
+  sending: boolean;
+  statusText: string | null;
+  streamingText: string;
+}
+
 interface ChatState {
   messages: ChatMessage[];
   loading: boolean;
-  sending: boolean;
   error: string | null;
   panelOpen: boolean;
-  statusText: string | null;
-  /** Incrementally accumulated text from chat.streaming events. */
-  streamingText: string;
   chatModel: ChatModelValue;
   chatEffort: ChatEffortValue;
   chatPermissionMode: ChatPermissionModeValue;
 
+  /** All conversation threads for the current project */
+  conversations: Conversation[];
+  /** Currently active conversation thread */
+  activeConversationId: string | null;
+  /** Remembers last-active conversation per project (projectKey → conversationId) */
+  activeConversationIds: Record<string, string>;
+  /** Per-conversation transient state for simultaneous threads */
+  conversationStates: Record<string, ConversationTransientState>;
+
   togglePanel: () => void;
   openPanel: () => void;
   closePanel: () => void;
-  setStatusText: (text: string | null) => void;
-  appendStreamingText: (text: string) => void;
-  clearStreamingText: () => void;
   setChatModel: (model: ChatModelValue) => void;
   setChatEffort: (effort: ChatEffortValue) => void;
   setChatPermissionMode: (mode: ChatPermissionModeValue) => void;
-  fetchMessages: (projectId: string | null) => Promise<void>;
+
+  // Per-conversation transient state helpers
+  getConvState: (convId: string) => ConversationTransientState;
+  setConvSending: (convId: string, sending: boolean) => void;
+  setConvStatus: (convId: string, status: string | null) => void;
+  appendConvStreaming: (convId: string, text: string) => void;
+  clearConvStreaming: (convId: string) => void;
+
+  // Thread management
+  fetchConversations: (projectId: string | null) => Promise<void>;
+  setActiveConversation: (conversationId: string) => void;
+  createThread: (projectId: string | null, title?: string) => Promise<void>;
+  renameThread: (conversationId: string, title: string) => Promise<void>;
+  deleteThread: (conversationId: string, projectId: string | null) => Promise<void>;
+  reorderThreads: (conversationIds: string[]) => Promise<void>;
+
+  // Messages
+  fetchMessages: (projectId: string | null, conversationId?: string) => Promise<void>;
   sendMessage: (projectId: string | null, content: string, context?: ChatContext) => Promise<void>;
   approveAction: (messageId: string, callId: string, projectId: string) => Promise<void>;
   rejectAction: (messageId: string, callId: string) => Promise<void>;
@@ -60,32 +86,149 @@ interface ChatState {
   updateMessageInStore: (message: ChatMessage) => void;
 }
 
+const DEFAULT_CONV_STATE: ConversationTransientState = { sending: false, statusText: null, streamingText: "" };
+
+function projectKey(projectId: string | null): string {
+  return projectId ?? "__all__";
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   loading: false,
-  sending: false,
   error: null,
   panelOpen: false,
-  statusText: null,
-  streamingText: "",
-  chatModel: "sonnet",
+  chatModel: "haiku",
   chatEffort: "medium",
   chatPermissionMode: "plan",
+  conversations: [],
+  activeConversationId: null,
+  activeConversationIds: {},
+  conversationStates: {},
 
   togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
   openPanel: () => set({ panelOpen: true }),
   closePanel: () => set({ panelOpen: false }),
-  setStatusText: (text) => set({ statusText: text }),
-  appendStreamingText: (text) => set((s) => ({ streamingText: s.streamingText + text })),
-  clearStreamingText: () => set({ streamingText: "" }),
   setChatModel: (model) => set({ chatModel: model }),
   setChatEffort: (effort) => set({ chatEffort: effort }),
   setChatPermissionMode: (mode) => set({ chatPermissionMode: mode }),
 
-  fetchMessages: async (projectId) => {
+  getConvState: (convId) => get().conversationStates[convId] ?? DEFAULT_CONV_STATE,
+  setConvSending: (convId, sending) => set((s) => ({
+    conversationStates: { ...s.conversationStates, [convId]: { ...(s.conversationStates[convId] ?? DEFAULT_CONV_STATE), sending } },
+  })),
+  setConvStatus: (convId, status) => set((s) => ({
+    conversationStates: { ...s.conversationStates, [convId]: { ...(s.conversationStates[convId] ?? DEFAULT_CONV_STATE), statusText: status } },
+  })),
+  appendConvStreaming: (convId, text) => set((s) => {
+    const prev = s.conversationStates[convId] ?? DEFAULT_CONV_STATE;
+    return { conversationStates: { ...s.conversationStates, [convId]: { ...prev, streamingText: prev.streamingText + text } } };
+  }),
+  clearConvStreaming: (convId) => set((s) => ({
+    conversationStates: { ...s.conversationStates, [convId]: { ...(s.conversationStates[convId] ?? DEFAULT_CONV_STATE), streamingText: "" } },
+  })),
+
+  fetchConversations: async (projectId) => {
+    try {
+      const convs = await api.listConversations({ projectId });
+      const pk = projectKey(projectId);
+      const remembered = get().activeConversationIds[pk];
+      const activeId = convs.find((c) => c.id === remembered)?.id ?? convs[0]?.id ?? null;
+      set({ conversations: convs, activeConversationId: activeId });
+      if (activeId) {
+        get().fetchMessages(projectId, activeId);
+      } else {
+        set({ messages: [] });
+      }
+    } catch {
+      set({ conversations: [], activeConversationId: null, messages: [] });
+    }
+  },
+
+  setActiveConversation: (conversationId) => {
+    const conv = get().conversations.find((c) => c.id === conversationId);
+    if (!conv) return;
+    const pk = projectKey(conv.projectId);
+    set((s) => ({
+      activeConversationId: conversationId,
+      activeConversationIds: { ...s.activeConversationIds, [pk]: conversationId },
+    }));
+    get().fetchMessages(conv.projectId, conversationId);
+  },
+
+  createThread: async (projectId, title) => {
+    try {
+      const conv = await api.createConversation({ projectId, title });
+      set((s) => {
+        const pk = projectKey(projectId);
+        return {
+          conversations: [...s.conversations, conv],
+          activeConversationId: conv.id,
+          activeConversationIds: { ...s.activeConversationIds, [pk]: conv.id },
+          messages: [],
+        };
+      });
+    } catch (err) {
+      set({ error: friendlyError(err, "Failed to create thread") });
+    }
+  },
+
+  renameThread: async (conversationId, title) => {
+    try {
+      const updated = await api.renameConversation({ conversationId, title });
+      set((s) => ({
+        conversations: s.conversations.map((c) => (c.id === conversationId ? updated : c)),
+      }));
+    } catch (err) {
+      set({ error: friendlyError(err, "Failed to rename thread") });
+    }
+  },
+
+  deleteThread: async (conversationId, projectId) => {
+    try {
+      await api.deleteConversation({ conversationId });
+      set((s) => {
+        const remaining = s.conversations.filter((c) => c.id !== conversationId);
+        const wasActive = s.activeConversationId === conversationId;
+        const newActive = wasActive ? (remaining[0]?.id ?? null) : s.activeConversationId;
+        return {
+          conversations: remaining,
+          activeConversationId: newActive,
+          messages: wasActive ? [] : s.messages,
+        };
+      });
+      // If we switched active, load the new thread's messages
+      const { activeConversationId } = get();
+      if (activeConversationId) {
+        get().fetchMessages(projectId, activeConversationId);
+      }
+    } catch (err) {
+      set({ error: friendlyError(err, "Failed to delete thread") });
+    }
+  },
+
+  reorderThreads: async (conversationIds) => {
+    // Optimistic reorder
+    set((s) => {
+      const ordered = conversationIds
+        .map((id, i) => {
+          const conv = s.conversations.find((c) => c.id === id);
+          return conv ? { ...conv, sortOrder: i } : null;
+        })
+        .filter(Boolean) as Conversation[];
+      return { conversations: ordered };
+    });
+    try {
+      await api.reorderConversations({ conversationIds });
+    } catch (err) {
+      set({ error: friendlyError(err, "Failed to reorder threads") });
+    }
+  },
+
+  fetchMessages: async (projectId, conversationId) => {
     set({ loading: true, error: null });
     try {
-      const messages = await api.listChatMessages({ projectId, limit: 100 });
+      const cId = conversationId ?? get().activeConversationId ?? undefined;
+      const messages = await api.listChatMessages({ projectId, conversationId: cId, limit: 100 });
       set({ messages, loading: false });
     } catch (err) {
       set({ error: friendlyError(err, "Failed to load chat history"), loading: false });
@@ -93,15 +236,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (projectId, content, context) => {
-    set({ sending: true, error: null });
+    const convId = get().activeConversationId;
+    if (convId) get().setConvSending(convId, true);
+    set({ error: null });
     const { chatModel, chatEffort, chatPermissionMode } = get();
     try {
-      await api.sendChatMessage({ projectId, content, context, model: chatModel, modelEffort: chatEffort, permissionMode: chatPermissionMode });
-      // Don't clear sending here — the agent processes asynchronously.
-      // sending is cleared when the assistant message or chat.error event arrives.
+      await api.sendChatMessage({
+        projectId,
+        conversationId: convId ?? undefined,
+        content,
+        context,
+        model: chatModel,
+        modelEffort: chatEffort,
+        permissionMode: chatPermissionMode,
+      });
     } catch (err) {
-      // Transport-level error (agent not connected, request failed to send)
-      set({ error: friendlyError(err, "Failed to send message"), sending: false });
+      if (convId) get().setConvSending(convId, false);
+      set({ error: friendlyError(err, "Failed to send message") });
     }
   },
 
@@ -147,7 +298,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   clearChat: async (projectId) => {
     try {
-      await api.clearChat({ projectId });
+      const convId = get().activeConversationId;
+      await api.clearChat({ projectId, conversationId: convId ?? undefined });
       set({ messages: [] });
     } catch (err) {
       set({ error: friendlyError(err, "Failed to clear chat") });
@@ -157,7 +309,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   addMessageToStore: (message) => {
     set((s) => {
-      // Avoid duplicates (event may fire before or after API response)
       if (s.messages.some((m) => m.id === message.id)) return s;
       return { messages: [...s.messages, message] };
     });

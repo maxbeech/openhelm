@@ -80,7 +80,7 @@ export async function generateRunSummary(
     const truncated = truncateLogs(fullText);
     const userMessage = `Run status: ${status}\n\nRun output:\n${truncated}`;
 
-    const text = await callLlmViaCli({
+    const { text } = await callLlmViaCli({
       model: "classification",
       systemPrompt: SUMMARIZE_SYSTEM_PROMPT,
       userMessage,

@@ -19,6 +19,7 @@ import { usageService } from "./usage/service.js";
 import { cleanupOrphanedConfigs } from "./mcp-servers/mcp-config-builder.js";
 import { cleanupOrphanedBrowserCredentials } from "./credentials/browser-credentials.js";
 import { cleanupOrphanedBrowserPids } from "./mcp-servers/browser-cleanup.js";
+import { preWarmEmbedder } from "./memory/embeddings.js";
 
 // Injected at build time by esbuild define — see agent/scripts/build.mjs
 declare const __OPENHELM_VERSION__: string;
@@ -124,6 +125,9 @@ if (focusGuardSetting?.value === "false") {
   emit("focus_guard.setEnabled", { enabled: false });
 }
 console.error(`[agent] ready, listening for IPC on stdin (${elapsed()})`);
+
+// 5c. Pre-warm embedding model so first chat message doesn't pay load cost
+preWarmEmbedder();
 
 // 6. Auto-detect Claude Code CLI in background (non-blocking)
 detectClaudeCode()

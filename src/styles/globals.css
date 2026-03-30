@@ -132,6 +132,15 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--color-muted-foreground);
 }
 
+/* Hide scrollbar while preserving scroll functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* Chat markdown rendering */
 .markdown-content p { margin: 0 0 0.4em; }
 .markdown-content p:last-child { margin-bottom: 0; }

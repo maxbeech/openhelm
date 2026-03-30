@@ -36,7 +36,7 @@ beforeEach(() => {
 describe("assessGoal", () => {
   it("should return no clarification for a specific goal", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      JSON.stringify({ needsClarification: false }),
+      { text: JSON.stringify({ needsClarification: false }), sessionId: null },
     );
 
     const result = await assessGoal(projectId, "Add unit tests for all utility functions in src/utils/");
@@ -46,7 +46,7 @@ describe("assessGoal", () => {
 
   it("should return clarifying questions for a vague goal", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      JSON.stringify({
+      { text: JSON.stringify({
         needsClarification: true,
         questions: [
           {
@@ -59,7 +59,7 @@ describe("assessGoal", () => {
             ],
           },
         ],
-      }),
+      }), sessionId: null },
     );
 
     const result = await assessGoal(projectId, "Improve the codebase");
@@ -71,7 +71,7 @@ describe("assessGoal", () => {
 
   it("should cap questions at 2 even if model returns more", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      JSON.stringify({
+      { text: JSON.stringify({
         needsClarification: true,
         questions: [
           { question: "Q1?", options: ["A", "B"] },
@@ -79,7 +79,7 @@ describe("assessGoal", () => {
           { question: "Q3?", options: ["E", "F"] },
           { question: "Q4?", options: ["G", "H"] },
         ],
-      }),
+      }), sessionId: null },
     );
 
     const result = await assessGoal(projectId, "Vague goal");
@@ -93,8 +93,8 @@ describe("assessGoal", () => {
   });
 
   it("should throw on invalid JSON response after retry", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce("This is not JSON");
-    callLlmViaCliMock.mockResolvedValueOnce("This is not JSON"); // retry also fails
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "This is not JSON", sessionId: null });
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "This is not JSON", sessionId: null }); // retry also fails
 
     await expect(
       assessGoal(projectId, "Some goal"),
@@ -102,8 +102,8 @@ describe("assessGoal", () => {
   });
 
   it("should throw when response missing needsClarification after retry", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify({ foo: "bar" }));
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify({ foo: "bar" })); // retry also fails
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify({ foo: "bar" }), sessionId: null });
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify({ foo: "bar" }), sessionId: null }); // retry also fails
 
     await expect(
       assessGoal(projectId, "Some goal"),
@@ -112,7 +112,7 @@ describe("assessGoal", () => {
 
   it("should use classification model tier", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      JSON.stringify({ needsClarification: false }),
+      { text: JSON.stringify({ needsClarification: false }), sessionId: null },
     );
 
     await assessGoal(projectId, "Specific goal");
@@ -126,7 +126,7 @@ describe("assessGoal", () => {
 
   it("should include project context in the message", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      JSON.stringify({ needsClarification: false }),
+      { text: JSON.stringify({ needsClarification: false }), sessionId: null },
     );
 
     await assessGoal(projectId, "Add tests");
@@ -139,10 +139,10 @@ describe("assessGoal", () => {
 
   it("should handle empty questions array gracefully", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      JSON.stringify({
+      { text: JSON.stringify({
         needsClarification: true,
         questions: [],
-      }),
+      }), sessionId: null },
     );
 
     const result = await assessGoal(projectId, "Vague goal");

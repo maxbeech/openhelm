@@ -45,9 +45,9 @@ function makeRunWithLogs(): string {
 describe("evaluateCorrectionNote", () => {
   it("returns 'remove' when LLM says issue is resolved", async () => {
     const runId = makeRunWithLogs();
-    mockCallLlm.mockResolvedValueOnce(
-      JSON.stringify({ action: "remove", reason: "Issue fully resolved" }),
-    );
+    mockCallLlm.mockResolvedValueOnce({ text:
+      JSON.stringify({ action: "remove", reason: "Issue fully resolved" }), sessionId: null,
+    });
 
     const result = await evaluateCorrectionNote(runId, "fix the bug", "Use correct path");
 
@@ -58,13 +58,13 @@ describe("evaluateCorrectionNote", () => {
 
   it("returns 'modify' with updated note", async () => {
     const runId = makeRunWithLogs();
-    mockCallLlm.mockResolvedValueOnce(
+    mockCallLlm.mockResolvedValueOnce({ text:
       JSON.stringify({
         action: "modify",
         modifiedNote: "Still check imports",
         reason: "Partially resolved",
-      }),
-    );
+      }), sessionId: null,
+    });
 
     const result = await evaluateCorrectionNote(runId, "fix the bug", "Check imports and paths");
 
@@ -75,9 +75,9 @@ describe("evaluateCorrectionNote", () => {
 
   it("returns 'keep' when note is still relevant", async () => {
     const runId = makeRunWithLogs();
-    mockCallLlm.mockResolvedValueOnce(
-      JSON.stringify({ action: "keep", reason: "Guidance still applies" }),
-    );
+    mockCallLlm.mockResolvedValueOnce({ text:
+      JSON.stringify({ action: "keep", reason: "Guidance still applies" }), sessionId: null,
+    });
 
     const result = await evaluateCorrectionNote(runId, "fix the bug", "Always run lint");
 
@@ -96,9 +96,9 @@ describe("evaluateCorrectionNote", () => {
 
   it("returns null for invalid action", async () => {
     const runId = makeRunWithLogs();
-    mockCallLlm.mockResolvedValueOnce(
-      JSON.stringify({ action: "invalid", reason: "bad" }),
-    );
+    mockCallLlm.mockResolvedValueOnce({ text:
+      JSON.stringify({ action: "invalid", reason: "bad" }), sessionId: null,
+    });
 
     const result = await evaluateCorrectionNote(runId, "fix the bug", "Some note");
 

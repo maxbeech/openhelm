@@ -58,7 +58,7 @@ export async function generateSystemJobs(
   );
 
   try {
-    const raw = await callLlmViaCli({
+    const { text: raw } = await callLlmViaCli({
       model: "planning",
       systemPrompt: SYSTEM_JOB_GENERATION_PROMPT,
       userMessage,

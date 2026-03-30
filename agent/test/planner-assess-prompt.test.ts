@@ -36,7 +36,7 @@ beforeEach(() => {
 describe("assessPrompt", () => {
   it("should return no clarification for a specific prompt", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      JSON.stringify({ needsClarification: false }),
+      { text: JSON.stringify({ needsClarification: false }), sessionId: null },
     );
 
     const result = await assessPrompt(
@@ -49,7 +49,7 @@ describe("assessPrompt", () => {
 
   it("should return clarifying questions for a vague prompt", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      JSON.stringify({
+      { text: JSON.stringify({
         needsClarification: true,
         questions: [
           {
@@ -61,7 +61,7 @@ describe("assessPrompt", () => {
             ],
           },
         ],
-      }),
+      }), sessionId: null },
     );
 
     const result = await assessPrompt(projectId, "refactor the code");
@@ -73,14 +73,14 @@ describe("assessPrompt", () => {
 
   it("should cap questions at 2", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      JSON.stringify({
+      { text: JSON.stringify({
         needsClarification: true,
         questions: [
           { question: "Q1?", options: ["A", "B"] },
           { question: "Q2?", options: ["C", "D"] },
           { question: "Q3?", options: ["E", "F"] },
         ],
-      }),
+      }), sessionId: null },
     );
 
     const result = await assessPrompt(projectId, "Vague prompt");
@@ -94,7 +94,7 @@ describe("assessPrompt", () => {
   });
 
   it("should throw on invalid JSON response", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce("Not valid JSON");
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Not valid JSON", sessionId: null });
 
     await expect(
       assessPrompt(projectId, "Some prompt"),
@@ -102,7 +102,7 @@ describe("assessPrompt", () => {
   });
 
   it("should throw when response missing needsClarification", async () => {
-    callLlmViaCliMock.mockResolvedValueOnce(JSON.stringify({ foo: "bar" }));
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify({ foo: "bar" }), sessionId: null });
 
     await expect(
       assessPrompt(projectId, "Some prompt"),
@@ -111,7 +111,7 @@ describe("assessPrompt", () => {
 
   it("should use classification model tier", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      JSON.stringify({ needsClarification: false }),
+      { text: JSON.stringify({ needsClarification: false }), sessionId: null },
     );
 
     await assessPrompt(projectId, "Run all tests");
@@ -125,7 +125,7 @@ describe("assessPrompt", () => {
 
   it("should include project context and prompt in the message", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      JSON.stringify({ needsClarification: false }),
+      { text: JSON.stringify({ needsClarification: false }), sessionId: null },
     );
 
     await assessPrompt(projectId, "Fix linting errors");
@@ -138,10 +138,10 @@ describe("assessPrompt", () => {
 
   it("should handle empty questions array gracefully", async () => {
     callLlmViaCliMock.mockResolvedValueOnce(
-      JSON.stringify({
+      { text: JSON.stringify({
         needsClarification: true,
         questions: [],
-      }),
+      }), sessionId: null },
     );
 
     const result = await assessPrompt(projectId, "Vague prompt");
