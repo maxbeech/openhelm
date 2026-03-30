@@ -137,10 +137,15 @@ describe("Executor run lifecycle", () => {
     const executor = new Executor(mockRunner());
     executor.processNext();
 
-    // Wait for async execution
-    await new Promise((r) => setTimeout(r, 100));
+    // Poll until the run reaches a terminal state (cold dynamic imports on first call can
+    // take >100ms; polling is more robust than a fixed timeout)
+    const deadline = Date.now() + 3000;
+    let updated = getRun(run.id);
+    while ((updated?.status === "running" || updated?.status === "queued") && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20));
+      updated = getRun(run.id);
+    }
 
-    const updated = getRun(run.id);
     expect(updated!.status).toBe("succeeded");
     expect(updated!.exitCode).toBe(0);
     expect(updated!.startedAt).not.toBeNull();
