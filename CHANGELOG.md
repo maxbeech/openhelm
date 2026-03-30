@@ -1,10 +1,6 @@
 # Changelog
 
-## [Unreleased]
-
-### Fixed
-- Chat error reporting: extract error details from Claude Code stream-json result events when stderr is empty (fixes unhelpful "no stderr" error messages)
-- Chat resilience: auto-retry LLM calls on transient failures (exit code 1, timeouts) with up to 2 retries and exponential backoff
+## [0.5.0] - 2026-03-30
 
 ### Added
 - Data Visualizations: chart rendering for data table contents using Recharts (line, bar, area, pie, stat chart types)
@@ -16,6 +12,10 @@
 - New `visualizations` DB table (migration 0029) with full CRUD, cascade delete on data table removal
 - Suggested charts appear on Dashboard with Accept/Dismiss actions
 - Startup backfill: auto-suggests visualizations for existing data tables with sufficient numeric data
+
+### Fixed
+- Chat error reporting: extract error details from Claude Code stream-json result events when stderr is empty (fixes unhelpful "no stderr" error messages)
+- Chat resilience: auto-retry LLM calls on transient failures (exit code 1, timeouts) with up to 2 retries and exponential backoff
 
 ## [0.4.2] - 2026-03-29
 
