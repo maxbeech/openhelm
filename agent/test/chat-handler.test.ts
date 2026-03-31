@@ -15,7 +15,15 @@ const emitMock = vi.fn();
 const generateAndHandleSystemJobsMock = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("../src/planner/llm-via-cli.js", () => ({
-  callLlmViaCli: (...args: unknown[]) => callLlmViaCliMock(...args),
+  callLlmViaCli: (...args: unknown[]) => {
+    // autoRenameThread uses "classification" model — short-circuit to avoid
+    // consuming mockResolvedValueOnce entries intended for the main chat loop.
+    const config = args[0] as Record<string, unknown> | undefined;
+    if (config?.model === "classification") {
+      return Promise.resolve({ text: "Chat Title", sessionId: null });
+    }
+    return callLlmViaCliMock(...args);
+  },
 }));
 vi.mock("../src/ipc/emitter.js", () => ({ emit: (...args: unknown[]) => emitMock(...args) }));
 vi.mock("../src/executor/index.js", () => ({ executor: { processNext: vi.fn() } }));
@@ -50,7 +58,6 @@ afterAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Clear conversation between tests by creating a fresh project per test where needed
 });
 
 describe("handleChatMessage — native tool wiring", () => {
@@ -344,7 +351,7 @@ describe("handleActionApproval — goal+job FK linking", () => {
       { text: [
         `I'll set that up.`,
         `<tool_call>{"tool":"create_goal","args":{"name":"FK Test Goal"}}</tool_call>`,
-        `<tool_call>{"tool":"create_job","args":{"name":"FK Test Job","prompt":"run tests","goalId":"placeholder-id","scheduleType":"once"}}</tool_call>`,
+        `<tool_call>{"tool":"create_job","args":{"name":"FK Test Job","prompt":"run tests","goalId":"pending","scheduleType":"once"}}</tool_call>`,
       ].join("\n"), sessionId: null },
     );
 
@@ -353,7 +360,7 @@ describe("handleActionApproval — goal+job FK linking", () => {
     expect(assistantMsg.pendingActions).toHaveLength(2);
     expect(assistantMsg.pendingActions![0].tool).toBe("create_goal");
     expect(assistantMsg.pendingActions![1].tool).toBe("create_job");
-    expect(assistantMsg.pendingActions![1].args.goalId).toBe("placeholder-id");
+    expect(assistantMsg.pendingActions![1].args.goalId).toBe("pending");
 
     // Approve goal — this should update the sibling job's goalId
     vi.clearAllMocks();
@@ -368,7 +375,7 @@ describe("handleActionApproval — goal+job FK linking", () => {
 
     // Verify the sibling create_job now has the real goal ID
     const jobAction = afterGoalApproval.pendingActions!.find((a) => a.tool === "create_job")!;
-    expect(jobAction.args.goalId).not.toBe("placeholder-id");
+    expect(jobAction.args.goalId).not.toBe("pending");
     const realGoal = getGoal(jobAction.args.goalId as string);
     expect(realGoal).not.toBeNull();
     expect(realGoal!.name).toBe("FK Test Goal");
@@ -516,7 +523,7 @@ describe("handleApproveAll", () => {
       { text: [
         `I'll set that up.`,
         `<tool_call>{"tool":"create_goal","args":{"name":"Batch Goal"}}</tool_call>`,
-        `<tool_call>{"tool":"create_job","args":{"name":"Batch Job","prompt":"test","goalId":"placeholder","scheduleType":"once"}}</tool_call>`,
+        `<tool_call>{"tool":"create_job","args":{"name":"Batch Job","prompt":"test","goalId":"pending","scheduleType":"once"}}</tool_call>`,
       ].join("\n"), sessionId: null },
     );
 

@@ -41,6 +41,8 @@ vi.mock("../src/ipc/emitter.js", () => ({
 // Mock browser MCP modules — default to venv not ready so most tests are unaffected
 vi.mock("../src/mcp-servers/browser-setup.js", () => ({
   isVenvReady: vi.fn(() => false),
+  isSourceAvailable: vi.fn(() => false),
+  setupBrowserMcpVenv: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../src/mcp-servers/mcp-config-builder.js", async (importOriginal) => {
