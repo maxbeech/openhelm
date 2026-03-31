@@ -3,7 +3,6 @@
  * proposed by the chat LLM. Extracted from handler.ts for file size.
  */
 
-import { getGoal } from "../db/queries/goals.js";
 import {
   getMessage,
   updateMessagePendingActions,
@@ -48,10 +47,9 @@ export async function handleActionApproval(
       if (i > thisIdx && i < endIdx && a.tool === "create_job" && a.status === "pending" && a.args.goalId) {
         // The system prompt instructs the LLM to use the sentinel string "pending"
         // as a placeholder goalId for jobs whose goal hasn't been created yet.
-        // If getGoal returns null (i.e. no real goal with this ID exists, including
-        // the "pending" sentinel), rewrite the goalId to the newly created goal's real ID.
-        const existing = getGoal(a.args.goalId as string);
-        if (!existing) {
+        // Compare explicitly against the sentinel — do not use a DB lookup, which
+        // would also rewrite any job whose goalId happens to reference a deleted goal.
+        if (a.args.goalId === "pending") {
           return { ...a, args: { ...a.args, goalId: createdGoalId } };
         }
       }

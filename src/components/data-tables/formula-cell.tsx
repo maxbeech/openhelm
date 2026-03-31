@@ -17,10 +17,10 @@ export function FormulaCell({ column, rowData, allColumns }: Props) {
     );
   }
 
-  // Build column name → ID mapping
+  // Build column name → ID mapping (lowercased for case-insensitive prop() lookup)
   const colNameToId: Record<string, string> = {};
   for (const col of allColumns) {
-    colNameToId[col.name] = col.id;
+    colNameToId[col.name.toLowerCase()] = col.id;
   }
 
   const result = evaluateFormula(config.expression, rowData, colNameToId);

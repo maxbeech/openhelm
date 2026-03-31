@@ -12,6 +12,7 @@ import {
   getOrCreateConversation,
   createMessage,
   listMessagesForConversation,
+  renameConversation,
 } from "../db/queries/conversations.js";
 import { buildChatSystemPromptAsync, buildAllProjectsSystemPromptAsync } from "./system-prompt.js";
 import { parseLlmResponse, buildTextResponse } from "./response-parser.js";
@@ -25,6 +26,23 @@ import type {
 const MAX_TOOL_LOOP_ITERATIONS = 5;
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_LLM_RETRIES = 2;
+
+/** Fire-and-forget: rename a new thread based on the user's first message. */
+function autoRenameThread(convId: string, userContent: string, projectId: string | null): void {
+  callLlmViaCli({
+    model: "classification",
+    systemPrompt: "You generate short, descriptive chat thread titles. Respond with ONLY the title text (2-5 words). No quotes, no explanation.",
+    userMessage: `Generate a short title for a chat thread that starts with this message:\n\n${userContent.slice(0, 300)}`,
+    disableTools: true,
+    preferRawText: true,
+  }).then((result) => {
+    const title = result.text.trim().replace(/^["']|["']$/g, "").slice(0, 60);
+    if (title) {
+      const updated = renameConversation(convId, title);
+      emit("chat.threadRenamed", { conversationId: convId, title: updated.title, projectId });
+    }
+  }).catch(() => { /* non-blocking — silently ignore failures */ });
+}
 
 /** Retry callLlmViaCli on transient failures (exit code 1, network errors). */
 async function callLlmWithRetry(config: LlmCallConfig): Promise<LlmCallResult> {
@@ -117,6 +135,11 @@ export async function handleChatMessage(
   const userMsg = createMessage({ conversationId: convId, role: "user", content });
   emit("chat.messageCreated", { ...userMsg, projectId, conversationId: convId });
 
+  // Auto-rename thread on first user message (non-blocking)
+  if (history.length === 0 && !conv.title) {
+    autoRenameThread(convId, content, projectId);
+  }
+
   // Emit early "thinking" so the UI shows feedback during async prompt build
   emit("chat.status", { status: "thinking", projectId, conversationId: convId });
 
@@ -157,12 +180,16 @@ export async function handleChatMessage(
   // Session ID captured from first CLI call, reused in subsequent tool loop iterations
   // to avoid CLI cold-start overhead.
   let sessionId: string | null = null;
+  // Track total emitted streaming text to deduplicate — the CLI may emit
+  // cumulative assistant events rather than pure deltas.
+  let totalStreamedText = "";
 
   for (let iter = 0; iter < MAX_TOOL_LOOP_ITERATIONS; iter++) {
     emit("chat.status", { status: iter === 0 ? "thinking" : "analyzing", projectId, conversationId: convId });
     // Reset stream buffer state for each LLM iteration
     streamBuffer = "";
     insideToolCall = false;
+    totalStreamedText = "";
     const userMessage = buildLlmUserMessage(history, content, toolExchange || undefined);
     const llmResult = await callLlmWithRetry({
       model: "chat",
@@ -177,7 +204,18 @@ export async function handleChatMessage(
       resumeSessionId: sessionId ?? undefined,
       onTextChunk: (text) => {
         const stripped = sanitizeStreamChunk(text);
-        if (stripped) emit("chat.streaming", { text: stripped, projectId, conversationId: convId });
+        if (!stripped) return;
+        // Deduplicate: if the CLI sends cumulative text, extract only the new portion
+        if (stripped.length > totalStreamedText.length && stripped.startsWith(totalStreamedText)) {
+          const delta = stripped.slice(totalStreamedText.length);
+          totalStreamedText = stripped;
+          emit("chat.streaming", { text: delta, projectId, conversationId: convId });
+        } else if (!totalStreamedText || !stripped.startsWith(totalStreamedText.slice(0, 20))) {
+          // New delta text (normal incremental mode)
+          totalStreamedText += stripped;
+          emit("chat.streaming", { text: stripped, projectId, conversationId: convId });
+        }
+        // Otherwise it's a subset/duplicate of already emitted text — skip
       },
       onToolUse: (toolName) => {
         emit("chat.status", { status: "reading", tools: [toolName], projectId, conversationId: convId });

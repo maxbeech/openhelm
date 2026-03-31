@@ -19,11 +19,13 @@ interface SidebarProjectGroupProps {
   collapsedGoalIds: string[];
   isCollapsed: boolean;
   isDragMode: boolean;
+  isDragActive: boolean;
   onSelectGoal: (id: string) => void;
   onSelectJob: (id: string) => void;
   onToggleCollapsed: () => void;
   onToggleGoalCollapsed: (id: string) => void;
   onNewJobForGoal: (goalId: string, initialName: string) => void;
+  onCloseSearch?: () => void;
   // Drag handle for job nodes within goal
   jobDragMode: boolean;
 }
@@ -40,11 +42,13 @@ export function SidebarProjectGroup({
   collapsedGoalIds,
   isCollapsed,
   isDragMode,
+  isDragActive,
   onSelectGoal,
   onSelectJob,
   onToggleCollapsed,
   onToggleGoalCollapsed,
   onNewJobForGoal,
+  onCloseSearch,
   jobDragMode,
 }: SidebarProjectGroupProps) {
 
@@ -53,14 +57,11 @@ export function SidebarProjectGroup({
     listeners,
     setNodeRef,
     transform,
-    transition,
     isDragging,
   } = useSortable({ id: project.id, disabled: !isDragMode });
 
-  const style = isDragMode ? {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  } : {};
+  // No transition — prevents the FLIP snap-back animation on drag release
+  const style = { transform: CSS.Transform.toString(transform) };
 
   return (
     <div
@@ -70,15 +71,18 @@ export function SidebarProjectGroup({
     >
       {/* Project group header */}
       <div className="group flex items-center gap-1 px-3 py-1">
-        {isDragMode && (
-          <span
-            {...attributes}
-            {...listeners}
-            className="cursor-grab text-muted-foreground/40 opacity-0 transition-opacity hover:text-muted-foreground group-hover:opacity-100 active:cursor-grabbing"
-          >
-            <GripVertical className="size-3" />
-          </span>
-        )}
+        {/* Grip always rendered to prevent layout shift; invisible when drag inactive */}
+        <span
+          {...(isDragMode ? { ...attributes, ...listeners } : {})}
+          className={cn(
+            "shrink-0",
+            isDragMode
+              ? "cursor-grab text-muted-foreground/40 opacity-0 transition-opacity hover:text-muted-foreground group-hover:opacity-100 active:cursor-grabbing"
+              : "invisible pointer-events-none cursor-default",
+          )}
+        >
+          <GripVertical className="size-3" />
+        </span>
         <button
           onClick={onToggleCollapsed}
           className="flex min-w-0 flex-1 items-center gap-1 text-left"
@@ -112,7 +116,9 @@ export function SidebarProjectGroup({
               onSelectGoal={() => onSelectGoal(goal.id)}
               onSelectJob={onSelectJob}
               onNewJobForGoal={onNewJobForGoal}
+              onCloseSearch={onCloseSearch}
               isDragMode={isDragMode}
+              isDragActive={isDragActive}
               jobDragMode={jobDragMode}
             />
           ))}

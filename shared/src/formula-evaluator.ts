@@ -76,8 +76,8 @@ function evalBinary(op: string, left: unknown, right: unknown): unknown {
     case "<": return l < r;
     case ">=": return l >= r;
     case "<=": return l <= r;
-    case "==": return left === right || l === r;
-    case "!=": return left !== right && l !== r;
+    case "==": return left === right;
+    case "!=": return left !== right;
     default: return null;
   }
 }
@@ -85,8 +85,8 @@ function evalBinary(op: string, left: unknown, right: unknown): unknown {
 function evalCall(name: string, args: unknown[], ctx: EvalContext): unknown {
   switch (name.toLowerCase()) {
     case "prop": {
-      const colName = String(args[0] ?? "");
-      const colId = ctx.colNameToId[colName] ?? ctx.colNameToId[colName.toLowerCase()];
+      // Lookup is case-insensitive; colNameToId keys are lowercased at build time.
+      const colId = ctx.colNameToId[String(args[0] ?? "").toLowerCase()];
       return colId ? ctx.row[colId] ?? null : null;
     }
     case "if":

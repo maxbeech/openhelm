@@ -53,7 +53,7 @@ console.log(`[patch-bundle] Written .node-bin-dir → ${nodeBinDir}`);
 
 // 3. Copy mcp-data-tables.js alongside the agent binary so data tables MCP is
 //    available in production (getDataTablesMcpPath checks join(__dirname, "mcp-data-tables.js")).
-const mcpBundle = resolve(__dirname, "agent", "dist", "mcp-data-tables.js");
+const mcpBundle = resolve(__dirname, "..", "agent", "dist", "mcp-data-tables.js");
 if (existsSync(mcpBundle)) {
   copyFileSync(mcpBundle, resolve(macosDir, "mcp-data-tables.js"));
   console.log("[patch-bundle] Copied mcp-data-tables.js");

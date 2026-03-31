@@ -1,4 +1,4 @@
-import { AlertTriangle, Trash2, X } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chat-store";
 import { useAppStore } from "@/stores/app-store";
@@ -22,12 +22,11 @@ export function ChatPanel({ projectId }: ChatPanelProps) {
     panelOpen,
     closePanel,
     sendMessage,
-    clearChat,
     activeConversationId,
     conversationStates,
   } = useChatStore();
   const error = useChatStore((s) => s.error);
-  const clearError = () => useChatStore.setState({ error: null });
+  const clearError = useChatStore((s) => s.clearError);
 
   // Per-conversation transient state
   const convState = activeConversationId
@@ -68,11 +67,6 @@ export function ChatPanel({ projectId }: ChatPanelProps) {
     sendMessage(projectId, content, context).catch(() => {});
   };
 
-  const handleClear = () => {
-    if (messages.length === 0) return;
-    clearChat(projectId).catch(() => {});
-  };
-
   return (
     <div
       className="relative flex h-full shrink-0 flex-col border-l border-border bg-background"
@@ -86,27 +80,14 @@ export function ChatPanel({ projectId }: ChatPanelProps) {
       {/* Header */}
       <div data-tauri-drag-region className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
         <h3 className="text-sm font-semibold">Chat</h3>
-        <div className="flex items-center gap-1">
-          {messages.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleClear}
-              title="Clear chat history"
-              className="size-7 p-0 text-muted-foreground hover:text-foreground"
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={closePanel}
-            className="size-7 p-0 text-muted-foreground hover:text-foreground"
-          >
-            <X className="size-4" />
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={closePanel}
+          className="size-7 p-0 text-muted-foreground hover:text-foreground"
+        >
+          <X className="size-4" />
+        </Button>
       </div>
 
       {/* Thread tabs */}

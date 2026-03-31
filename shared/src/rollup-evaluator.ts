@@ -32,12 +32,12 @@ export function computeRollup(
 
     case "min": {
       const nums = values.filter((v) => v !== null && v !== undefined && v !== "").map(toNum).filter((n) => !isNaN(n));
-      return nums.length === 0 ? null : Math.min(...nums);
+      return nums.length === 0 ? null : nums.reduce((a, b) => Math.min(a, b));
     }
 
     case "max": {
       const nums = values.filter((v) => v !== null && v !== undefined && v !== "").map(toNum).filter((n) => !isNaN(n));
-      return nums.length === 0 ? null : Math.max(...nums);
+      return nums.length === 0 ? null : nums.reduce((a, b) => Math.max(a, b));
     }
 
     case "percent_empty": {

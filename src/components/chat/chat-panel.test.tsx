@@ -86,15 +86,10 @@ describe("ChatPanel", () => {
     expect(screen.getByText("Goals are objectives you set.")).toBeInTheDocument();
   });
 
-  it("does not show clear button when no messages", () => {
-    render(<ChatPanel projectId="p1" />);
-    expect(screen.queryByTitle("Clear chat history")).not.toBeInTheDocument();
-  });
-
-  it("shows clear button when messages exist", () => {
+  it("does not show clear button in header (moved to thread dropdown)", () => {
     useChatStore.setState({ messages: [makeMessage()] });
     render(<ChatPanel projectId="p1" />);
-    expect(screen.getByTitle("Clear chat history")).toBeInTheDocument();
+    expect(screen.queryByTitle("Clear chat history")).not.toBeInTheDocument();
   });
 
   it("calls closePanel when close button is clicked", () => {

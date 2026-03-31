@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Plus, Pencil, Trash2, GripVertical, X, Check, ChevronDown } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -22,6 +22,7 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
     createThread,
     renameThread,
     deleteThread,
+    clearChat,
     reorderThreads,
   } = useChatStore();
 
@@ -33,7 +34,6 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
 
   const handleCreate = () => {
     createThread(projectId);
-    // Scroll to end after creation
     setTimeout(() => {
       scrollRef.current?.scrollTo({ left: scrollRef.current.scrollWidth, behavior: "smooth" });
     }, 50);
@@ -51,8 +51,11 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
     setRenamingId(null);
   };
 
-  const handleDelete = (id: string) => {
-    deleteThread(id, projectId);
+  const handleDelete = (id: string) => deleteThread(id, projectId);
+
+  const handleClear = () => {
+    if (!activeConversationId) return;
+    clearChat(projectId).catch(() => {});
   };
 
   // Drag-and-drop reorder
@@ -80,7 +83,7 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
   };
 
   return (
-    <div className="flex items-center gap-1 border-b border-border/50 bg-muted/30 px-2 py-1">
+    <div className="flex items-center gap-1 border-b border-border/50 bg-card/50 px-2 py-1">
       <div
         ref={scrollRef}
         className="flex flex-1 items-center gap-1 overflow-x-auto scrollbar-hide"
@@ -95,7 +98,7 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
               <div key={conv.id} className="flex items-center gap-0.5 shrink-0">
                 <input
                   autoFocus
-                  className="h-6 w-24 rounded border border-primary bg-background px-1.5 text-[11px] outline-none"
+                  className="h-5 w-24 rounded border border-primary bg-background px-1.5 text-[10px] outline-none"
                   value={renameValue}
                   onChange={(e) => setRenameValue(e.target.value)}
                   onKeyDown={(e) => {
@@ -104,11 +107,11 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
                   }}
                   onBlur={commitRename}
                 />
-                <Button variant="ghost" size="sm" className="size-5 p-0" onClick={commitRename}>
-                  <Check className="size-3" />
+                <Button variant="ghost" size="sm" className="size-4 p-0" onClick={commitRename}>
+                  <Check className="size-2.5" />
                 </Button>
-                <Button variant="ghost" size="sm" className="size-5 p-0" onClick={() => setRenamingId(null)}>
-                  <X className="size-3" />
+                <Button variant="ghost" size="sm" className="size-4 p-0" onClick={() => setRenamingId(null)}>
+                  <X className="size-2.5" />
                 </Button>
               </div>
             );
@@ -127,31 +130,28 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
                 isDragOver && "border-l-2 border-primary",
               )}
             >
-              {/* Main pill — switches thread on click */}
-              <button
-                type="button"
-                onClick={() => setActiveConversation(conv.id)}
-                className={cn(
-                  "flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors whitespace-nowrap cursor-pointer",
-                  isActive
-                    ? "bg-primary text-primary-foreground shadow-sm rounded-r-none pr-1"
-                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-              >
-                <GripVertical className="size-2.5 opacity-0 group-hover:opacity-40 cursor-grab" />
-                <span className="max-w-[100px] truncate">{label}</span>
-              </button>
-              {/* Dropdown trigger — separate chevron, only visible on active tab or hover */}
               <DropdownMenu>
+                <button
+                  type="button"
+                  onClick={() => setActiveConversation(conv.id)}
+                  className={cn(
+                    "flex h-5 items-center gap-0.5 rounded-md px-2 text-[10px] font-medium transition-colors whitespace-nowrap cursor-pointer",
+                    isActive
+                      ? "bg-primary/90 text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                >
+                  <span className="max-w-[100px] truncate">{label}</span>
+                </button>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
                     onClick={(e) => e.stopPropagation()}
                     className={cn(
-                      "flex items-center rounded-r-full py-0.5 pr-1.5 pl-0.5 text-[11px] transition-colors cursor-pointer",
+                      "flex h-5 items-center rounded-md px-0.5 transition-opacity cursor-pointer",
                       isActive
-                        ? "bg-primary text-primary-foreground shadow-sm opacity-70 hover:opacity-100"
-                        : "bg-muted/60 text-muted-foreground opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-muted",
+                        ? "text-primary-foreground/70 hover:text-primary-foreground"
+                        : "text-muted-foreground opacity-0 group-hover:opacity-60 hover:!opacity-100",
                     )}
                   >
                     <ChevronDown className="size-2.5" />
@@ -162,13 +162,17 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
                     <Pencil className="mr-2 size-3" />
                     Rename
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleClear}>
+                    <Trash2 className="mr-2 size-3" />
+                    Clear history
+                  </DropdownMenuItem>
                   {conversations.length > 1 && (
                     <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
                       onClick={() => handleDelete(conv.id)}
                     >
-                      <Trash2 className="mr-2 size-3" />
-                      Delete
+                      <X className="mr-2 size-3" />
+                      Delete thread
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuContent>
@@ -182,9 +186,9 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
         size="sm"
         onClick={handleCreate}
         title="New thread"
-        className="size-6 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+        className="size-5 shrink-0 p-0 text-muted-foreground hover:text-foreground"
       >
-        <Plus className="size-3.5" />
+        <Plus className="size-3" />
       </Button>
     </div>
   );

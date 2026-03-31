@@ -74,6 +74,7 @@ interface AppState {
   setGroupByProject: (on: boolean) => void;
   setSidebarSearch: (q: string) => void;
   setProjectGroupOrder: (ids: string[]) => void;
+  setCollapsedGoalIds: (ids: string[]) => void;
 
   // Existing
   setActiveProjectId: (id: string | null) => void;
@@ -214,6 +215,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   setGroupByProject: (on) => set({ groupByProject: on }),
   setSidebarSearch: (q) => set({ sidebarSearch: q }),
+  setCollapsedGoalIds: (ids) => set({ collapsedGoalIds: ids }),
   setProjectGroupOrder: (ids) => {
     set({ projectGroupOrder: ids });
     api.setSetting({ key: "sidebar_project_group_order", value: JSON.stringify(ids) }).catch(() => {});

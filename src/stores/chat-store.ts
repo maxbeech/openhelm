@@ -82,6 +82,7 @@ interface ChatState {
   approveAll: (messageId: string, projectId: string) => Promise<void>;
   rejectAll: (messageId: string) => Promise<void>;
   clearChat: (projectId: string | null) => Promise<void>;
+  clearError: () => void;
   addMessageToStore: (message: ChatMessage) => void;
   updateMessageInStore: (message: ChatMessage) => void;
 }
@@ -186,20 +187,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
   deleteThread: async (conversationId, projectId) => {
     try {
       await api.deleteConversation({ conversationId });
+      let switchedToId: string | null = null;
       set((s) => {
         const remaining = s.conversations.filter((c) => c.id !== conversationId);
         const wasActive = s.activeConversationId === conversationId;
         const newActive = wasActive ? (remaining[0]?.id ?? null) : s.activeConversationId;
+        if (wasActive && newActive) switchedToId = newActive;
         return {
           conversations: remaining,
           activeConversationId: newActive,
           messages: wasActive ? [] : s.messages,
         };
       });
-      // If we switched active, load the new thread's messages
-      const { activeConversationId } = get();
-      if (activeConversationId) {
-        get().fetchMessages(projectId, activeConversationId);
+      // Only fetch messages when we auto-switched to a different thread.
+      if (switchedToId) {
+        get().fetchMessages(projectId, switchedToId);
       }
     } catch (err) {
       set({ error: friendlyError(err, "Failed to delete thread") });
@@ -306,6 +308,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       throw err;
     }
   },
+
+  clearError: () => set({ error: null }),
 
   addMessageToStore: (message) => {
     set((s) => {

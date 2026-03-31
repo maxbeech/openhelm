@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { flushSync } from "react-dom";
-import { Folder, FolderOpen, Plus, Search, X } from "lucide-react";
+import { ChevronsDown, ChevronsUp, Folder, FolderOpen, Plus, Search, X } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -54,6 +54,7 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
     setSidebarSearch,
     projectGroupOrder,
     setProjectGroupOrder,
+    setCollapsedGoalIds,
   } = useAppStore();
   const { goals, createGoal, reorderGoalsOptimistic } = useGoalStore();
   const { jobs, reorderJobsOptimistic } = useJobStore();
@@ -66,6 +67,10 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
   // submitting the goal creation form twice in the same event cycle.
   const goalCreatingRef = useRef(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  // Tracks whether a dnd-kit drag gesture is currently in progress.
+  // SortableContext items are only populated during active drag to prevent
+  // dnd-kit from applying layout-shift transforms during search filtering.
+  const [isDragActive, setIsDragActive] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [tokenStats, setTokenStats] = useState<JobTokenStat[]>([]);
 
@@ -134,6 +139,11 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
     ),
     [goals, goalSortMode, tokensByGoal],
   );
+
+  // Collapse-all: true when every active goal is in the collapsed list
+  const allGoalsCollapsed =
+    activeGoals.length > 0 &&
+    activeGoals.every((g) => collapsedGoalIds.includes(g.id));
 
   const jobsByGoal = useMemo(() => {
     const map = new Map<string | null, typeof jobs>();
@@ -289,18 +299,38 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
 
   // ─── Drag handlers ────────────────────────────────────────────────────────
 
-  const handleGoalDragEnd = useCallback((event: DragEndEvent, scopeGoals: typeof activeGoals) => {
+  // Unified handler for DndContexts that contain both goals and their nested
+  // jobs. Detects whether the dragged item is a goal or a job and handles both.
+  const handleContextDragEnd = useCallback((event: DragEndEvent, scopeGoals: typeof activeGoals) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const oldIndex = scopeGoals.findIndex((g) => g.id === active.id);
-    const newIndex = scopeGoals.findIndex((g) => g.id === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-    const reordered = arrayMove(scopeGoals, oldIndex, newIndex);
-    flushSync(() => reorderGoalsOptimistic(reordered.map((g) => g.id)));
-    api.reorderGoals({ items: reordered.map((g, i) => ({ id: g.id, sortOrder: i })) }).catch(() => {});
-  }, [reorderGoalsOptimistic]);
 
-  const handleJobDragEnd = useCallback((event: DragEndEvent, scopeJobs: typeof standaloneJobs) => {
+    // Goal drag?
+    const goalOldIndex = scopeGoals.findIndex((g) => g.id === active.id);
+    if (goalOldIndex !== -1) {
+      const goalNewIndex = scopeGoals.findIndex((g) => g.id === over.id);
+      if (goalNewIndex === -1) return;
+      const reordered = arrayMove(scopeGoals, goalOldIndex, goalNewIndex);
+      flushSync(() => reorderGoalsOptimistic(reordered.map((g) => g.id)));
+      api.reorderGoals({ items: reordered.map((g, i) => ({ id: g.id, sortOrder: i })) }).catch(() => {});
+      return;
+    }
+
+    // Job drag within a goal? Find the goal that owns it.
+    for (const goal of scopeGoals) {
+      const goalJobs = filteredJobsByGoal.get(goal.id) ?? [];
+      const jobOldIndex = goalJobs.findIndex((j) => j.id === active.id);
+      if (jobOldIndex === -1) continue;
+      const jobNewIndex = goalJobs.findIndex((j) => j.id === over.id);
+      if (jobNewIndex === -1) return; // cross-goal drag not allowed
+      const reordered = arrayMove(goalJobs, jobOldIndex, jobNewIndex);
+      flushSync(() => reorderJobsOptimistic(reordered.map((j) => j.id)));
+      api.reorderJobs({ items: reordered.map((j, i) => ({ id: j.id, sortOrder: i })) }).catch(() => {});
+      return;
+    }
+  }, [reorderGoalsOptimistic, reorderJobsOptimistic, filteredJobsByGoal]);
+
+  const handleStandaloneJobDragEnd = useCallback((event: DragEndEvent, scopeJobs: typeof standaloneJobs) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIndex = scopeJobs.findIndex((j) => j.id === active.id);
@@ -342,6 +372,23 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
             {groupByProject ? <FolderOpen className="size-3.5" /> : <Folder className="size-3.5" />}
           </button>
         )}
+        {activeGoals.length > 0 && (
+          <button
+            onClick={() =>
+              setCollapsedGoalIds(
+                allGoalsCollapsed ? [] : activeGoals.map((g) => g.id),
+              )
+            }
+            className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+            title={allGoalsCollapsed ? "Expand all goals" : "Collapse all goals"}
+          >
+            {allGoalsCollapsed ? (
+              <ChevronsUp className="size-3.5" />
+            ) : (
+              <ChevronsDown className="size-3.5" />
+            )}
+          </button>
+        )}
         <SortDropdown value={goalSortMode} onChange={setGoalSortMode} label="goals" />
         <button
           onClick={searchOpen ? closeSearch : openSearch}
@@ -356,6 +403,7 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
         {projectId && (
           <button
             onClick={() => {
+              if (searchOpen) closeSearch();
               setAddingGoal(true);
               setNewGoalInput("");
             }}
@@ -416,10 +464,12 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
-            onDragEnd={goalDragMode ? handleProjectGroupDragEnd : undefined}
+            onDragStart={() => setIsDragActive(true)}
+            onDragEnd={(e) => { setIsDragActive(false); if (goalDragMode) handleProjectGroupDragEnd(e); }}
+            onDragCancel={() => setIsDragActive(false)}
           >
             <SortableContext
-              items={visibleProjects.map((p) => p.id)}
+              items={isDragActive ? visibleProjects.map((p) => p.id) : []} // Only register during active drag — prevents dnd-kit layout shifts during search filtering
               strategy={verticalListSortingStrategy}
             >
               {visibleProjects.map((project) => {
@@ -430,7 +480,9 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
                     key={project.id}
                     sensors={sensors}
                     collisionDetection={closestCenter}
-                    onDragEnd={(e) => handleGoalDragEnd(e, projectGoals)}
+                    onDragStart={() => setIsDragActive(true)}
+                    onDragEnd={(e) => { setIsDragActive(false); handleContextDragEnd(e, projectGoals); }}
+                    onDragCancel={() => setIsDragActive(false)}
                   >
                     <SidebarProjectGroup
                       project={project}
@@ -444,11 +496,13 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
                       collapsedGoalIds={collapsedGoalIds}
                       isCollapsed={collapsedProjectIds.includes(project.id)}
                       isDragMode={goalDragMode}
+                      isDragActive={isDragActive}
                       onSelectGoal={selectGoal}
                       onSelectJob={selectJob}
                       onToggleGoalCollapsed={toggleGoalCollapsed}
                       onToggleCollapsed={() => toggleProjectCollapsed(project.id)}
                       onNewJobForGoal={onNewJobForGoal}
+                      onCloseSearch={closeSearch}
                       jobDragMode={jobDragMode}
                     />
                   </DndContext>
@@ -478,10 +532,12 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
-            onDragEnd={(e) => handleGoalDragEnd(e, filteredGoals)}
+            onDragStart={() => setIsDragActive(true)}
+            onDragEnd={(e) => { setIsDragActive(false); handleContextDragEnd(e, filteredGoals); }}
+            onDragCancel={() => setIsDragActive(false)}
           >
             <SortableContext
-              items={filteredGoals.map((g) => g.id)}
+              items={isDragActive ? filteredGoals.map((g) => g.id) : []} // Only register during active drag — prevents dnd-kit layout shifts during search filtering
               strategy={verticalListSortingStrategy}
             >
               {filteredGoals.map((goal) => (
@@ -495,11 +551,13 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
                   contentView={contentView}
                   selectedJobId={selectedJobId}
                   isDragMode={goalDragMode}
+                  isDragActive={isDragActive}
                   jobDragMode={jobDragMode}
                   onToggleCollapsed={() => toggleGoalCollapsed(goal.id)}
                   onSelectGoal={() => selectGoal(goal.id)}
                   onSelectJob={selectJob}
                   onNewJobForGoal={onNewJobForGoal}
+                  onCloseSearch={closeSearch}
                 />
               ))}
             </SortableContext>
@@ -517,10 +575,12 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
-                onDragEnd={(e) => handleJobDragEnd(e, filteredStandaloneJobs)}
+                onDragStart={() => setIsDragActive(true)}
+                onDragEnd={(e) => { setIsDragActive(false); handleStandaloneJobDragEnd(e, filteredStandaloneJobs); }}
+                onDragCancel={() => setIsDragActive(false)}
               >
                 <SortableContext
-                  items={filteredStandaloneJobs.map((j) => j.id)}
+                  items={isDragActive ? filteredStandaloneJobs.map((j) => j.id) : []} // Only register during active drag — prevents dnd-kit layout shifts during search filtering
                   strategy={verticalListSortingStrategy}
                 >
                   {filteredStandaloneJobs.map((job) => (

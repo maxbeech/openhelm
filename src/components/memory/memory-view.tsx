@@ -33,6 +33,7 @@ export function MemoryView() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingMemory, setEditingMemory] = useState<Memory | null>(null);
   const [pruning, setPruning] = useState(false);
+  const [pruneResult, setPruneResult] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
@@ -91,9 +92,17 @@ export function MemoryView() {
   const handlePrune = useCallback(async () => {
     if (!activeProjectId) return;
     setPruning(true);
-    await pruneMemories(activeProjectId);
-    await fetchMemories(activeProjectId);
-    setPruning(false);
+    setPruneResult(null);
+    try {
+      const pruned = await pruneMemories(activeProjectId);
+      await fetchMemories(activeProjectId);
+      setPruneResult(pruned);
+      setTimeout(() => setPruneResult(null), 4000);
+    } catch (err) {
+      console.error("[memory-view] prune error:", err);
+    } finally {
+      setPruning(false);
+    }
   }, [activeProjectId, pruneMemories, fetchMemories]);
 
   const handleToggleSelect = useCallback((id: string) => {
@@ -121,12 +130,17 @@ export function MemoryView() {
     }
     setBulkDeleting(true);
     setConfirmBulkDelete(false);
-    for (const id of selectedIds) {
-      await deleteMemory(id);
+    try {
+      for (const id of selectedIds) {
+        await deleteMemory(id);
+      }
+      setSelectedIds(new Set());
+      await fetchMemories(activeProjectId);
+    } catch (err) {
+      console.error("[memory-view] bulk delete error:", err);
+    } finally {
+      setBulkDeleting(false);
     }
-    setSelectedIds(new Set());
-    await fetchMemories(activeProjectId);
-    setBulkDeleting(false);
   }, [confirmBulkDelete, selectedIds, deleteMemory, fetchMemories, activeProjectId]);
 
   // Resolve project name for cross-project view
@@ -153,9 +167,16 @@ export function MemoryView() {
                   className="text-[11px] text-muted-foreground hover:text-foreground"
                   disabled={pruning}
                   onClick={handlePrune}
+                  title="Auto-archive stale, low-importance memories and enforce the 200-memory cap"
                 >
                   <Trash2 className="mr-1 size-3" />
-                  {pruning ? "Pruning..." : "Prune"}
+                  {pruning
+                    ? "Pruning..."
+                    : pruneResult !== null
+                      ? pruneResult === 0
+                        ? "Nothing to prune"
+                        : `Archived ${pruneResult}`
+                      : "Auto-prune"}
                 </Button>
               )}
               <Button

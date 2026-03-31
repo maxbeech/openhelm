@@ -289,7 +289,7 @@ function idToNameData(columns: DataTableColumn[], row: DataTableRow): Record<str
       const config = col.config as { expression?: string };
       if (config.expression) {
         const colNameToId: Record<string, string> = {};
-        for (const c of columns) { colNameToId[c.name] = c.id; }
+        for (const c of columns) { colNameToId[c.name.toLowerCase()] = c.id; }
         result[col.name] = evaluateFormula(config.expression, row.data, colNameToId);
       } else {
         result[col.name] = null;
@@ -364,12 +364,12 @@ function resolveColumnConfig(
       const targetTableId = (relCol.config as { targetTableId?: string }).targetTableId;
       if (targetTableId && config.sourceColumnName && !config.sourceColumnId) {
         const targetTable = getDataTable(targetTableId);
-        if (targetTable) {
-          const srcCol = targetTable.columns.find(
-            (c) => c.name.toLowerCase() === (config.sourceColumnName as string).toLowerCase(),
-          );
-          if (srcCol) resolved.sourceColumnId = srcCol.id;
-        }
+        if (!targetTable) throw new Error(`Target table "${targetTableId}" not found for rollup source column resolution`);
+        const srcCol = targetTable.columns.find(
+          (c) => c.name.toLowerCase() === (config.sourceColumnName as string).toLowerCase(),
+        );
+        if (!srcCol) throw new Error(`Source column "${config.sourceColumnName}" not found in target table "${targetTable.name}"`);
+        resolved.sourceColumnId = srcCol.id;
       }
     }
     if (!resolved.aggregation) resolved.aggregation = "count";

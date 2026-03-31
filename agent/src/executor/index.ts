@@ -502,12 +502,25 @@ export class Executor {
     // Create redactor for log output
     const redact = createRedactor(allSecrets);
 
-    // ── MCP config (global + bundled browser + data tables servers) ──
+    // ── MCP config (bundled browser + data tables servers) ──
     let mcpConfigPath: string | undefined;
     let hasBrowserMcp = false;
     try {
-      const { isVenvReady } = await import("../mcp-servers/browser-setup.js");
-      hasBrowserMcp = isVenvReady();
+      const { isVenvReady, isSourceAvailable, setupBrowserMcpVenv } =
+        await import("../mcp-servers/browser-setup.js");
+      if (isVenvReady()) {
+        hasBrowserMcp = true;
+      } else if (isSourceAvailable()) {
+        // Auto-setup the browser MCP venv on first run when source is bundled
+        console.error("[executor] browser MCP source available but venv not ready — setting up...");
+        try {
+          await setupBrowserMcpVenv();
+          hasBrowserMcp = true;
+          console.error("[executor] browser MCP venv setup complete");
+        } catch (setupErr) {
+          console.error("[executor] browser MCP auto-setup failed (non-fatal):", setupErr);
+        }
+      }
     } catch { /* browser setup not available — non-fatal */ }
 
     try {
@@ -589,44 +602,48 @@ export class Executor {
       emit("focus_guard.removePid", { pid: claudePid });
     }
 
-    // Stop CAPTCHA intervention watcher and clean up any remaining files
-    interventionWatcher.stop();
+    // Wrap all post-run cleanup in try/finally so the active-run slot is always
+    // released even if an individual cleanup step throws unexpectedly.
+    try {
+      // Stop CAPTCHA intervention watcher and clean up any remaining files
+      interventionWatcher.stop();
 
-    // Clean up per-run MCP config file
-    if (mcpConfigPath) {
-      try {
-        const { removeMcpConfigFile } = await import("../mcp-servers/mcp-config-builder.js");
-        removeMcpConfigFile(mcpConfigPath);
-      } catch { /* ignore */ }
-    }
-
-    // Clean up browser credentials file (defensive — MCP server should have already deleted it)
-    if (browserCredentialsFilePath) {
-      try {
-        const { removeBrowserCredentialsFile } = await import("../credentials/browser-credentials.js");
-        removeBrowserCredentialsFile(browserCredentialsFilePath);
-      } catch { /* ignore */ }
-    }
-
-    // Kill any orphaned Chrome processes from this run (MCP server cleanup may not have completed)
-    if (mcpConfigPath) {
-      try {
-        const { cleanupBrowsersForRun } = await import("../mcp-servers/browser-cleanup.js");
-        cleanupBrowsersForRun(runId);
-      } catch { /* ignore */ }
-    }
-
-    // Save credential audit trail
-    if (credentialAudit.length > 0) {
-      try {
-        saveRunCredentials(runId, credentialAudit);
-      } catch (err) {
-        console.error("[executor] credential audit save error (non-fatal):", err);
+      // Clean up per-run MCP config file
+      if (mcpConfigPath) {
+        try {
+          const { removeMcpConfigFile } = await import("../mcp-servers/mcp-config-builder.js");
+          removeMcpConfigFile(mcpConfigPath);
+        } catch { /* ignore */ }
       }
-    }
 
-    // Remove from active runs
-    this.activeRuns.delete(runId);
+      // Clean up browser credentials file (defensive — MCP server should have already deleted it)
+      if (browserCredentialsFilePath) {
+        try {
+          const { removeBrowserCredentialsFile } = await import("../credentials/browser-credentials.js");
+          removeBrowserCredentialsFile(browserCredentialsFilePath);
+        } catch { /* ignore */ }
+      }
+
+      // Kill any orphaned Chrome processes from this run (MCP server cleanup may not have completed)
+      if (mcpConfigPath) {
+        try {
+          const { cleanupBrowsersForRun } = await import("../mcp-servers/browser-cleanup.js");
+          cleanupBrowsersForRun(runId);
+        } catch { /* ignore */ }
+      }
+
+      // Save credential audit trail
+      if (credentialAudit.length > 0) {
+        try {
+          saveRunCredentials(runId, credentialAudit);
+        } catch (err) {
+          console.error("[executor] credential audit save error (non-fatal):", err);
+        }
+      }
+    } finally {
+      // Remove from active runs — must happen even if cleanup steps above throw
+      this.activeRuns.delete(runId);
+    }
 
     // Handle completion (includes async summary generation)
     await this.onRunCompleted(runId, job, result, timeoutMs, recentStderr);
@@ -678,8 +695,9 @@ export class Executor {
     }
 
     const timeoutSetting = getSetting("run_timeout_minutes");
-    const timeoutMs = timeoutSetting
-      ? parseInt(timeoutSetting.value, 10) * 60_000
+    const parsedMinutes = timeoutSetting ? parseInt(timeoutSetting.value, 10) : NaN;
+    const timeoutMs = !isNaN(parsedMinutes) && parsedMinutes > 0
+      ? parsedMinutes * 60_000
       : DEFAULT_TIMEOUT_MS;
 
     return {

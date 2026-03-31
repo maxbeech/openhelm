@@ -104,6 +104,11 @@ function FilesDropdown({ anchorRect, files, onAdd, onRemove, onClose }: {
   const handleAddUrl = () => {
     const url = urlInput.trim();
     if (!url) return;
+    // Only allow safe URL schemes to prevent javascript:/data: injection via href.
+    if (!/^https?:\/\//i.test(url)) {
+      setUrlInput("");
+      return;
+    }
     const name = url.split("/").pop() || url;
     onAdd(name, url);
     setUrlInput("");
@@ -131,7 +136,7 @@ function FilesDropdown({ anchorRect, files, onAdd, onRemove, onClose }: {
             <Paperclip className="size-3 shrink-0 text-muted-foreground" />
             <span className="flex-1 truncate">{f.name}</span>
             {f.url && (
-              <a href={f.url} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}
+              <a href={f.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
                 className="shrink-0 text-muted-foreground hover:text-foreground">
                 <ExternalLink className="size-3" />
               </a>

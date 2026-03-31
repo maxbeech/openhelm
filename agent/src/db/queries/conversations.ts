@@ -136,12 +136,15 @@ export function deleteConversation(conversationId: string): void {
 export function reorderConversations(conversationIds: string[]): void {
   const db = getDb();
   const now = new Date().toISOString();
-  for (let i = 0; i < conversationIds.length; i++) {
-    db.update(conversations)
-      .set({ sortOrder: i, updatedAt: now })
-      .where(eq(conversations.id, conversationIds[i]))
-      .run();
-  }
+  // Wrapped in a transaction so a partial failure doesn't leave inconsistent sort order.
+  db.transaction((tx) => {
+    for (let i = 0; i < conversationIds.length; i++) {
+      tx.update(conversations)
+        .set({ sortOrder: i, updatedAt: now })
+        .where(eq(conversations.id, conversationIds[i]))
+        .run();
+    }
+  });
 }
 
 /** Create and persist a chat message. Also touches the parent conversation's updatedAt. */
@@ -211,6 +214,7 @@ export function listMessagesForConversation(
   if (beforeId) {
     const ref = db.select().from(messages).where(eq(messages.id, beforeId)).get();
     if (ref) {
+      // Compound cursor: same timestamp ties broken by id (both desc — matches orderBy)
       conditions.push(
         or(
           lt(messages.createdAt, ref.createdAt),
@@ -223,7 +227,7 @@ export function listMessagesForConversation(
     .select()
     .from(messages)
     .where(and(...conditions))
-    .orderBy(desc(messages.createdAt))
+    .orderBy(desc(messages.createdAt), desc(messages.id))
     .limit(limit)
     .all();
   return rows.map(rowToMessage).reverse();

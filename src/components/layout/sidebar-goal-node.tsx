@@ -18,11 +18,13 @@ interface SidebarGoalNodeProps {
   contentView: ContentView;
   selectedJobId: string | null;
   isDragMode: boolean;
+  isDragActive: boolean;
   jobDragMode: boolean;
   onToggleCollapsed: () => void;
   onSelectGoal: () => void;
   onSelectJob: (jobId: string) => void;
   onNewJobForGoal: (goalId: string, initialName: string) => void;
+  onCloseSearch?: () => void;
 }
 
 export function SidebarGoalNode({
@@ -34,27 +36,25 @@ export function SidebarGoalNode({
   contentView,
   selectedJobId,
   isDragMode,
+  isDragActive,
   jobDragMode,
   onToggleCollapsed,
   onSelectGoal,
   onSelectJob,
   onNewJobForGoal,
+  onCloseSearch,
 }: SidebarGoalNodeProps) {
   const {
     attributes,
     listeners,
     setNodeRef,
     transform,
-    transition,
     isDragging,
   } = useSortable({ id: goal.id, disabled: !isDragMode });
 
-  // Only apply dnd-kit transform/transition when drag is active — prevents
-  // the sortable context from animating items during search filtering.
-  const style = isDragMode ? {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  } : {};
+  // No transition — prevents the FLIP snap-back animation on drag release
+  const style = { transform: CSS.Transform.toString(transform) };
+
   const [addingJob, setAddingJob] = useState(false);
   const [newJobInput, setNewJobInput] = useState("");
   // Ref guard prevents the onKeyDown(Enter) + onBlur double-fire from
@@ -84,15 +84,18 @@ export function SidebarGoalNode({
       {/* Goal header row — sticky below the GOALS header (~30px) */}
       <div className="sticky top-[30px] z-10 bg-sidebar pl-1 pr-3">
         <div className="flex items-center">
-          {isDragMode && (
-            <span
-              {...attributes}
-              {...listeners}
-              className="mr-0.5 cursor-grab text-muted-foreground/40 opacity-0 transition-opacity hover:text-muted-foreground group-hover:opacity-100 active:cursor-grabbing"
-            >
-              <GripVertical className="size-3.5" />
-            </span>
-          )}
+          {/* Grip always rendered to prevent layout shift; invisible when drag inactive */}
+          <span
+            {...(isDragMode ? { ...attributes, ...listeners } : {})}
+            className={cn(
+              "mr-0.5 shrink-0",
+              isDragMode
+                ? "cursor-grab text-muted-foreground/40 opacity-0 transition-opacity hover:text-muted-foreground group-hover:opacity-100 active:cursor-grabbing"
+                : "invisible pointer-events-none cursor-default",
+            )}
+          >
+            <GripVertical className="size-3.5" />
+          </span>
           <button
             onClick={onToggleCollapsed}
             className="flex size-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
@@ -120,6 +123,7 @@ export function SidebarGoalNode({
           </button>
           <button
             onClick={() => {
+              onCloseSearch?.();
               setAddingJob(true);
               setNewJobInput("");
             }}
@@ -155,7 +159,7 @@ export function SidebarGoalNode({
       {/* Nested jobs */}
       {!isCollapsed && (
         <SortableContext
-          items={goalJobs.map((j) => j.id)}
+          items={isDragActive ? goalJobs.map((j) => j.id) : []}
           strategy={verticalListSortingStrategy}
         >
           {goalJobs.map((job) => (

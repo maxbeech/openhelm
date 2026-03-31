@@ -336,11 +336,23 @@ export default function App() {
     [setConvSending, setConvStatus, clearConvStreaming],
   );
 
+  const handleChatThreadRenamed = useCallback(
+    (data: { conversationId: string; title: string }) => {
+      useChatStore.setState((s) => ({
+        conversations: s.conversations.map((c) =>
+          c.id === data.conversationId ? { ...c, title: data.title } : c,
+        ),
+      }));
+    },
+    [],
+  );
+
   useAgentEvent("chat.messageCreated", handleChatMessageCreated);
   useAgentEvent("chat.status", handleChatStatus);
   useAgentEvent("chat.streaming", handleChatStreaming);
   useAgentEvent("chat.error", handleChatError);
   useAgentEvent("chat.actionResolved", handleChatActionResolved);
+  useAgentEvent("chat.threadRenamed", handleChatThreadRenamed);
 
   // Dashboard event handlers — respect active project filter
   const handleDashboardCreated = useCallback(

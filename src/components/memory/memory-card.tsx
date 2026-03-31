@@ -1,19 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Pencil, Trash2, Archive } from "lucide-react";
 import { MemoryTypeBadge } from "./memory-type-badge";
 import { Badge } from "@/components/ui/badge";
 import type { Memory } from "@openhelm/shared";
 import { cn } from "@/lib/utils";
-
-function formatRelativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
+import { formatRelativeTime } from "@/lib/format";
 
 interface MemoryCardProps {
   memory: Memory;
@@ -36,6 +27,14 @@ export function MemoryCard({
 }: MemoryCardProps) {
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
 
+  // Auto-reset confirm-delete after 3 s so a stray first-click can't silently
+  // trigger deletion on the next interaction with this card.
+  useEffect(() => {
+    if (!showConfirmDelete) return;
+    const t = setTimeout(() => setShowConfirmDelete(false), 3000);
+    return () => clearTimeout(t);
+  }, [showConfirmDelete]);
+
   return (
     <div
       className={cn(
@@ -46,15 +45,23 @@ export function MemoryCard({
     >
       <div className="flex gap-3">
         {/* Checkbox */}
-        <div className="flex items-start pt-0.5">
-          <input
-            type="checkbox"
-            checked={isSelected}
-            onChange={() => onToggleSelect?.(memory.id)}
-            onClick={(e) => e.stopPropagation()}
-            className="size-3.5 cursor-pointer accent-primary"
-          />
-        </div>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggleSelect?.(memory.id); }}
+          className={cn(
+            "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border transition-colors",
+            isSelected
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-border bg-transparent hover:border-primary/60",
+          )}
+          aria-label={isSelected ? "Deselect" : "Select"}
+        >
+          {isSelected && (
+            <svg viewBox="0 0 10 8" className="size-2.5 fill-none stroke-current stroke-[1.8]">
+              <polyline points="1,4 3.5,6.5 9,1" />
+            </svg>
+          )}
+        </button>
 
         <div className="min-w-0 flex-1">
           {/* Header: type badge + tags + project */}

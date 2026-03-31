@@ -54,15 +54,23 @@ export function tokenize(expr: string): Token[] {
         if (expr[i] === "\\" && i + 1 < expr.length) { s += expr[i + 1]; i += 2; }
         else { s += expr[i]; i++; }
       }
+      if (i >= expr.length) throw new Error("Unterminated string literal");
       i++; // closing quote
       tokens.push({ type: "string", value: s });
       continue;
     }
 
-    // Number
+    // Number — consume digits and at most one decimal point
     if (/[0-9.]/.test(ch)) {
       let num = "";
-      while (i < expr.length && /[0-9.]/.test(expr[i])) { num += expr[i]; i++; }
+      let seenDot = false;
+      while (i < expr.length && /[0-9.]/.test(expr[i])) {
+        if (expr[i] === ".") {
+          if (seenDot) break; // stop at second dot; let it be parsed as a separate token or error
+          seenDot = true;
+        }
+        num += expr[i]; i++;
+      }
       tokens.push({ type: "number", value: num });
       continue;
     }

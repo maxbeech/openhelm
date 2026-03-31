@@ -3,8 +3,9 @@
 ## [0.5.0] - 2026-03-30
 
 ### Added
-- Multi-thread chat: users can create multiple conversation threads per project with horizontal scrollable pill tabs
-- Thread management: create, rename, delete, and drag-to-reorder chat threads
+- Multi-thread chat: users can create multiple conversation threads per project with compact horizontal pill tabs
+- Thread management: create, rename, delete, clear history, and drag-to-reorder chat threads — all via per-tab dropdown menu
+- Auto-rename threads: new threads are automatically given a descriptive title after the first message (non-blocking LLM call)
 - Simultaneous conversations: switch between threads while LLM processes in another — each thread tracks its own sending/streaming state independently
 - Data Visualizations: chart rendering for data table contents using Recharts (line, bar, area, pie, stat chart types)
 - Dashboard redesigned with tabbed layout: Alerts & Actions, System, and Insights tabs
@@ -28,6 +29,7 @@
 - Extracted print stream parsers to `agent/src/claude-code/print-parser.ts` (print.ts file size reduction)
 
 ### Fixed
+- Streaming text duplication: deduplicate cumulative text chunks from CLI so streamed responses no longer appear doubled during generation
 - Thread tab switching: clicking an inactive thread pill now switches to it correctly; dropdown (rename/delete) is now accessed via a separate chevron button on each pill
 - Chat error reporting: extract error details from Claude Code stream-json result events when stderr is empty (fixes unhelpful "no stderr" error messages)
 - Chat resilience: auto-retry LLM calls on transient failures (exit code 1, timeouts) with up to 2 retries and exponential backoff

@@ -119,11 +119,12 @@ export const LATEST_RELEASE = {
 
 Edit `/Users/maxbeech/Documents/Beech/Development/OpenHelm-Website/src/app/changelog/ChangelogContent.tsx`.
 
-The `releases` array at the top of the file must reflect the current CHANGELOG.md. For each **major or minor** release (x.y.0), ensure there is an entry in the array. The **latest** release must have `latest: true` and all others must not.
+The `features` array is an Apple-style bento grid where **each entry is a single feature** (not a release). Review the CHANGELOG.md entries for the new version and decide whether any new features deserve their own card.
 
 To update for the new version:
-1. If this is a **patch** release (x.y.Z where Z > 0): update the `patches` field of the existing major/minor card (e.g. add "vX.Y.Z — short summary of what changed").
-2. If this is a **minor or major** release (x.y.0 or x.0.0): add a new entry at the **top** of the `releases` array, set `latest: true`, and remove `latest: true` from the previously-latest entry. Pick 4–6 headline highlights from the CHANGELOG.md entry for this version — favour Added items. Choose an appropriate icon from `@heroicons/react/24/outline` and a distinct accent colour class.
+1. If this release introduces **notable new features**: add one entry per feature to the `features` array. Each entry needs `title`, `subtitle`, `version`, an icon from `@heroicons/react/24/outline`, grid sizing (`cols: 1 | 2`, `rows: 1 | 2`), a gradient `bg` using a distinct Tailwind colour (e.g. `from-rose-950/80`), and matching `iconColor`. Set `hero: true` for the most prominent feature.
+2. If this release is purely bug-fix / patch with no new user-visible features, no changelog page changes are needed.
+3. Keep the total number of feature cards manageable (10–14 is ideal).
 
 After editing, verify the file compiles (no TypeScript errors) before committing.
 

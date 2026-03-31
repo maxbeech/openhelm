@@ -46,7 +46,11 @@ function formatScheduleLabel(job: Job): string {
       if (cfg.frequency === "daily") return `Daily · ${time}`;
       if (cfg.frequency === "weekly") {
         const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        return `${days[cfg.dayOfWeek ?? 1]} · ${time}`;
+        // daysOfWeek (multi-day) takes precedence over legacy single-day dayOfWeek
+        const label = cfg.daysOfWeek && cfg.daysOfWeek.length > 0
+          ? cfg.daysOfWeek.map((d) => days[d]).join(", ")
+          : days[cfg.dayOfWeek ?? 1];
+        return `${label} · ${time}`;
       }
       return `Monthly · ${time}`;
     }
@@ -105,16 +109,11 @@ export function SidebarJobNode({
     listeners,
     setNodeRef,
     transform,
-    transition,
     isDragging,
   } = useSortable({ id: job.id, disabled: !isDragMode });
 
-  // Only apply dnd-kit transform/transition when drag is active — prevents
-  // the sortable context from animating items during search filtering.
-  const style = isDragMode ? {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  } : {};
+  // No transition — prevents the FLIP snap-back animation on drag release
+  const style = { transform: CSS.Transform.toString(transform) };
 
   return (
     <div
@@ -122,20 +121,24 @@ export function SidebarJobNode({
       style={style}
       className={cn("group flex items-stretch", isDragging && "opacity-50")}
     >
-      {isDragMode && (
-        <span
-          {...attributes}
-          {...listeners}
-          className="flex cursor-grab items-center pl-2 text-muted-foreground/40 opacity-0 transition-opacity hover:text-muted-foreground group-hover:opacity-100 active:cursor-grabbing"
-        >
-          <GripVertical className="size-3.5" />
-        </span>
-      )}
+      {/* Grip always rendered to prevent layout shift; invisible when drag inactive.
+          The grip+padding total (pl-2=8px + icon 14px = 22px) plus the button's
+          pl-3.5 (14px) = 36px — matches the original non-drag pl-9 indent. */}
+      <span
+        {...(isDragMode ? { ...attributes, ...listeners } : {})}
+        className={cn(
+          "flex items-center pl-2",
+          isDragMode
+            ? "cursor-grab text-muted-foreground/40 opacity-0 transition-opacity hover:text-muted-foreground group-hover:opacity-100 active:cursor-grabbing"
+            : "invisible pointer-events-none cursor-default",
+        )}
+      >
+        <GripVertical className="size-3.5" />
+      </span>
       <button
         onClick={onSelect}
         className={cn(
-          "mb-0.5 flex min-w-0 flex-1 flex-col gap-0.5 rounded-md py-1.5 pr-2 text-left transition-colors",
-          isDragMode ? "pl-1" : "pl-9",
+          "mb-0.5 flex min-w-0 flex-1 flex-col gap-0.5 rounded-md py-1.5 pl-3.5 pr-2 text-left transition-colors",
           isSelected
             ? "bg-sidebar-accent text-sidebar-accent-foreground"
             : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",

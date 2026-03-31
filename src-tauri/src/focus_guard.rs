@@ -4,6 +4,11 @@
 //! activates on macOS. If the activating app is a descendant (in the process tree) of
 //! any currently running Claude Code process, it is immediately hidden.
 //!
+//! Browser windows (Chrome, etc.) are also hidden when they self-activate as
+//! descendants. However, if the user actively insists by re-activating the browser
+//! within a short grace period (0.5s), the guard yields — the user clearly wants
+//! to interact (e.g. for CAPTCHA solving).
+//!
 //! Architecture:
 //! - `init()` — called once at app startup on the main thread
 //! - `add_pid(pid)` / `remove_pid(pid)` — called by the agent sidecar stdout handler
@@ -13,9 +18,11 @@
 #![cfg(target_os = "macos")]
 
 use core::ptr::NonNull;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
 use objc2_app_kit::{
     NSRunningApplication, NSWorkspace, NSWorkspaceApplicationKey,
@@ -29,6 +36,24 @@ fn guarded_pids() -> &'static Mutex<HashSet<i32>> {
     static PIDS: OnceLock<Mutex<HashSet<i32>>> = OnceLock::new();
     PIDS.get_or_init(|| Mutex::new(HashSet::new()))
 }
+
+/// Tracks the last time each browser PID was hidden by the focus guard.
+/// When a browser re-activates within BROWSER_GRACE_MS of being hidden,
+/// the user is actively insisting — the guard yields and stops hiding it.
+fn browser_hide_times() -> &'static Mutex<HashMap<i32, Instant>> {
+    static TIMES: OnceLock<Mutex<HashMap<i32, Instant>>> = OnceLock::new();
+    TIMES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// PIDs that the user has "overridden" by re-activating within the grace period.
+/// Once overridden, the focus guard won't hide that browser again (until it dies).
+fn overridden_pids() -> &'static Mutex<HashSet<i32>> {
+    static PIDS: OnceLock<Mutex<HashSet<i32>>> = OnceLock::new();
+    PIDS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// How quickly the user must re-activate a hidden browser to override the guard.
+const BROWSER_GRACE_MS: u128 = 500;
 
 /// Initialise the focus guard. Must be called once, on the main thread, during app setup.
 pub fn init() {
@@ -95,30 +120,59 @@ unsafe fn on_app_activated(notification: NonNull<NSNotification>) {
     // an NSRunningApplication. Downcast via pointer identity cast.
     // Retained<T> implements Deref<Target = T>, so &*obj gives &AnyObject.
     let app = &*(&*obj as *const objc2::runtime::AnyObject as *const NSRunningApplication);
+    let pid = app.processIdentifier();
 
-    // Never hide browser apps — they are intentionally user-interactable
-    // (e.g. spawned by the browser MCP for CAPTCHAs, logins, etc.).
-    // The macOS background-launch path (`open -g`) handles the initial
-    // "don't steal focus" requirement; the focus guard only needs to
-    // suppress non-browser windows spawned by Claude Code.
-    if let Some(bundle_id) = app.bundleIdentifier() {
-        let id = bundle_id.to_string();
-        if is_browser_bundle(&id) {
-            return;
+    // Check if this is a browser app
+    let is_browser = app
+        .bundleIdentifier()
+        .map(|b| is_browser_bundle(&b.to_string()))
+        .unwrap_or(false);
+
+    // If the user has overridden this browser PID (by re-activating quickly), allow it.
+    if is_browser {
+        if let Ok(overridden) = overridden_pids().lock() {
+            if overridden.contains(&pid) {
+                return;
+            }
         }
     }
 
-    let pid = app.processIdentifier();
-
     for &guarded_pid in &guarded {
         if is_descendant_of(pid, guarded_pid) {
+            if is_browser {
+                // Browser descendant — check the re-activation grace period.
+                // If we hid this browser recently and it's activating again,
+                // the user is insisting → override and allow.
+                if let Ok(mut times) = browser_hide_times().lock() {
+                    if let Some(&last_hide) = times.get(&pid) {
+                        if last_hide.elapsed().as_millis() < BROWSER_GRACE_MS {
+                            // User re-activated quickly — permanently allow this PID
+                            times.remove(&pid);
+                            if let Ok(mut overridden) = overridden_pids().lock() {
+                                overridden.insert(pid);
+                            }
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Hide the app
             app.hide();
+
+            // Track the hide time for browsers (grace period logic)
+            if is_browser {
+                if let Ok(mut times) = browser_hide_times().lock() {
+                    times.insert(pid, Instant::now());
+                }
+            }
+
             break;
         }
     }
 }
 
-/// Known browser bundle identifiers that should never be hidden by the focus guard.
+/// Known browser bundle identifiers.
 const BROWSER_BUNDLES: &[&str] = &[
     "com.google.chrome",
     "org.chromium.chromium",
@@ -181,9 +235,19 @@ pub fn add_pid(pid: i32) {
 }
 
 /// Deregister a PID when the associated job run finishes.
+/// Also cleans up any browser override/timing state for descendants.
 pub fn remove_pid(pid: i32) {
     if let Ok(mut pids) = guarded_pids().lock() {
         pids.remove(&pid);
+    }
+    // Clean up stale browser tracking entries (best-effort, non-blocking)
+    if let Ok(mut times) = browser_hide_times().lock() {
+        times.retain(|_, t| t.elapsed().as_secs() < 3600);
+    }
+    if let Ok(mut overridden) = overridden_pids().lock() {
+        // We can't easily know which browser PIDs belonged to this guarded PID,
+        // so just prune dead PIDs. This is a periodic cleanup, not per-run.
+        overridden.retain(|&p| get_parent_pid(p).is_some());
     }
 }
 

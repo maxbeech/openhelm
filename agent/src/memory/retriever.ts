@@ -5,7 +5,7 @@
  *   0.4 × cosine_similarity + 0.15 × scope_match + 0.15 × importance
  *   + 0.15 × type_weight + 0.15 × recency
  *
- * Minimum threshold: 0.3 — below this, nothing is injected.
+ * Minimum threshold: 0.2 — below this, nothing is injected.
  */
 
 import { generateEmbedding, cosineSimilarity } from "./embeddings.js";
@@ -65,32 +65,34 @@ export async function retrieveMemories(
   const allMemories = getActiveMemoriesWithEmbeddings(ctx.projectId);
   if (allMemories.length === 0) return [];
 
-  // Generate query embedding
-  let queryEmbedding: number[];
+  // Generate query embedding (optional — falls back to non-semantic scoring)
+  let queryEmbedding: number[] | null = null;
   try {
     queryEmbedding = await generateEmbedding(ctx.query);
   } catch (err) {
-    console.error("[retriever] embedding generation failed:", err);
-    return [];
+    console.error("[retriever] embedding generation failed, falling back to non-semantic scoring:", err);
   }
 
-  // Score each memory
+  // Score each memory.
+  // With embeddings: 0.4 cosine + 0.15 scope + 0.15 importance + 0.15 type + 0.15 recency
+  // Without embeddings: 0.25 scope + 0.25 importance + 0.25 type + 0.25 recency
+  const hasEmbeddings = queryEmbedding !== null;
   const scored: ScoredMemory[] = [];
   for (const mem of allMemories) {
-    const cosine = mem.embedding
-      ? cosineSimilarity(queryEmbedding, mem.embedding)
+    // When a memory has no stored embedding (e.g. embedding generation failed at write time),
+    // cosine is 0. With hasEmbeddings=true the memory still scores on the remaining 0.6 weight
+    // (scope + importance + type + recency), so it can still be surfaced — intentional.
+    const cosine = (hasEmbeddings && mem.embedding)
+      ? cosineSimilarity(queryEmbedding!, mem.embedding)
       : 0;
     const scope = scopeScore(mem, ctx);
     const imp = importanceScore(mem.importance);
     const typeW = TYPE_WEIGHTS[mem.type as MemoryType] ?? 0.5;
     const recency = recencyScore(mem.updatedAt);
 
-    const score =
-      0.4 * cosine +
-      0.15 * scope +
-      0.15 * imp +
-      0.15 * typeW +
-      0.15 * recency;
+    const score = hasEmbeddings
+      ? 0.4 * cosine + 0.15 * scope + 0.15 * imp + 0.15 * typeW + 0.15 * recency
+      : 0.25 * scope + 0.25 * imp + 0.25 * typeW + 0.25 * recency;
 
     if (score >= SCORE_THRESHOLD) {
       scored.push({ memory: mem, score });
