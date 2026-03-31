@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.1] - 2026-03-31
+
+### Fixed
+- Test fixes: improved test coverage and stability
+- Minor improvements: performance and stability enhancements
+
 ## [0.5.0] - 2026-03-30
 
 ### Added
