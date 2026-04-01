@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.3] - 2026-04-01
+
+### Fixed
+- Data table chart creation: filter out empty column/data entries before rendering to prevent Radix validation errors
+- Sentry noise: suppress expected "message already being processed" errors (user-triggered double-send race, handled in UI)
+- Sentry noise: suppress spurious events from OS-level pipe teardown on sidecar exit
+- AppShell: guard `startDragging()` call behind Tauri internals check to prevent crashes in dev bridge HTTP context
+- Chat improvements: better error handling and UX enhancements
+
 ## [Unreleased]
 
 ### Security
