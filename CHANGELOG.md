@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.0] - 2026-04-01
+
+### Added
+- Goal hierarchy: support for parent-child goal relationships with cascading status updates
+- Chat tools for targets: AI chat can now list, retrieve, and evaluate targets within conversations
+- Chat tools for visualizations: AI chat can now suggest and manage data table visualizations
+- Enhanced system prompt: improved formatting and capabilities for target evaluation and visualization suggestions
+
+### Changed
+- Bump safe npm dependencies: `@sentry/react` + `@sentry/node` 10.46→10.47, `posthog-js` 1.364.3→1.364.4
+- Bump Rust crates: `hyper` 1.8.1→1.9.0, `wasm-bindgen` 0.2.116→0.2.117, and related transitive updates
+
+### Fixed
+- Chat streaming deduplication: chunks shorter than accumulated text were incorrectly re-emitted, potentially doubling words in the output; fixed by using `totalStreamedText.startsWith(stripped)` to reliably detect already-emitted subsets
+
 ## [0.5.3] - 2026-04-01
 
 ### Fixed
