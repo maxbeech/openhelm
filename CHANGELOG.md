@@ -14,7 +14,7 @@
 - Bump Rust crates: `tao` 0.34.6→0.34.8, `wry` 0.54.2→0.54.4, `darling` 0.21→0.23, `serde_with` 3.17→3.18, `time` 0.3.45→0.3.47, `wasm-bindgen` 0.2.114→0.2.116, plus numerous other compatible updates
 - Bump Rust crates: `hyper` 1.8.1→1.9.0, `wasm-bindgen` 0.2.116→0.2.117, `js-sys`/`web-sys` 0.3.93→0.3.94, `serde_spanned` 1.1.0→1.1.1, `toml_*` patch updates
 
-## [0.5.2] - 2026-03-31
+## [0.5.2] - 2026-04-01
 
 ### Added
 - Chat data table tools: the AI chat sidebar can now CRUD data tables (list, get, create, insert rows, update rows, delete) — previously only available during job runs via MCP
