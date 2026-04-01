@@ -140,7 +140,7 @@ export function ChartCreateDialog({ projectId, goalId, jobId, onClose, onCreated
                 <SelectValue placeholder="Select a table" />
               </SelectTrigger>
               <SelectContent>
-                {tables.map((t) => (
+                {tables.filter((t) => t.id).map((t) => (
                   <SelectItem key={t.id} value={t.id}>{t.name} ({t.rowCount} rows)</SelectItem>
                 ))}
               </SelectContent>
@@ -177,7 +177,7 @@ export function ChartCreateDialog({ projectId, goalId, jobId, onClose, onCreated
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">None (use row index)</SelectItem>
-                  {xAxisColumns.map((c) => (
+                  {xAxisColumns.filter((c) => c.id).map((c) => (
                     <SelectItem key={c.id} value={c.id}>{c.name} ({c.type})</SelectItem>
                   ))}
                 </SelectContent>

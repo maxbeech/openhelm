@@ -37,8 +37,13 @@ function isExpectedIpcError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   return (
     err.message.startsWith("[-32601]") ||
+    // -32603 "message already being processed": user sent a second request while one is in flight;
+    // the UI's chatSending guard normally prevents this, but can race during reconnection.
+    err.message.startsWith("[-32603] A message is already being processed") ||
     err.message === "Agent process terminated unexpectedly" ||
     err.message === "Agent client stopped" ||
+    // OS-level pipe error when the sidecar exits mid-request (Tauri / macOS)
+    err.message.includes("Broken pipe") ||
     (!isTauriContext() && err.message.startsWith("Failed to send request:"))
   );
 }

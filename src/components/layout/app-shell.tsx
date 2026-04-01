@@ -65,7 +65,7 @@ export function AppShell({
         {/* Header strip — h-12 matches sidebar logo row; drag region + chat toggle */}
         <div
           data-tauri-drag-region
-          onMouseDown={() => { getCurrentWindow().startDragging(); }}
+          onMouseDown={() => { if ("__TAURI_INTERNALS__" in window) getCurrentWindow().startDragging(); }}
           className="flex h-12 shrink-0 items-center justify-end gap-2 border-b border-border px-3"
         >
           {licenseStatus && shouldShowLicenseBanner(licenseStatus) && (
