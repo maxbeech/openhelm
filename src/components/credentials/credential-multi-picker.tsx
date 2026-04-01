@@ -138,7 +138,7 @@ export function CredentialMultiPicker({ value, onChange, existingScope }: Props)
                   />
                   <div className="min-w-0">
                     <p className="truncate text-sm">{cred.name}</p>
-                    <p className="truncate font-mono text-[10px] text-muted-foreground">
+                    <p className="truncate font-mono text-3xs text-muted-foreground">
                       {cred.envVarName}
                       {cred.type === "username_password"
                         ? `  /  ${cred.envVarName}_USERNAME / ${cred.envVarName}_PASSWORD`

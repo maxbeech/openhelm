@@ -25,7 +25,7 @@ export function CredentialFilters() {
           key={opt.value}
           size="sm"
           variant={filterType === opt.value ? "secondary" : "ghost"}
-          className="h-7 text-[11px]"
+          className="h-7 text-2xs"
           onClick={() => setFilterType(filterType === opt.value ? null : opt.value)}
         >
           {opt.label}
@@ -40,7 +40,7 @@ export function CredentialFilters() {
           key={opt.value}
           size="sm"
           variant={filterScope === opt.value ? "secondary" : "ghost"}
-          className="h-7 text-[11px]"
+          className="h-7 text-2xs"
           onClick={() => setFilterScope(filterScope === opt.value ? null : opt.value)}
         >
           {opt.label}

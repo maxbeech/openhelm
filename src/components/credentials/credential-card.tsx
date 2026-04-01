@@ -68,28 +68,28 @@ export function CredentialCard({ credential, onEdit, onDelete }: CredentialCardP
       <div className="mb-1.5 flex items-center gap-2 flex-wrap">
         <span className="text-sm font-medium text-foreground">{credential.name}</span>
         <CredentialTypeBadge type={credential.type} />
-        <Badge variant="outline" className="text-[10px] text-muted-foreground">
+        <Badge variant="outline" className="text-3xs text-muted-foreground">
           <ScopeIcon className="mr-1 size-2.5" />
           {scopeLabels[credential.scopeType]}
         </Badge>
         {credential.allowBrowserInjection ? (
-          <Badge variant="outline" className="text-[10px] text-green-400 border-green-500/20">
+          <Badge variant="outline" className="text-3xs text-green-400 border-green-500/20">
             <Monitor className="mr-1 size-2.5" />
             Browser only
           </Badge>
         ) : credential.allowPromptInjection ? (
-          <Badge variant="outline" className="text-[10px] text-red-400 border-red-500/20">
+          <Badge variant="outline" className="text-3xs text-red-400 border-red-500/20">
             <ShieldAlert className="mr-1 size-2.5" />
             Prompt
           </Badge>
         ) : (
-          <Badge variant="outline" className="text-[10px] text-amber-400 border-amber-500/20">
+          <Badge variant="outline" className="text-3xs text-amber-400 border-amber-500/20">
             <ShieldCheck className="mr-1 size-2.5" />
             Env var
           </Badge>
         )}
         {!credential.isEnabled && (
-          <Badge variant="outline" className="text-[10px] text-yellow-400 border-yellow-500/20">
+          <Badge variant="outline" className="text-3xs text-yellow-400 border-yellow-500/20">
             Disabled
           </Badge>
         )}
@@ -98,11 +98,11 @@ export function CredentialCard({ credential, onEdit, onDelete }: CredentialCardP
       {/* Row 2: Env var name */}
       <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
         {credential.type === "username_password" ? (
-          <code className="rounded bg-muted px-1.5 py-0.5 text-[10px]">
+          <code className="rounded bg-muted px-1.5 py-0.5 text-3xs">
             {credential.envVarName}_USERNAME / {credential.envVarName}_PASSWORD
           </code>
         ) : (
-          <code className="rounded bg-muted px-1.5 py-0.5 text-[10px]">
+          <code className="rounded bg-muted px-1.5 py-0.5 text-3xs">
             {credential.envVarName}
           </code>
         )}
@@ -142,7 +142,7 @@ export function CredentialCard({ credential, onEdit, onDelete }: CredentialCardP
           <Button
             size="sm"
             variant="destructive"
-            className="h-7 text-[11px]"
+            className="h-7 text-2xs"
             onClick={() => { onDelete(credential.id); setConfirmDelete(false); }}
           >
             Confirm
@@ -162,7 +162,7 @@ export function CredentialCard({ credential, onEdit, onDelete }: CredentialCardP
 
       {/* Row 4: Last used */}
       {credential.lastUsedAt && (
-        <p className="mt-1.5 text-[10px] text-muted-foreground/60">
+        <p className="mt-1.5 text-3xs text-muted-foreground/60">
           Last used {new Date(credential.lastUsedAt).toLocaleDateString()}
         </p>
       )}

@@ -357,7 +357,7 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
     <div className="flex-1 overflow-auto">
       {/* GOALS section header */}
       <div className="sticky top-0 z-20 flex h-[30px] items-center gap-1 bg-sidebar px-3">
-        <span className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <span className="flex-1 text-3xs font-semibold uppercase tracking-wider text-muted-foreground">
           Goals
         </span>
         {showGroupToggle && (
@@ -426,7 +426,7 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
               if (e.key === "Escape") closeSearch();
             }}
             placeholder="Search..."
-            className="flex-1 rounded-md bg-sidebar-accent px-2 py-1 text-xs text-sidebar-foreground outline-none ring-1 ring-primary/50"
+            className="flex-1 rounded-md bg-sidebar-accent px-2 py-1 text-sm text-sidebar-foreground outline-none ring-1 ring-primary/50"
           />
           <button
             onClick={closeSearch}
@@ -567,7 +567,7 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
           {filteredStandaloneJobs.length > 0 && (
             <div className="mt-3 border-t border-sidebar-border pt-3">
               <div className="mb-1 flex items-center gap-1 px-3">
-                <p className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="flex-1 text-3xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Jobs
                 </p>
                 <SortDropdown value={jobSortMode} onChange={setJobSortMode} label="jobs" />

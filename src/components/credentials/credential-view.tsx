@@ -109,7 +109,7 @@ export function CredentialView() {
               <Button
                 size="sm"
                 variant="secondary"
-                className="text-[11px]"
+                className="text-2xs"
                 onClick={() => setShowCreate(true)}
               >
                 <Plus className="mr-1 size-3" />

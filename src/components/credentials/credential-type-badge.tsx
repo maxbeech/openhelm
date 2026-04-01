@@ -13,7 +13,7 @@ const typeColors: Record<CredentialType, string> = {
 
 export function CredentialTypeBadge({ type }: { type: CredentialType }) {
   return (
-    <Badge variant="outline" className={`text-[10px] ${typeColors[type]}`}>
+    <Badge variant="outline" className={`text-3xs ${typeColors[type]}`}>
       {typeLabels[type]}
     </Badge>
   );

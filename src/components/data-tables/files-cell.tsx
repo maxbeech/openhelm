@@ -129,7 +129,7 @@ function FilesDropdown({ anchorRect, files, onAdd, onRemove, onClose }: {
       {/* Existing files */}
       <div className="max-h-40 overflow-y-auto p-1.5">
         {files.length === 0 && (
-          <p className="px-2 py-1.5 text-[11px] text-muted-foreground">No files attached</p>
+          <p className="px-2 py-1.5 text-2xs text-muted-foreground">No files attached</p>
         )}
         {files.map((f) => (
           <div key={f.id} className="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-accent">

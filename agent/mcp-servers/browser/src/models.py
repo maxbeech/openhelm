@@ -25,7 +25,7 @@ class BrowserInstance(BaseModel):
     last_activity: datetime = Field(default_factory=datetime.now)
     headless: bool = Field(default=False)
     user_agent: Optional[str] = None
-    viewport: Dict[str, int] = Field(default_factory=lambda: {"width": 1920, "height": 1080})
+    viewport: Dict[str, int] = Field(default_factory=lambda: {"width": 1280, "height": 720})
     
     def update_activity(self):
         """Update last activity timestamp."""
@@ -86,8 +86,8 @@ class BrowserOptions(BaseModel):
     """Options for spawning a new browser instance."""
     headless: bool = Field(default=False, description="Run browser in headless mode")
     user_agent: Optional[str] = Field(default=None, description="Custom user agent string")
-    viewport_width: int = Field(default=1920, description="Viewport width in pixels")
-    viewport_height: int = Field(default=1080, description="Viewport height in pixels")
+    viewport_width: int = Field(default=1280, description="Viewport width in pixels")
+    viewport_height: int = Field(default=720, description="Viewport height in pixels")
     proxy: Optional[str] = Field(default=None, description="Proxy server URL")
     block_resources: List[str] = Field(default_factory=list, description="Resource types to block")
     extra_headers: Dict[str, str] = Field(default_factory=dict, description="Extra HTTP headers")

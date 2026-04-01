@@ -118,7 +118,7 @@ export function MemoryEditDialog({
                 <button
                   key={tag}
                   onClick={() => toggleTag(tag)}
-                  className={`rounded-full px-2 py-0.5 text-[11px] transition-colors ${
+                  className={`rounded-full px-2 py-0.5 text-2xs transition-colors ${
                     selectedTags.includes(tag)
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted text-muted-foreground hover:bg-muted/80"

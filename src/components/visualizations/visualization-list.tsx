@@ -97,11 +97,11 @@ export function VisualizationList({ projectId, goalId, jobId, compact }: Props) 
             <div className="flex items-center justify-between px-3 py-2 border-b">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium">{viz.name}</span>
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                <Badge variant="outline" className="text-3xs px-1.5 py-0">
                   {viz.chartType}
                 </Badge>
                 {viz.source === "system" && (
-                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0">auto</Badge>
+                  <Badge variant="secondary" className="text-3xs px-1.5 py-0">auto</Badge>
                 )}
               </div>
               <Button
@@ -149,7 +149,7 @@ function SuggestedCard({
         <div className="flex items-center gap-2">
           <Sparkles className="h-3 w-3 text-blue-500" />
           <span className="text-xs font-medium">{viz.name}</span>
-          <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-blue-500/40 text-blue-500">
+          <Badge variant="outline" className="text-3xs px-1.5 py-0 border-blue-500/40 text-blue-500">
             suggested
           </Badge>
         </div>

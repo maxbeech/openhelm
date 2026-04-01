@@ -145,10 +145,10 @@ export function DataTableDetailView({ tableId }: Props) {
         <div className="flex-1 min-w-0">
           <h2 className="text-sm font-semibold truncate">{table.name}</h2>
           {table.description && (
-            <p className="text-[10px] text-muted-foreground truncate">{table.description}</p>
+            <p className="text-3xs text-muted-foreground truncate">{table.description}</p>
           )}
         </div>
-        <span className="text-[10px] text-muted-foreground">{table.rowCount} rows</span>
+        <span className="text-3xs text-muted-foreground">{table.rowCount} rows</span>
         <button
           onClick={() => setShowAddColumn(true)}
           className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"

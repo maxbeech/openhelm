@@ -37,7 +37,7 @@ export function SidebarArchived({
     <div className="mt-3 border-t border-sidebar-border pt-3">
       <button
         onClick={() => setShowArchived((v) => !v)}
-        className="flex w-full items-center gap-1.5 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-sidebar-foreground"
+        className="flex w-full items-center gap-1.5 px-3 py-1 text-3xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-sidebar-foreground"
       >
         <ChevronRight
           className={cn(

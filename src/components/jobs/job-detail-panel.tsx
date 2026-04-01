@@ -253,7 +253,7 @@ export function JobDetailPanel({ job, runs, onClose }: JobDetailPanelProps) {
           {recentRuns.length > 0 && (
             <button
               onClick={() => setConfirmAction("clearHistory")}
-              className="text-[10px] text-muted-foreground/60 hover:text-destructive"
+              className="text-3xs text-muted-foreground/60 hover:text-destructive"
             >
               Clear all
             </button>
@@ -276,7 +276,7 @@ export function JobDetailPanel({ job, runs, onClose }: JobDetailPanelProps) {
                       : formatRelativeTime(run.createdAt)}
                   </span>
                   {(run.inputTokens != null || run.outputTokens != null) && (
-                    <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/70">
+                    <span className="shrink-0 font-mono text-3xs tabular-nums text-muted-foreground/70">
                       {formatTokenCount((run.inputTokens ?? 0) + (run.outputTokens ?? 0))}
                     </span>
                   )}

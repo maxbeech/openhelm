@@ -166,6 +166,8 @@ export async function handleChatMessage(
         if (closeIdx === -1) { break; }
         streamBuffer = streamBuffer.slice(closeIdx + "</tool_call>".length);
         insideToolCall = false;
+        // Insert space so text around stripped tool_call blocks doesn't run together
+        if (streamBuffer.length > 0) output += " ";
       } else {
         const openIdx = streamBuffer.indexOf("<tool_call>");
         if (openIdx === -1) { output += streamBuffer; streamBuffer = ""; break; }
@@ -174,7 +176,7 @@ export async function handleChatMessage(
         insideToolCall = true;
       }
     }
-    return output.trimEnd();
+    return output;
   }
 
   // Session ID captured from first CLI call, reused in subsequent tool loop iterations
@@ -186,6 +188,10 @@ export async function handleChatMessage(
 
   for (let iter = 0; iter < MAX_TOOL_LOOP_ITERATIONS; iter++) {
     emit("chat.status", { status: iter === 0 ? "thinking" : "analyzing", projectId, conversationId: convId });
+    // Emit a separator between tool-loop iterations so streaming text doesn't run together
+    if (iter > 0) {
+      emit("chat.streaming", { text: "\n\n", projectId, conversationId: convId });
+    }
     // Reset stream buffer state for each LLM iteration
     streamBuffer = "";
     insideToolCall = false;
@@ -197,7 +203,10 @@ export async function handleChatMessage(
       effort,
       systemPrompt,
       userMessage,
-      disableTools: false,
+      // Allow only safe read/search tools; block Bash and Agent so the LLM
+      // is forced to use XML tool_call blocks for OpenHelm data queries.
+      allowedTools: "WebSearch,WebFetch,Read,Glob,Grep",
+      disallowedTools: "Bash,Agent",
       workingDirectory: project?.directoryPath,
       permissionMode: permissionMode || "plan",
       preferRawText: true,
@@ -205,17 +214,23 @@ export async function handleChatMessage(
       onTextChunk: (text) => {
         const stripped = sanitizeStreamChunk(text);
         if (!stripped) return;
-        // Deduplicate: if the CLI sends cumulative text, extract only the new portion
+        // Deduplicate: if the CLI sends cumulative text, extract only the new portion.
+        // Three cases:
+        //   1. Cumulative: new chunk is a superset of what we've already sent
+        //   2. Subset/equal: already emitted all of this — skip
+        //   3. Pure delta: normal incremental chunk, emit as-is
         if (stripped.length > totalStreamedText.length && stripped.startsWith(totalStreamedText)) {
+          // Case 1: cumulative mode
           const delta = stripped.slice(totalStreamedText.length);
           totalStreamedText = stripped;
           emit("chat.streaming", { text: delta, projectId, conversationId: convId });
-        } else if (!totalStreamedText || !stripped.startsWith(totalStreamedText.slice(0, 20))) {
-          // New delta text (normal incremental mode)
+        } else if (totalStreamedText.startsWith(stripped)) {
+          // Case 2: subset or duplicate — skip (also handles empty totalStreamedText when stripped is "")
+        } else {
+          // Case 3: pure delta
           totalStreamedText += stripped;
           emit("chat.streaming", { text: stripped, projectId, conversationId: convId });
         }
-        // Otherwise it's a subset/duplicate of already emitted text — skip
       },
       onToolUse: (toolName) => {
         emit("chat.status", { status: "reading", tools: [toolName], projectId, conversationId: convId });

@@ -49,6 +49,8 @@ DISABLED_SECTIONS = set()
 _browser_credentials: Dict[str, dict] = {}  # keyed by credential name
 _credentials_file_path: Optional[str] = None  # set by --credentials-file arg
 _run_id: Optional[str] = None  # set by --run-id arg (OpenHelm run context)
+# Default resource types to block on every spawn_browser call (set by --block-resources-default)
+_default_block_resources: List[str] = []
 
 
 def _load_browser_credentials():
@@ -160,8 +162,8 @@ captcha_detector = CaptchaDetector()
 async def spawn_browser(
     headless: bool = False,
     user_agent: Optional[str] = None,
-    viewport_width: int = 1920,
-    viewport_height: int = 1080,
+    viewport_width: int = 1280,
+    viewport_height: int = 720,
     proxy: Optional[str] = None,
     block_resources: List[str] = None,
     extra_headers: Dict[str, str] = None,
@@ -199,13 +201,15 @@ async def spawn_browser(
         elif not isinstance(sandbox, bool):
             sandbox = bool(sandbox)
 
+        # Use caller-supplied list if provided; fall back to server-level default
+        effective_block_resources = block_resources if block_resources is not None else _default_block_resources
         options = BrowserOptions(
             headless=headless,
             user_agent=user_agent,
             viewport_width=viewport_width,
             viewport_height=viewport_height,
             proxy=proxy,
-            block_resources=block_resources or [],
+            block_resources=effective_block_resources,
             extra_headers=extra_headers or {},
             user_data_dir=user_data_dir,
             sandbox=sandbox,
@@ -215,7 +219,7 @@ async def spawn_browser(
         tab = await browser_manager.get_tab(instance.instance_id)
         if tab:
             await network_interceptor.setup_interception(
-                tab, instance.instance_id, block_resources
+                tab, instance.instance_id, effective_block_resources
             )
         return {
             "instance_id": instance.instance_id,
@@ -754,7 +758,7 @@ async def take_screenshot(
             output_buffer = io.BytesIO()
 
             if save_format == 'jpeg':
-                img.save(output_buffer, format='JPEG', quality=70, optimize=True)
+                img.save(output_buffer, format='JPEG', quality=55, optimize=True)
             else:
                 img.save(output_buffer, format='PNG', optimize=True)
 
@@ -3106,6 +3110,9 @@ if __name__ == "__main__":
     parser.add_argument("--disable-captcha", action="store_true",
                       help="Disable CAPTCHA detection and intervention tools")
 
+    parser.add_argument("--block-resources-default", type=str, default=None,
+                      help="Comma-separated resource types to block by default on every spawn_browser call (e.g. 'font,media,image')")
+
     parser.add_argument("--minimal", action="store_true",
                       help="Enable only core browser management and element interaction (disable everything else)")
     parser.add_argument("--list-sections", action="store_true",
@@ -3164,6 +3171,10 @@ if __name__ == "__main__":
     
     if args.disable_captcha:
         DISABLED_SECTIONS.add("captcha")
+
+    if args.block_resources_default:
+        _default_block_resources[:] = [r.strip() for r in args.block_resources_default.split(',') if r.strip()]
+        print(f"[browser-mcp] Default resource blocking: {_default_block_resources}", file=sys.stderr)
 
     if args.credentials_file:
         _credentials_file_path = args.credentials_file

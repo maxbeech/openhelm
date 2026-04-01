@@ -36,7 +36,9 @@ You have Claude Code's built-in tools available. These work automatically — ju
 - **Grep / Glob** — search file contents or find files by pattern
 
 These are completely separate from the OpenHelm CRUD tools below. Never use XML <tool_call> syntax for these.
-When the user asks you to search the web, look something up, or read a file — use these built-in tools directly.`;
+When the user asks you to search the web, look something up, or read a file — use these built-in tools directly.
+
+CRITICAL: Do NOT use native tools (Read, Bash, Grep, etc.) to answer questions about OpenHelm entities such as goals, jobs, runs, data tables, or memories. Those entities are stored in the OpenHelm database — use the XML tools in the ## Available Tools section instead. Native tools only see project source code files, not OpenHelm runtime data.`;
   return cachedNativeToolsSection;
 }
 
@@ -156,11 +158,6 @@ export async function buildChatSystemPromptAsync(ctx: ChatSystemContext): Promis
   return buildChatSystemPromptSync(ctx, memorySection);
 }
 
-/** Sync version (used when memory is already resolved or not needed) */
-export function buildChatSystemPrompt(ctx: ChatSystemContext): string {
-  return buildChatSystemPromptSync(ctx, "");
-}
-
 function buildChatSystemPromptSync(ctx: ChatSystemContext, memorySection: string): string {
   const sections = [
     `## You are the OpenHelm AI Assistant
@@ -169,8 +166,9 @@ OpenHelm runs Claude Code tasks on a schedule. Users define:
 - Goals: high-level outcomes (e.g. "Improve test coverage")
 - Jobs: scheduled Claude Code prompts that work toward goals
 - Runs: individual executions of jobs (with logs and status)
+- Data Tables: structured data storage (like spreadsheets) that jobs can read and write
 
-Help users manage their project: answer questions, create or update goals and jobs, diagnose failures, and have natural conversations about their work.
+Help users manage their project: answer questions, create or update goals/jobs/data tables, diagnose failures, and have natural conversations about their work.
 
 Be concise and action-oriented. Propose write actions with the appropriate tool and a brief explanation.`,
 
@@ -193,6 +191,8 @@ function buildRulesSection(): string {
   if (cachedRulesSection) return cachedRulesSection;
   cachedRulesSection = `## Rules
 - Never fabricate data — call a read tool first if you need information.
+- CRITICAL: For ALL OpenHelm entity queries (goals, jobs, runs, data tables, memories), you MUST use the XML tools in ## Available Tools. Never use native Claude Code tools (Read, Bash, Grep, Agent) to fetch OpenHelm data — they read source code files, not the live database. Call list_data_tables to list data tables, list_goals for goals, etc.
+- "Data Tables" in OpenHelm are user-defined structured datasets (like spreadsheets) stored in the OpenHelm database — they are NOT the active project's own database schema or source files.
 - Before creating a goal or job, check what already exists by calling list_goals or list_jobs. If the user's request maps to an existing entity, use update_goal or update_job instead of creating a duplicate. Only create new entities when nothing suitable exists.
 - When the user is viewing a specific goal or job (shown in Current View), default to modifying that entity unless they explicitly ask for something new.
 - Write tools require user approval — just propose them naturally.
@@ -220,8 +220,9 @@ OpenHelm runs Claude Code tasks on a schedule. Users define:
 - Goals: high-level outcomes (e.g. "Improve test coverage")
 - Jobs: scheduled Claude Code prompts that work toward goals
 - Runs: individual executions of jobs (with logs and status)
+- Data Tables: structured data storage (like spreadsheets) that jobs can read and write
 
-Help users manage their projects: answer questions, create or update goals and jobs, diagnose failures, and have natural conversations about their work.
+Help users manage their projects: answer questions, create or update goals/jobs/data tables, diagnose failures, and have natural conversations about their work.
 
 Be concise and action-oriented. Propose write actions with the appropriate tool and a brief explanation.`,
 

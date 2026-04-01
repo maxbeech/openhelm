@@ -93,7 +93,7 @@ export function SidebarProjectGroup({
               !isCollapsed && "rotate-90",
             )}
           />
-          <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="truncate text-3xs font-semibold uppercase tracking-wider text-muted-foreground">
             {project.name}
           </span>
         </button>

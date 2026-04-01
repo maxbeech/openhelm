@@ -167,11 +167,11 @@ export function RunDetailPanel({ run, jobName, onClose }: RunDetailPanelProps) {
           <h4 className="mb-1.5 text-xs font-medium text-muted-foreground">Tokens Used</h4>
           <div className="flex items-center gap-4 text-sm">
             <span>
-              <span className="text-[11px] text-muted-foreground">in </span>
+              <span className="text-2xs text-muted-foreground">in </span>
               <span className="font-mono tabular-nums">{formatTokenCount(run.inputTokens)}</span>
             </span>
             <span>
-              <span className="text-[11px] text-muted-foreground">out </span>
+              <span className="text-2xs text-muted-foreground">out </span>
               <span className="font-mono tabular-nums">{formatTokenCount(run.outputTokens)}</span>
             </span>
             <span className="font-medium font-mono tabular-nums">

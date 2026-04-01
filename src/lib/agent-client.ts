@@ -30,14 +30,21 @@ type PendingRequest = {
  * - JSON-RPC -32601 (Method Not Found): the running agent binary predates a
  *   method added in a newer frontend build. Callers handle these silently.
  * - Dev-bridge send failures: the HTTP bridge at localhost:1421 is not running.
+ * - Agent termination / stop: process died or client was torn down; callers
+ *   handle reconnection themselves.
  */
 function isExpectedIpcError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   return (
     err.message.startsWith("[-32601]") ||
+    err.message === "Agent process terminated unexpectedly" ||
+    err.message === "Agent client stopped" ||
     (!isTauriContext() && err.message.startsWith("Failed to send request:"))
   );
 }
+
+const HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds between pings
+const HEARTBEAT_TIMEOUT_MS = 10_000; // 10 seconds to respond before declaring agent hung
 
 class AgentClient {
   private pending = new Map<string, PendingRequest>();
@@ -46,6 +53,7 @@ class AgentClient {
   private readyPromise: Promise<void>;
   private connected = false;
   private unlisten: (() => void) | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.readyPromise = new Promise((resolve) => {
@@ -66,6 +74,7 @@ class AgentClient {
 
   /** Stop listening */
   stop() {
+    this.stopHeartbeat();
     if (this.unlisten) {
       this.unlisten();
       this.unlisten = null;
@@ -115,9 +124,10 @@ class AgentClient {
     this.probeReadiness();
   }
 
-  /** Called when the sidecar process terminates unexpectedly. */
+  /** Called when the sidecar process terminates unexpectedly, or heartbeat fails. */
   private handleSidecarDeath() {
     console.error("[agent-client] sidecar process terminated");
+    this.stopHeartbeat();
     this.connected = false;
     this.ready = false;
 
@@ -182,15 +192,40 @@ class AgentClient {
 
   // ── Shared ───────────────────────────────────────────────────────────────
 
-  private sendRaw<T = unknown>(method: string, params?: unknown): Promise<T> {
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(async () => {
+      if (!this.ready) return;
+      try {
+        await this.sendRaw("ping", undefined, HEARTBEAT_TIMEOUT_MS);
+      } catch {
+        // Agent is hung (alive but not responding) — treat as if it terminated.
+        // handleSidecarDeath rejects all pending requests immediately so callers
+        // don't have to wait for the full 240 s REQUEST_TIMEOUT_MS.
+        if (this.ready) {
+          console.error("[agent-client] heartbeat timed out — agent appears hung");
+          this.handleSidecarDeath();
+        }
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  private sendRaw<T = unknown>(method: string, params?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
     const id = crypto.randomUUID();
     const req: IpcRequest = { id, method, params };
 
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Request "${method}" timed out after ${REQUEST_TIMEOUT_MS}ms`));
-      }, REQUEST_TIMEOUT_MS);
+        reject(new Error(`Request "${method}" timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
 
       this.pending.set(id, {
         resolve: resolve as (value: unknown) => void,
@@ -212,7 +247,7 @@ class AgentClient {
 
   private async probeReadiness() {
     try {
-      await this.sendRaw("ping");
+      await this.sendRaw("ping", undefined, HEARTBEAT_TIMEOUT_MS);
       this.markReady();
     } catch {
       // Will be marked ready via agent.ready event
@@ -228,6 +263,7 @@ class AgentClient {
       this.readyResolve = null;
     }
     window.dispatchEvent(new CustomEvent("agent:agent.ready"));
+    this.startHeartbeat();
   }
 
   private handleLine(line: string) {

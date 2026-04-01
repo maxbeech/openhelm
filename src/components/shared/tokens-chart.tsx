@@ -101,7 +101,7 @@ export function TokensChart({ projectId, jobIds, compact = false }: TokensChartP
       {/* Controls */}
       <div className="mb-3 flex items-center gap-2 flex-wrap">
         {/* Mode toggle */}
-        <div className="flex items-center rounded-md border border-border text-[11px]">
+        <div className="flex items-center rounded-md border border-border text-2xs">
           <button
             onClick={() => setMode("avg")}
             className={cn(
@@ -130,7 +130,7 @@ export function TokensChart({ projectId, jobIds, compact = false }: TokensChartP
         <div className="flex-1" />
 
         {/* Period toggle */}
-        <div className="flex items-center rounded-md border border-border text-[11px]">
+        <div className="flex items-center rounded-md border border-border text-2xs">
           {(["12h", "1d", "7d", "30d", "90d", "all"] as Period[]).map((p, i, arr) => (
             <button
               key={p}
@@ -164,7 +164,7 @@ export function TokensChart({ projectId, jobIds, compact = false }: TokensChartP
           ))}
         </div>
       ) : !hasData ? (
-        <p className={cn("text-center text-muted-foreground", compact ? "text-[11px] py-3" : "text-xs py-4")}>
+        <p className={cn("text-center text-muted-foreground", compact ? "text-2xs py-3" : "text-xs py-4")}>
           No token data yet — runs will appear here.
         </p>
       ) : (
@@ -188,7 +188,7 @@ export function TokensChart({ projectId, jobIds, compact = false }: TokensChartP
                 <span
                   className={cn(
                     "shrink-0 text-right text-muted-foreground truncate",
-                    compact ? "text-[10px] w-16" : "text-[11px] w-20",
+                    compact ? "text-3xs w-16" : "text-2xs w-20",
                   )}
                   title={stat.jobName}
                 >
@@ -204,7 +204,7 @@ export function TokensChart({ projectId, jobIds, compact = false }: TokensChartP
                   <span
                     className={cn(
                       "shrink-0 font-mono text-foreground tabular-nums",
-                      compact ? "text-[10px] w-10" : "text-[11px] w-12",
+                      compact ? "text-3xs w-10" : "text-2xs w-12",
                     )}
                   >
                     {formatTokenCount(value)}

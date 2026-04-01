@@ -14,15 +14,6 @@ export type ContentView =
   | "credentials"
   | "settings";
 
-// Backward-compat alias
-export type Page = "goals" | "jobs" | "runs" | "settings";
-
-export interface NavigationFilter {
-  goalId?: string;
-  jobId?: string;
-  runId?: string;
-}
-
 interface AppState {
   // Navigation
   contentView: ContentView;
@@ -32,10 +23,6 @@ interface AppState {
   selectedDataTableId: string | null;
   collapsedGoalIds: string[];
   collapsedProjectIds: string[];
-
-  // Legacy
-  page: Page;
-  filter: NavigationFilter;
 
   // Sidebar sorting
   goalSortMode: SortMode;
@@ -63,9 +50,6 @@ interface AppState {
   toggleProjectCollapsed: (projectId: string) => void;
   setContentView: (view: ContentView) => void;
 
-  // Legacy (maps to new actions)
-  setPage: (page: Page, filter?: NavigationFilter) => void;
-
   // Sorting
   setGoalSortMode: (mode: SortMode) => void;
   setJobSortMode: (mode: SortMode) => void;
@@ -90,9 +74,6 @@ export const useAppStore = create<AppState>((set) => ({
   selectedDataTableId: null,
   collapsedGoalIds: [],
   collapsedProjectIds: [],
-
-  page: "goals",
-  filter: {},
 
   goalSortMode: "custom",
   jobSortMode: "custom",
@@ -156,58 +137,6 @@ export const useAppStore = create<AppState>((set) => ({
       contentView: view,
       ...(clearSelections && { selectedGoalId: null, selectedJobId: null, selectedRunId: null, selectedDataTableId: null }),
     });
-  },
-
-  // Backward-compat: maps old page names to new navigation
-  setPage: (page, filter = {}) => {
-    if (page === "goals") {
-      if (filter.goalId) {
-        set({
-          contentView: "goal-detail",
-          selectedGoalId: filter.goalId,
-          page,
-          filter,
-        });
-      } else {
-        set({ contentView: "home", page, filter });
-      }
-    } else if (page === "jobs") {
-      if (filter.jobId) {
-        set({
-          contentView: "job-detail",
-          selectedJobId: filter.jobId,
-          page,
-          filter,
-        });
-      } else if (filter.goalId) {
-        set({
-          contentView: "goal-detail",
-          selectedGoalId: filter.goalId,
-          page,
-          filter,
-        });
-      } else {
-        set({ contentView: "home", page, filter });
-      }
-    } else if (page === "runs") {
-      if (filter.runId) {
-        set((s) => ({
-          selectedRunId: filter.runId,
-          selectedJobId: filter.jobId ?? s.selectedJobId,
-          contentView: (filter.jobId ?? s.selectedJobId)
-            ? "job-detail"
-            : s.contentView,
-          page,
-          filter,
-        }));
-      } else {
-        set({ contentView: "home", page, filter });
-      }
-    } else if (page === "settings") {
-      set({ contentView: "settings", page, filter });
-    } else {
-      set({ page, filter });
-    }
   },
 
   setGoalSortMode: (mode) => set({ goalSortMode: mode }),

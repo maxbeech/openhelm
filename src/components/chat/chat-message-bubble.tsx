@@ -55,7 +55,7 @@ export function ChatMessageBubble({ message, projectId }: ChatMessageBubbleProps
           />
         )}
       </div>
-      <span className="mt-0.5 px-1 text-[10px] text-muted-foreground">
+      <span className="mt-0.5 px-1 text-3xs text-muted-foreground">
         {new Date(message.createdAt).toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",

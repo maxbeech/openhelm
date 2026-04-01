@@ -119,7 +119,7 @@ function RelationDropdown({
       </div>
       <div className="max-h-52 overflow-y-auto p-1">
         {filtered.length === 0 && (
-          <p className="px-2 py-1.5 text-[11px] text-muted-foreground">No rows found</p>
+          <p className="px-2 py-1.5 text-2xs text-muted-foreground">No rows found</p>
         )}
         {filtered.map((row) => {
           const title = getRowTitle(targetTable, row);

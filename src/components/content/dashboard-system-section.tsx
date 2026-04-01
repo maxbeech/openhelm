@@ -106,29 +106,29 @@ function RecentRunRow({ run, jobs, projects, onSelect, onRetry, onNewRun }: {
     <div className="group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent">
       <button onClick={onSelect} className="min-w-0 flex-1 text-left">
         <span className="truncate font-medium">{job?.name ?? "Unknown Job"}</span>
-        {project && <span className="ml-2 text-[11px] text-muted-foreground">{project.name}</span>}
+        {project && <span className="ml-2 text-2xs text-muted-foreground">{project.name}</span>}
       </button>
       {isTerminal && (
         <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
           {isFailed && (
             <button onClick={(e) => { e.stopPropagation(); onRetry(); }}
-              className="flex h-6 items-center gap-1 rounded px-1.5 text-[11px] text-destructive transition-colors hover:bg-background hover:text-destructive">
+              className="flex h-6 items-center gap-1 rounded px-1.5 text-2xs text-destructive transition-colors hover:bg-background hover:text-destructive">
               <RefreshCw className="size-3" /> Retry
             </button>
           )}
           <button onClick={(e) => { e.stopPropagation(); onNewRun(); }}
-            className="flex h-6 items-center gap-1 rounded px-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-background hover:text-foreground">
+            className="flex h-6 items-center gap-1 rounded px-1.5 text-2xs text-muted-foreground transition-colors hover:bg-background hover:text-foreground">
             <PlayCircle className="size-3" /> Run
           </button>
         </div>
       )}
       <RunStatusBadge status={run.status} />
       {(run.inputTokens != null || run.outputTokens != null) && (
-        <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+        <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
           {formatTokenCount((run.inputTokens ?? 0) + (run.outputTokens ?? 0))}
         </span>
       )}
-      <span className="shrink-0 text-[11px] text-muted-foreground">{formatRelativeTime(run.createdAt)}</span>
+      <span className="shrink-0 text-2xs text-muted-foreground">{formatRelativeTime(run.createdAt)}</span>
     </div>
   );
 }

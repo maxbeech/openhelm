@@ -242,6 +242,24 @@ describe("runClaudeCode", () => {
     const output = stdoutCalls.map(([, text]: [string, string]) => text).join(" ");
     expect(output).not.toContain("--mcp-config");
   });
+
+  it("passes --append-system-prompt when appendSystemPrompt is set", async () => {
+    const onLogChunk = vi.fn();
+    const config = mockConfig({
+      binaryPath: "/bin/echo",
+      prompt: "test",
+      appendSystemPrompt: "Use openhelm-browser for all browser tasks.",
+      onLogChunk,
+    });
+
+    await runClaudeCode(config);
+    const stdoutCalls = onLogChunk.mock.calls.filter(
+      ([stream]: [string]) => stream === "stdout",
+    );
+    const output = stdoutCalls.map(([, text]: [string, string]) => text).join(" ");
+    expect(output).toContain("--append-system-prompt");
+    expect(output).toContain("Use openhelm-browser for all browser tasks.");
+  });
 });
 
 describe("runClaudeCode integration", () => {

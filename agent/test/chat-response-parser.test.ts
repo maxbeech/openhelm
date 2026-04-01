@@ -89,6 +89,29 @@ describe("parseLlmResponse", () => {
     expect(result.hasToolCalls).toBe(false);
     expect(result.textSegments).toHaveLength(0);
   });
+
+  it("repairs literal newlines inside JSON string values", () => {
+    // LLMs often emit literal newlines in long prompt fields instead of \\n
+    const text = `<tool_call>{"tool": "create_job", "args": {"name": "Audit", "prompt": "Step 1: Review code\nStep 2: Run tests\n\n## Results\nDone"}}</tool_call>`;
+    const result = parseLlmResponse(text);
+    expect(result.hasToolCalls).toBe(true);
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0].tool).toBe("create_job");
+    expect(result.toolCalls[0].args.prompt).toBe("Step 1: Review code\nStep 2: Run tests\n\n## Results\nDone");
+  });
+
+  it("parses goal + jobs with literal newlines in job prompts", () => {
+    const text = [
+      `I'll set this up.`,
+      `<tool_call>{"tool": "create_goal", "args": {"name": "Keep browser stealth"}}</tool_call>`,
+      `<tool_call>{"tool": "create_job", "args": {"name": "Audit", "goalId": "pending", "prompt": "Check these:\n- bot.sannysoft.com\n- pixelscan.net"}}</tool_call>`,
+    ].join("\n");
+    const result = parseLlmResponse(text);
+    expect(result.toolCalls).toHaveLength(2);
+    expect(result.toolCalls[0].tool).toBe("create_goal");
+    expect(result.toolCalls[1].tool).toBe("create_job");
+    expect(result.toolCalls[1].args.prompt).toContain("bot.sannysoft.com");
+  });
 });
 
 describe("buildTextResponse", () => {

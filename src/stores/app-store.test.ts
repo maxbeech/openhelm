@@ -9,8 +9,6 @@ describe("AppStore", () => {
       selectedJobId: null,
       selectedRunId: null,
       collapsedGoalIds: [],
-      page: "goals",
-      filter: {},
       activeProjectId: null,
       onboardingComplete: false,
       agentReady: false,
@@ -93,26 +91,6 @@ describe("AppStore", () => {
     expect(s.selectedGoalId).toBeNull();
     expect(s.selectedJobId).toBeNull();
     expect(s.selectedRunId).toBeNull();
-  });
-
-  // Backward-compat setPage tests
-  it("setPage maps goals to home", () => {
-    useAppStore.getState().setPage("goals");
-    expect(useAppStore.getState().contentView).toBe("home");
-  });
-
-  it("setPage maps runs with runId filter and sets selectedRunId", () => {
-    useAppStore.getState().selectJob("j1");
-    useAppStore.getState().setPage("runs", { runId: "r1" });
-    const s = useAppStore.getState();
-    expect(s.selectedRunId).toBe("r1");
-    expect(s.selectedJobId).toBe("j1");
-    expect(s.contentView).toBe("job-detail");
-  });
-
-  it("setPage maps settings", () => {
-    useAppStore.getState().setPage("settings");
-    expect(useAppStore.getState().contentView).toBe("settings");
   });
 
   // Project switching

@@ -56,7 +56,7 @@ export function RollupConfigUI({ relationColumns, rollupRelationColId, rollupSou
   return (
     <div className="space-y-2">
       <div>
-        <label className="text-[10px] font-medium text-muted-foreground">Relation</label>
+        <label className="text-3xs font-medium text-muted-foreground">Relation</label>
         <select
           value={rollupRelationColId}
           onChange={(e) => onRelationChange(e.target.value)}
@@ -68,7 +68,7 @@ export function RollupConfigUI({ relationColumns, rollupRelationColId, rollupSou
       </div>
       {targetTable && (
         <div>
-          <label className="text-[10px] font-medium text-muted-foreground">Property</label>
+          <label className="text-3xs font-medium text-muted-foreground">Property</label>
           <select
             value={rollupSourceColId}
             onChange={(e) => onSourceChange(e.target.value)}
@@ -80,7 +80,7 @@ export function RollupConfigUI({ relationColumns, rollupRelationColId, rollupSou
         </div>
       )}
       <div>
-        <label className="text-[10px] font-medium text-muted-foreground">Aggregation</label>
+        <label className="text-3xs font-medium text-muted-foreground">Aggregation</label>
         <select
           value={rollupAggregation}
           onChange={(e) => onAggregationChange(e.target.value as RollupAggregation)}

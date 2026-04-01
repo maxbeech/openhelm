@@ -49,6 +49,8 @@ export interface RunnerConfig {
   additionalEnv?: Record<string, string>;
   /** Path to MCP config JSON file (passed via --mcp-config) */
   mcpConfigPath?: string;
+  /** Appended to the system prompt (--append-system-prompt) */
+  appendSystemPrompt?: string;
   /** Called immediately after the Claude Code process is spawned, with its PID */
   onPidAvailable?: (pid: number) => void;
 }
@@ -250,11 +252,16 @@ function buildArgs(config: RunnerConfig): string[] {
 
   // Add bundled MCP servers (openhelm-browser, openhelm-data) via --mcp-config.
   // This ADDS them on top of the user's global (~/.claude.json) and project-level
-  // (.mcp.json) servers — Claude Code merges them automatically. No --strict-mcp-config
-  // is used so the user's full MCP environment is preserved. The prompt preamble
-  // directs Claude to prefer openhelm-browser over other browser MCPs.
+  // (.mcp.json) servers — Claude Code merges them automatically.
   if (config.mcpConfigPath) {
     args.push("--mcp-config", config.mcpConfigPath);
+  }
+
+  // System-level instructions (e.g. browser MCP preference) injected via
+  // --append-system-prompt. This is far more authoritative than a user-prompt
+  // preamble because it becomes part of the system prompt.
+  if (config.appendSystemPrompt) {
+    args.push("--append-system-prompt", config.appendSystemPrompt);
   }
 
   // Prompt is written to stdin (not as a positional arg) to avoid

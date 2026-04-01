@@ -151,7 +151,7 @@ export function SidebarGoalNode({
             }}
             onBlur={handleSubmitJob}
             placeholder="Job name..."
-            className="w-full rounded-md bg-sidebar-accent px-2 py-1 text-xs text-sidebar-foreground outline-none ring-1 ring-primary/50"
+            className="w-full rounded-md bg-sidebar-accent px-2 py-1 text-sm text-sidebar-foreground outline-none ring-1 ring-primary/50"
           />
         </div>
       )}

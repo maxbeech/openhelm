@@ -235,7 +235,7 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
           <h3 className="text-sm font-medium text-muted-foreground">
             System Jobs ({systemJobs.length})
           </h3>
-          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">Autopilot</span>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-3xs text-muted-foreground">Autopilot</span>
         </div>
         {systemJobs.length === 0 && goal.status === "active" && (
           <Button

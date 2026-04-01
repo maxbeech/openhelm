@@ -100,7 +100,7 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
                 }}
                 className={cn("group pr-1", p.id === activeProjectId && "bg-accent")}
               >
-                <div className="flex size-4 items-center justify-center rounded bg-primary/20 text-[9px] font-bold text-primary">
+                <div className="flex size-4 items-center justify-center rounded bg-primary/20 text-3xs font-bold text-primary">
                   {p.name[0]?.toUpperCase()}
                 </div>
                 <span className="flex-1 truncate">{p.name}</span>
@@ -140,7 +140,7 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
           <LayoutDashboard className="size-4" />
           <span className="flex-1 text-left">Dashboard</span>
           {openCount > 0 && (
-            <span className="flex size-5 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
+            <span className="flex size-5 items-center justify-center rounded-full bg-destructive text-3xs font-bold text-destructive-foreground">
               {openCount > 99 ? "99+" : openCount}
             </span>
           )}
@@ -158,7 +158,7 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
           <Waypoints className="size-4" />
           <span className="flex-1 text-left">Memory</span>
           {memoryCount > 0 && (
-            <span className="text-[10px] font-medium text-muted-foreground">
+            <span className="text-3xs font-medium text-muted-foreground">
               {memoryCount}
             </span>
           )}
@@ -176,7 +176,7 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
           <Database className="size-4" />
           <span className="flex-1 text-left">Data</span>
           {tableCount > 0 && (
-            <span className="text-[10px] font-medium text-muted-foreground">
+            <span className="text-3xs font-medium text-muted-foreground">
               {tableCount}
             </span>
           )}
@@ -194,7 +194,7 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
           <KeyRound className="size-4" />
           <span className="flex-1 text-left">Credentials</span>
           {credentialCount > 0 && (
-            <span className="text-[10px] font-medium text-muted-foreground">
+            <span className="text-3xs font-medium text-muted-foreground">
               {credentialCount}
             </span>
           )}

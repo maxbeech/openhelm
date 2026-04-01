@@ -134,7 +134,7 @@ function StatCard({ icon: Icon, label, value, highlight }: {
         <Icon className={`size-3.5 ${highlight ? "text-primary" : "text-muted-foreground"}`} />
         <span className="text-xl font-bold">{value}</span>
       </div>
-      <p className="mt-0.5 text-[11px] text-muted-foreground">{label}</p>
+      <p className="mt-0.5 text-2xs text-muted-foreground">{label}</p>
     </div>
   );
 }

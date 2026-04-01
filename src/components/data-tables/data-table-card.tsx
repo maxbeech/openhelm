@@ -44,14 +44,14 @@ export function DataTableCard({ table, onClick, onDelete }: DataTableCardProps) 
           {table.columns.slice(0, 5).map((col) => (
             <span
               key={col.id}
-              className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+              className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-3xs text-muted-foreground"
             >
               <ColumnTypeIcon type={col.type} className="size-2.5" />
               {col.name}
             </span>
           ))}
           {table.columns.length > 5 && (
-            <span className="text-[10px] text-muted-foreground/60">
+            <span className="text-3xs text-muted-foreground/60">
               +{table.columns.length - 5} more
             </span>
           )}
@@ -59,7 +59,7 @@ export function DataTableCard({ table, onClick, onDelete }: DataTableCardProps) 
       )}
 
       {/* Footer */}
-      <div className="mt-3 flex items-center gap-3 text-[10px] text-muted-foreground/70">
+      <div className="mt-3 flex items-center gap-3 text-3xs text-muted-foreground/70">
         <span>{table.rowCount} rows</span>
         <span>{table.columns.length} columns</span>
         <span className="ml-auto flex items-center gap-1">

@@ -535,14 +535,17 @@ export class Executor {
       console.error("[executor] MCP config generation error (non-fatal):", err);
     }
 
-    // Prepend MCP preambles when servers are available
+    // Prepend MCP preambles and build system prompt additions
+    let appendSystemPrompt: string | undefined;
     if (mcpConfigPath) {
-      const { BROWSER_MCP_PREAMBLE, BROWSER_CAPTCHA_PREAMBLE, BROWSER_CREDENTIALS_PREAMBLE, DATA_TABLES_MCP_PREAMBLE } = await import("../mcp-servers/mcp-config-builder.js");
+      const { BROWSER_MCP_PREAMBLE, BROWSER_CAPTCHA_PREAMBLE, BROWSER_CREDENTIALS_PREAMBLE, DATA_TABLES_MCP_PREAMBLE, BROWSER_SYSTEM_PROMPT } = await import("../mcp-servers/mcp-config-builder.js");
       // Data tables preamble (always available when MCP config exists)
       effectivePrompt = DATA_TABLES_MCP_PREAMBLE + effectivePrompt;
-      // Browser MCP preamble (only when browser venv is ready)
+      // Browser MCP preamble + system prompt (only when browser venv is ready)
       if (hasBrowserMcp) {
         effectivePrompt = BROWSER_MCP_PREAMBLE + BROWSER_CAPTCHA_PREAMBLE + effectivePrompt;
+        // System-level instruction is far more authoritative than user-prompt preamble
+        appendSystemPrompt = BROWSER_SYSTEM_PROMPT;
         if (browserCredentialsFilePath) {
           effectivePrompt = BROWSER_CREDENTIALS_PREAMBLE + effectivePrompt;
         }
@@ -571,6 +574,7 @@ export class Executor {
         resumeSessionId,
         additionalEnv: Object.keys(additionalEnv).length > 0 ? additionalEnv : undefined,
         mcpConfigPath,
+        appendSystemPrompt,
         onPidAvailable: (pid) => {
           claudePid = pid;
           // Notify the Tauri focus guard (intercepted in Rust before reaching the frontend)

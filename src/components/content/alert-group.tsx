@@ -45,7 +45,7 @@ export function AlertGroup({ jobId, items }: AlertGroupProps) {
           {jobName}
         </span>
         {items.length > 1 && (
-          <Badge variant="outline" className="text-[10px] shrink-0">
+          <Badge variant="outline" className="text-3xs shrink-0">
             {items.length} alerts
           </Badge>
         )}
@@ -53,7 +53,7 @@ export function AlertGroup({ jobId, items }: AlertGroupProps) {
           <Button
             size="sm"
             variant="ghost"
-            className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground shrink-0"
+            className="h-6 px-2 text-2xs text-muted-foreground hover:text-foreground shrink-0"
             disabled={dismissing}
             onClick={handleDismissAll}
           >

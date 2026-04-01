@@ -33,6 +33,10 @@ export interface PrintConfig {
   jsonSchema?: object;
   /** Pass --tools "" to disable tool use (default: true) */
   disableTools?: boolean;
+  /** Explicit allowed-tools list (passed via --allowed-tools); used instead of disableTools when set */
+  allowedTools?: string;
+  /** Tools to explicitly deny even in permissive modes (passed via --disallowed-tools) */
+  disallowedTools?: string;
   /** Effort level passed via --effort flag (low/medium/high) */
   effort?: "low" | "medium" | "high";
   /** Optional callback fired per stdout line as it arrives */
@@ -152,7 +156,10 @@ export function runClaudeCodePrint(config: PrintConfig): Promise<PrintResult> {
         text = stdoutChunks.join("\n");
       }
 
-      const sessionId = useStreamJson ? extractSessionId(stdoutChunks) : null;
+      // Only extract session ID when the session was persisted (i.e., resumeSessionId was
+      // set, meaning we are in a resumed session that was already saved). When
+      // --no-session-persistence was used the session is ephemeral and cannot be resumed.
+      const sessionId = (useStreamJson && config.resumeSessionId) ? extractSessionId(stdoutChunks) : null;
 
       if (code === 0) {
         resolve({ text, exitCode: code, sessionId });
@@ -220,9 +227,14 @@ function buildPrintArgs(config: PrintConfig): string[] {
     args.push("--system-prompt", config.systemPrompt);
   }
 
-  // Disable tools (default: true for pure generation calls)
-  if (config.disableTools !== false) {
+  // Tool access: use --allowed-tools if specified, otherwise use --tools "" to disable all
+  if (config.allowedTools) {
+    args.push("--allowed-tools", config.allowedTools);
+  } else if (config.disableTools !== false) {
     args.push("--tools", "");
+  }
+  if (config.disallowedTools) {
+    args.push("--disallowed-tools", config.disallowedTools);
   }
 
   // Permission mode — validated against known modes to prevent unintended CLI behaviour

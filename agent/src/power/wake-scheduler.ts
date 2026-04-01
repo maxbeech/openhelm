@@ -138,9 +138,17 @@ export async function installSudoersEntry(): Promise<{
   authorized: boolean;
   error?: string;
 }> {
-  const user = process.env.USER || process.env.LOGNAME;
+  // Use `id -un` (not env vars) — env vars can be spoofed; id -un queries the kernel.
+  let user: string;
+  try {
+    const { stdout } = await execFileAsync("/usr/bin/id", ["-un"], { timeout: 5000 });
+    user = stdout.trim();
+  } catch (err) {
+    return { authorized: false, error: "Cannot determine current user via id -un" };
+  }
+
   if (!user) {
-    return { authorized: false, error: "Cannot determine current user" };
+    return { authorized: false, error: "id -un returned empty username" };
   }
 
   // Guard against shell injection — username is interpolated into an osascript
@@ -149,13 +157,16 @@ export async function installSudoersEntry(): Promise<{
     return { authorized: false, error: `Username contains unsafe characters: ${user}` };
   }
 
+  // Use printf to avoid echo interpretation of escape sequences or special chars.
+  // SAFE_USERNAME_RE guarantees no single-quotes or shell metacharacters in `user`.
   const entry = `${user} ALL=(root) NOPASSWD: /usr/bin/pmset`;
 
   try {
-    // Single osascript call: write the file, set ownership & permissions
+    // Single osascript call: write the file, set ownership & permissions.
+    // printf is preferred over echo to avoid escape sequence interpretation.
     await execFileAsync("osascript", [
       "-e",
-      `do shell script "echo '${entry}' > ${SUDOERS_FILE} && chmod 0440 ${SUDOERS_FILE} && chown root:wheel ${SUDOERS_FILE}" with administrator privileges`,
+      `do shell script "printf '%s\\n' '${entry}' > ${SUDOERS_FILE} && chmod 0440 ${SUDOERS_FILE} && chown root:wheel ${SUDOERS_FILE}" with administrator privileges`,
     ]);
     console.error("[wake-scheduler] sudoers entry installed for passwordless pmset");
     return { authorized: true };

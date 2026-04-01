@@ -70,13 +70,13 @@ export function MemoryCard({
             {memory.tags.map((tag) => (
               <span
                 key={tag}
-                className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                className="rounded-full bg-muted px-1.5 py-0.5 text-3xs text-muted-foreground"
               >
                 {tag}
               </span>
             ))}
             {projectName && (
-              <Badge variant="outline" className="ml-auto text-[10px]">
+              <Badge variant="outline" className="ml-auto text-3xs">
                 {projectName}
               </Badge>
             )}
@@ -86,7 +86,7 @@ export function MemoryCard({
           <p className="text-sm leading-relaxed">{memory.content}</p>
 
           {/* Footer: meta + actions */}
-          <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
+          <div className="mt-2 flex items-center gap-3 text-2xs text-muted-foreground">
             <span>Importance: {(memory.importance / 10).toFixed(1)}</span>
             <span>Used: {memory.accessCount}x</span>
             <span>{formatRelativeTime(memory.updatedAt)}</span>

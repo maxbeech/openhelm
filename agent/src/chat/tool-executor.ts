@@ -8,13 +8,14 @@ import { getJob, listJobs, createJob, updateJob, archiveJob } from "../db/querie
 import { listRuns, createRun } from "../db/queries/runs.js";
 import { listRunLogs } from "../db/queries/run-logs.js";
 import { listMemories, listAllMemories, createMemory, updateMemory, deleteMemory } from "../db/queries/memories.js";
+import { executeDataTableReadTool, executeDataTableWriteTool } from "./data-table-tools.js";
 import { generateEmbedding } from "../memory/embeddings.js";
 import { jobQueue } from "../scheduler/queue.js";
 import { executor } from "../executor/index.js";
 import { emit } from "../ipc/emitter.js";
 import type { ChatToolCall, ScheduleConfig } from "@openhelm/shared";
 
-export interface ToolExecutionResult {
+interface ToolExecutionResult {
   callId: string;
   tool: string;
   result: unknown;
@@ -33,9 +34,12 @@ function fail(call: ChatToolCall, error: string): ToolExecutionResult {
 /** Execute a read (non-mutating) tool immediately. */
 export function executeReadTool(call: ChatToolCall, projectId: string | null): ToolExecutionResult {
   const a = call.args;
-  // null → undefined so query functions treat it as "no filter" (all projects)
   const pid = projectId ?? undefined;
   try {
+    // Delegate data table reads
+    const dtResult = executeDataTableReadTool(call, pid);
+    if (dtResult) return dtResult;
+
     switch (call.tool) {
       case "list_goals":
         return ok(call, listGoals({ projectId: pid, status: a.status as any }));
@@ -84,12 +88,12 @@ export function executeReadTool(call: ChatToolCall, projectId: string | null): T
 /** Execute a write (mutating) tool after user confirmation. */
 export async function executeWriteTool(call: ChatToolCall, projectId: string | null): Promise<ToolExecutionResult> {
   const a = call.args;
-  // Write tools that create project-scoped entities need a real projectId
-  const needsProject = ["create_goal", "create_job", "save_memory"];
-  if (!projectId && needsProject.includes(call.tool)) {
+  if (!projectId && ["create_goal", "create_job", "save_memory", "create_data_table"].includes(call.tool)) {
     return fail(call, "Cannot create project-scoped entities in the All Projects thread — switch to a specific project first.");
   }
   try {
+    const dtResult = executeDataTableWriteTool(call, projectId);
+    if (dtResult) return dtResult;
     switch (call.tool) {
       case "create_goal":
         return ok(call, createGoal({
@@ -105,7 +109,6 @@ export async function executeWriteTool(call: ChatToolCall, projectId: string | n
           scheduleConfig = { fireAt: new Date(Date.now() + 10_000).toISOString() };
         } else if (scheduleType === "interval") {
           const mins = (a.intervalMinutes as number) ?? 60;
-          // Store in canonical { amount, unit } format
           if (mins >= 1440 && mins % 1440 === 0) {
             scheduleConfig = { amount: mins / 1440, unit: "days" };
           } else if (mins >= 60 && mins % 60 === 0) {
@@ -194,7 +197,6 @@ export async function executeWriteTool(call: ChatToolCall, projectId: string | n
         const job = getJob(jobId);
         if (!job) return fail(call, `Job not found: ${jobId}`);
 
-        // Deferred path: fire_at is set and in the future
         if (fireAt && new Date(fireAt) > new Date()) {
           const run = createRun({
             jobId,
@@ -207,7 +209,6 @@ export async function executeWriteTool(call: ChatToolCall, projectId: string | n
           return ok(call, run);
         }
 
-        // Immediate path
         const run = createRun({ jobId, triggerSource: "manual" });
         jobQueue.enqueue({ runId: run.id, jobId, priority: 0, enqueuedAt: Date.now() });
         emit("run.created", { runId: run.id, jobId });

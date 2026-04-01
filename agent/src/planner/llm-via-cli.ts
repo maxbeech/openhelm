@@ -21,6 +21,10 @@ export interface LlmCallConfig {
   onProgress?: (chunk: string) => void;
   /** Whether to pass --tools "" to disable tool use (default: true) */
   disableTools?: boolean;
+  /** Explicit allowed-tools list (passed via --allowed-tools); overrides disableTools when set */
+  allowedTools?: string;
+  /** Tools to explicitly deny even in permissive modes (passed via --disallowed-tools) */
+  disallowedTools?: string;
   /** Working directory for the Claude Code process (defaults to os.tmpdir()) */
   workingDirectory?: string;
   /** Permission mode for Claude Code (e.g. "plan", "bypassPermissions") */
@@ -72,7 +76,9 @@ export async function callLlmViaCli(config: LlmCallConfig): Promise<LlmCallResul
     prompt: config.userMessage,
     systemPrompt: config.systemPrompt,
     model,
-    disableTools: config.disableTools ?? true,
+    disableTools: config.allowedTools ? false : (config.disableTools ?? true),
+    allowedTools: config.allowedTools,
+    disallowedTools: config.disallowedTools,
     workingDirectory: config.workingDirectory,
     permissionMode: config.permissionMode,
     timeoutMs,

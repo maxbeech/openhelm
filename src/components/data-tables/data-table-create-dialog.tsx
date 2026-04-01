@@ -85,7 +85,7 @@ export function DataTableCreateDialog({ open, onOpenChange, projectId, onCreated
               placeholder="What data does this table track?"
               className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
             />
-            <p className="mt-1 text-[10px] text-muted-foreground/60">
+            <p className="mt-1 text-3xs text-muted-foreground/60">
               Used by the AI to find relevant tables during job execution.
             </p>
           </div>

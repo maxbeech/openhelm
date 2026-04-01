@@ -12,10 +12,8 @@ import type {
   Credential,
   CredentialWithValue,
   AutopilotProposal,
-  AutopilotMode,
   DataTable,
   DataTableRow,
-  DataTableChange,
   ListAutopilotProposalsParams,
   ApproveAutopilotProposalParams,
   CreateProjectParams,
@@ -50,7 +48,6 @@ import type {
   RenameDataTableColumnParams,
   RemoveDataTableColumnParams,
   UpdateDataTableColumnConfigParams,
-  ListDataTableChangesParams,
   Target,
   TargetEvaluation,
   CreateTargetParams,
@@ -228,10 +225,6 @@ export function getSetting(key: SettingKey): Promise<Setting | null> {
   return agentClient.request<Setting | null>("settings.get", { key });
 }
 
-export function listSettings(): Promise<Setting[]> {
-  return agentClient.request<Setting[]>("settings.list");
-}
-
 export function setSetting(params: SetSettingParams): Promise<Setting> {
   return agentClient.request<Setting>("settings.set", params);
 }
@@ -404,10 +397,6 @@ export function listDashboardItems(params?: ListDashboardItemsParams): Promise<D
   return agentClient.request<DashboardItem[]>("dashboard.list", params);
 }
 
-export function getDashboardItem(id: string): Promise<DashboardItem> {
-  return agentClient.request<DashboardItem>("dashboard.get", { id });
-}
-
 export function countDashboardItems(projectId?: string): Promise<{ count: number }> {
   return agentClient.request<{ count: number }>("dashboard.count", { projectId });
 }
@@ -440,10 +429,6 @@ export function deleteMemory(id: string): Promise<{ deleted: boolean }> {
 
 export function archiveMemory(id: string): Promise<Memory> {
   return agentClient.request<Memory>("memories.archive", { id });
-}
-
-export function searchMemories(projectId: string, query: string): Promise<Memory[]> {
-  return agentClient.request<Memory[]>("memories.search", { projectId, query });
 }
 
 export function listMemoryTags(projectId: string): Promise<string[]> {
@@ -625,10 +610,6 @@ export function verifyLicense(): Promise<LicenseStatus> {
 
 // ─── Autopilot ───
 
-export function getAutopilotMode(): Promise<{ mode: AutopilotMode }> {
-  return agentClient.request<{ mode: AutopilotMode }>("autopilot.getMode");
-}
-
 export function listAutopilotProposals(
   params?: ListAutopilotProposalsParams,
 ): Promise<AutopilotProposal[]> {
@@ -646,14 +627,6 @@ export function approveAutopilotProposal(
 
 export function rejectAutopilotProposal(id: string): Promise<AutopilotProposal> {
   return agentClient.request<AutopilotProposal>("autopilot.rejectProposal", { id });
-}
-
-export function regenerateSystemJobs(goalId: string): Promise<{ success: boolean }> {
-  return agentClient.request<{ success: boolean }>("autopilot.regenerateSystemJobs", { goalId });
-}
-
-export function listSystemJobsForGoal(goalId: string): Promise<Job[]> {
-  return agentClient.request<Job[]>("autopilot.listSystemJobsForGoal", { goalId });
 }
 
 export function generateAutopilotForGoal(
@@ -729,18 +702,10 @@ export function countAllDataTables(): Promise<{ count: number }> {
   return agentClient.request<{ count: number }>("dataTables.countAll");
 }
 
-export function listDataTableChanges(params: ListDataTableChangesParams): Promise<DataTableChange[]> {
-  return agentClient.request<DataTableChange[]>("dataTables.listChanges", params);
-}
-
 // ─── Targets ───
 
 export function listTargets(params: ListTargetsParams): Promise<Target[]> {
   return agentClient.request<Target[]>("targets.list", params);
-}
-
-export function getTarget(id: string): Promise<Target> {
-  return agentClient.request<Target>("targets.get", { id });
 }
 
 export function createTarget(params: CreateTargetParams): Promise<Target> {
@@ -755,10 +720,6 @@ export function deleteTarget(id: string): Promise<{ deleted: boolean }> {
   return agentClient.request<{ deleted: boolean }>("targets.delete", { id });
 }
 
-export function evaluateTarget(id: string): Promise<TargetEvaluation> {
-  return agentClient.request<TargetEvaluation>("targets.evaluate", { id });
-}
-
 export function evaluateTargets(params: { goalId?: string; jobId?: string }): Promise<TargetEvaluation[]> {
   return agentClient.request<TargetEvaluation[]>("targets.evaluateAll", params);
 }
@@ -771,10 +732,6 @@ export function listVisualizations(params: ListVisualizationsParams): Promise<Vi
 
 export function listAllVisualizations(): Promise<Visualization[]> {
   return agentClient.request<Visualization[]>("visualizations.listAll");
-}
-
-export function getVisualization(id: string): Promise<Visualization> {
-  return agentClient.request<Visualization>("visualizations.get", { id });
 }
 
 export function createVisualization(params: CreateVisualizationParams): Promise<Visualization> {
@@ -797,28 +754,10 @@ export function dismissVisualization(id: string): Promise<Visualization> {
   return agentClient.request<Visualization>("visualizations.dismiss", { id });
 }
 
-export function countVisualizations(projectId: string): Promise<{ count: number }> {
-  return agentClient.request<{ count: number }>("visualizations.count", { projectId });
-}
-
-export function countAllVisualizations(): Promise<{ count: number }> {
-  return agentClient.request<{ count: number }>("visualizations.countAll");
-}
-
 // ─── Claude Code Usage ───
 
 export function getUsageSummary(): Promise<UsageSummary> {
   return agentClient.request<UsageSummary>("usage.getSummary");
 }
 
-export function setUsageSettings(params: {
-  dailyBudget?: number | null;
-  weeklyBudget?: number | null;
-}): Promise<{ ok: boolean }> {
-  return agentClient.request<{ ok: boolean }>("usage.setSettings", params);
-}
-
-export function triggerUsageRefresh(): Promise<{ ok: boolean }> {
-  return agentClient.request<{ ok: boolean }>("usage.refresh");
-}
 

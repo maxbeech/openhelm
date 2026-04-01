@@ -28,7 +28,7 @@ function DeltaBadge({ current, prev }: { current: number; prev: number }) {
   const up = pct > 0;
   const neutral = pct === 0;
   return (
-    <span className={cn("flex items-center gap-0.5 text-[10px] tabular-nums",
+    <span className={cn("flex items-center gap-0.5 text-3xs tabular-nums",
       neutral ? "text-muted-foreground" : up ? "text-rose-500" : "text-emerald-500")}>
       {neutral ? <Minus className="size-2.5" /> : up ? <TrendingUp className="size-2.5" /> : <TrendingDown className="size-2.5" />}
       {abs}%
@@ -48,7 +48,7 @@ function UsageCard({ label, current, prev, budget, useSonnet = false }: CardProp
     <div className="flex-1 min-w-0 rounded-lg border border-border bg-card p-3">
       {/* Label + percentage */}
       <div className="flex items-center justify-between mb-1.5">
-        <p className="text-[11px] text-muted-foreground font-medium">{label}</p>
+        <p className="text-2xs text-muted-foreground font-medium">{label}</p>
         {pct !== null && (
           <span className={cn("text-xs font-semibold tabular-nums",
             pct >= 90 ? "text-rose-500" : pct >= 75 ? "text-amber-500" : "text-muted-foreground")}>
@@ -69,12 +69,12 @@ function UsageCard({ label, current, prev, budget, useSonnet = false }: CardProp
       <div className="mt-2 flex items-baseline gap-1 leading-tight">
         <span className="text-lg font-bold tabular-nums">{formatTokenCount(currentTotal)}</span>
         {budget !== null && (
-          <span className="text-[11px] text-muted-foreground tabular-nums">/ {formatTokenCount(budget)}</span>
+          <span className="text-2xs text-muted-foreground tabular-nums">/ {formatTokenCount(budget)}</span>
         )}
       </div>
 
       {/* OpenHelm + delta */}
-      <div className="mt-1 flex items-center gap-2 text-[10px]">
+      <div className="mt-1 flex items-center gap-2 text-3xs">
         <span className="text-muted-foreground">
           <span className="font-medium text-primary">{formatTokenCount(ohTokens)}</span> via OpenHelm
         </span>
@@ -97,7 +97,7 @@ export function ClaudeUsageWidgets({ summary, className }: Props) {
         <UsageCard label="This Week (Sonnet)" current={week} prev={weekPrev} budget={weeklyBudget} useSonnet />
       </div>
       {dataSource === "openhelm_only" && (
-        <p className="mt-1.5 text-[10px] text-muted-foreground text-center">
+        <p className="mt-1.5 text-3xs text-muted-foreground text-center">
           OpenHelm usage only — <code>~/.claude/projects/</code> not found
         </p>
       )}

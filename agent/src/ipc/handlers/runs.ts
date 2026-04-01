@@ -97,6 +97,9 @@ export function registerRunHandlers() {
   });
 }
 
+/** Claude Code session IDs are lowercase hex strings separated by hyphens (UUID-like). */
+const SESSION_ID_RE = /^[a-f0-9-]+$/i;
+
 /**
  * Open a new Terminal window on macOS and run `claude --resume <sessionId>` in
  * the given working directory. Uses osascript (AppleScript) which is available
@@ -106,8 +109,11 @@ export function registerRunHandlers() {
  * are escaped as '\''.
  */
 function openRunInMacTerminal(workingDir: string, claudePath: string, sessionId: string): void {
+  if (!SESSION_ID_RE.test(sessionId)) {
+    throw new Error(`Invalid session ID format: ${sessionId}`);
+  }
   const sq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
-  const shellCmd = `cd ${sq(workingDir)} && ${sq(claudePath)} --resume ${sessionId}`;
+  const shellCmd = `cd ${sq(workingDir)} && ${sq(claudePath)} --resume ${sq(sessionId)}`;
   // Embed shell command in AppleScript string: escape backslashes then double-quotes
   const appleStr = shellCmd.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const script = `tell application "Terminal"\nactivate\ndo script "${appleStr}"\nend tell`;

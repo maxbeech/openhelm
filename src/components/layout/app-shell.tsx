@@ -108,7 +108,7 @@ export function AppShell({
             <button
               type="button"
               onClick={claudeHealth.recheck}
-              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-destructive hover:bg-destructive/10"
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-3xs font-medium text-destructive hover:bg-destructive/10"
               title="Recheck"
             >
               <RefreshCw className="size-3" />

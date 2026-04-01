@@ -171,11 +171,11 @@ export function DashboardCard({ item }: { item: DashboardItem }) {
               </p>
               <div className="mt-2 flex items-center gap-2 flex-wrap">
                 {project && (
-                  <Badge variant="outline" className="text-[10px]">
+                  <Badge variant="outline" className="text-3xs">
                     {project.name}
                   </Badge>
                 )}
-                <span className="text-[11px] text-muted-foreground">{timeAgo}</span>
+                <span className="text-2xs text-muted-foreground">{timeAgo}</span>
               </div>
             </div>
           </div>

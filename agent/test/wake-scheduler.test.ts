@@ -35,8 +35,9 @@ function mockExecFileSuccess(schedOutput = "") {
     (_cmd: string, _args: string[], _opts: unknown, cb: (err: null, out: { stdout: string; stderr: string }) => void) => {
       const callback = typeof _opts === "function" ? _opts : cb;
       const args = Array.isArray(_args) ? _args : [];
-      // Return schedule output when pmset -g sched is called
-      const stdout = args.includes("-g") && args.includes("sched") ? schedOutput : "";
+      // Return a valid username for id -un; schedule output for pmset -g sched; else empty
+      const stdout = _cmd === "/usr/bin/id" ? "testuser"
+        : (args.includes("-g") && args.includes("sched") ? schedOutput : "");
       (callback as Function)(null, { stdout, stderr: "" });
       return {} as unknown;
     },
@@ -289,8 +290,9 @@ describe("installSudoersEntry", () => {
     const result = await installSudoersEntry();
     expect(result.authorized).toBe(true);
 
-    expect(execFile).toHaveBeenCalledOnce();
-    const [cmd, args] = (execFile as Mock).mock.calls[0] as [string, string[]];
+    // Two execFile calls: (1) id -un to get username, (2) osascript to install sudoers
+    expect(execFile).toHaveBeenCalledTimes(2);
+    const [cmd, args] = (execFile as Mock).mock.calls[1] as [string, string[]];
     expect(cmd).toBe("osascript");
     expect(args[1]).toContain("with administrator privileges");
     expect(args[1]).toContain("sudoers.d/openhelm-pmset");

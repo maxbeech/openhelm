@@ -149,7 +149,7 @@ function SelectDropdown({
       </div>
       <div className="max-h-52 overflow-y-auto p-1">
         {filtered.length === 0 && !canCreate && (
-          <p className="px-2 py-1.5 text-[11px] text-muted-foreground">No options found</p>
+          <p className="px-2 py-1.5 text-2xs text-muted-foreground">No options found</p>
         )}
         {filtered.map((opt) => {
           const selected = selectedIds.includes(opt.id);

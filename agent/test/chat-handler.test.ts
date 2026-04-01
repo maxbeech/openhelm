@@ -67,7 +67,7 @@ describe("handleChatMessage — native tool wiring", () => {
     await handleChatMessage(projectId, "Search the web");
 
     expect(callLlmViaCliMock).toHaveBeenCalledWith(
-      expect.objectContaining({ disableTools: false }),
+      expect.objectContaining({ allowedTools: "WebSearch,WebFetch,Read,Glob,Grep" }),
     );
   });
 

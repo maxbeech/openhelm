@@ -3,6 +3,8 @@
  * Read tools auto-execute; write tools require user confirmation.
  */
 
+import { DATA_TABLE_TOOLS, describeDataTableAction } from "./data-table-tools.js";
+
 export interface ParameterDef {
   type: string;
   description: string;
@@ -140,6 +142,8 @@ export const TOOLS: ToolDefinition[] = [
       fire_at: { type: "string", description: "ISO 8601 datetime to fire at (optional; fires immediately if omitted)" },
     },
   },
+  // ─── Data table tools (imported) ───
+  ...DATA_TABLE_TOOLS,
   // ─── Memory tools ───
   {
     name: "list_memories",
@@ -181,7 +185,7 @@ export const TOOLS: ToolDefinition[] = [
   },
 ];
 
-export function getToolDef(name: string): ToolDefinition | undefined {
+function getToolDef(name: string): ToolDefinition | undefined {
   return TOOLS.find((t) => t.name === name);
 }
 
@@ -191,6 +195,10 @@ export function isWriteTool(name: string): boolean {
 
 /** Human-readable one-line summary of a write tool call (for the confirmation card). */
 export function describeAction(tool: string, args: Record<string, unknown>): string {
+  // Check data table tools first
+  const dtDesc = describeDataTableAction(tool, args);
+  if (dtDesc) return dtDesc;
+
   switch (tool) {
     case "create_goal": return `Create goal: "${args.name}"`;
     case "create_job": return `Create job: "${args.name}" (${args.scheduleType})`;

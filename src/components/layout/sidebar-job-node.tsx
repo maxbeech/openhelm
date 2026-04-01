@@ -162,14 +162,14 @@ export function SidebarJobNode({
           {job.source === "system" && (
             <Bot className="size-3 shrink-0 text-muted-foreground/60" />
           )}
-          <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] leading-none text-muted-foreground">
+          <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-3xs leading-none text-muted-foreground">
             {normalizeModelShortName(job.model)}
           </span>
         </div>
 
         {/* Row 2: Schedule + Run status dots */}
         <div className="flex items-center gap-1.5 pl-5">
-          <span className="flex-1 truncate text-[11px] text-muted-foreground/70">
+          <span className="flex-1 truncate text-2xs text-muted-foreground/70">
             {scheduleLabel}
           </span>
           {dots.length > 0 && (

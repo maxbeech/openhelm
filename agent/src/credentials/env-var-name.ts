@@ -25,21 +25,15 @@ export function generateEnvVarName(name: string): string {
 
 /**
  * Deduplicate an env var name against a list of existing names.
- * If the base name is already taken (excluding the credential being updated),
- * appends _2, _3, etc. until a free name is found.
+ * Appends _2, _3, etc. until a free name is found.
  *
  * @param base      The generated base name (e.g. OPENHELM_GITHUB_TOKEN)
- * @param existing  All env_var_name values currently in the DB
- * @param excludeId The credential id being updated (to exclude self from collision check)
+ * @param existing  All env_var_name values currently in the DB (caller excludes self)
  */
 export function deduplicateEnvVarName(
   base: string,
   existing: string[],
-  excludeId?: string,
 ): string {
-  // existing is a list of names, not ids — excludeId is unused here but kept for
-  // call-site clarity (the caller already filters out self before passing existing)
-  void excludeId;
   const taken = new Set(existing);
   if (!taken.has(base)) return base;
   let i = 2;

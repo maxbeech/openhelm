@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, statSync } from "fs";
+import { isAbsolute } from "path";
 import { registerHandler } from "../handler.js";
 import {
   exportAll,
@@ -54,6 +55,7 @@ export function registerDataHandlers() {
   registerHandler("data.export", (params) => {
     const p = params as ExportParams;
     if (!p?.filePath) throw new Error("filePath is required");
+    if (!isAbsolute(p.filePath)) throw new Error("filePath must be an absolute path");
 
     const data = exportAll(p.includeRunLogs);
     const payload = {
@@ -80,6 +82,7 @@ export function registerDataHandlers() {
   registerHandler("data.importPreview", (params) => {
     const p = params as ImportParams;
     if (!p?.filePath) throw new Error("filePath is required");
+    if (!isAbsolute(p.filePath)) throw new Error("filePath must be an absolute path");
 
     const stat = statSync(p.filePath);
     if (stat.size > MAX_IMPORT_FILE_SIZE) {
@@ -126,6 +129,7 @@ export function registerDataHandlers() {
   registerHandler("data.importExecute", (params) => {
     const p = params as ImportExecuteParams;
     if (!p?.filePath) throw new Error("filePath is required");
+    if (!isAbsolute(p.filePath)) throw new Error("filePath must be an absolute path");
 
     // Block import during active runs
     if (executor.activeRunCount > 0 || jobQueue.size() > 0) {

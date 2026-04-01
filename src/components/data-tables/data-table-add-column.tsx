@@ -145,14 +145,14 @@ export function DataTableAddColumn({ onAdd, onClose, tables, currentTableId, cur
 
           {isFormula && (
             <div className="space-y-1.5">
-              <label className="text-[10px] font-medium text-muted-foreground">Formula expression</label>
+              <label className="text-3xs font-medium text-muted-foreground">Formula expression</label>
               <input
                 value={formulaExpression}
                 onChange={(e) => setFormulaExpression(e.target.value)}
                 placeholder='e.g. prop("Price") * prop("Qty")'
                 className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring"
               />
-              <p className="text-[9px] text-muted-foreground">
+              <p className="text-3xs text-muted-foreground">
                 Use prop("Column Name") to reference columns
               </p>
             </div>

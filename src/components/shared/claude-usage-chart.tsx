@@ -58,18 +58,18 @@ export function ClaudeUsageChart({ series, dailyBudget, weeklyBudget, className 
   return (
     <div className={cn("rounded-lg border border-border bg-card p-3", className)}>
       <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1.5 text-3xs text-muted-foreground">
           <span className="inline-block h-[2px] w-4 rounded-full" style={{ background: BLUE }} /> Cumulative Total
         </span>
-        <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1.5 text-3xs text-muted-foreground">
           <span className="inline-block h-[2px] w-4 rounded-full" style={{ background: BLUE_LIGHT }} /> OpenHelm
         </span>
         {periodLimit && (
           <>
-            <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <span className="flex items-center gap-1.5 text-3xs text-muted-foreground">
               <span className="inline-block h-0 w-4 border-t border-dashed" style={{ borderColor: RED }} /> Limit
             </span>
-            <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <span className="flex items-center gap-1.5 text-3xs text-muted-foreground">
               <span className="inline-block h-0 w-4 border-t border-dashed" style={{ borderColor: AMBER }} /> On-track
             </span>
           </>

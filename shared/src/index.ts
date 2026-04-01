@@ -226,7 +226,8 @@ export type SettingKey =
   | "autopilot_mode"
   | "sidebar_project_group_order"
   | "auth_interrupted_runs"
-  | "autopilot_backfill_failures";
+  | "autopilot_backfill_failures"
+  | "stripe_trial_end";
 
 export interface Setting {
   key: SettingKey;

@@ -81,7 +81,7 @@ export function getLicenseStatus(): LicenseStatus {
 
   // Compute trial end
   let trialEndsAt: string | null = null;
-  const trialEndSetting = getSetting("stripe_trial_end" as any);
+  const trialEndSetting = getSetting("stripe_trial_end");
   if (trialEndSetting?.value) trialEndsAt = trialEndSetting.value;
 
   return {
@@ -108,7 +108,7 @@ export async function verifyLicense(): Promise<LicenseStatus> {
     setSetting("stripe_subscription_status", result.status);
     setSetting("license_verified_at", new Date().toISOString());
     if (result.trialEnd) {
-      setSetting("stripe_trial_end" as any, result.trialEnd);
+      setSetting("stripe_trial_end", result.trialEnd);
     }
   } catch (err) {
     console.error("[license] verification failed (using grace period):", err);

@@ -164,7 +164,7 @@ export function MemoryView() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="text-[11px] text-muted-foreground hover:text-foreground"
+                  className="text-2xs text-muted-foreground hover:text-foreground"
                   disabled={pruning}
                   onClick={handlePrune}
                   title="Auto-archive stale, low-importance memories and enforce the 200-memory cap"
@@ -182,7 +182,7 @@ export function MemoryView() {
               <Button
                 size="sm"
                 variant="secondary"
-                className="text-[11px]"
+                className="text-2xs"
                 onClick={() => setShowCreate(true)}
               >
                 <Plus className="mr-1 size-3" />
@@ -203,14 +203,14 @@ export function MemoryView() {
             {/* Bulk action bar — only when items are selected */}
             {someSelected && (
               <div className="ml-auto flex items-center gap-2">
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-2xs text-muted-foreground">
                   {selectedIds.size} selected
                 </span>
                 {!allSelected && (
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="h-7 gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                    className="h-7 gap-1 text-2xs text-muted-foreground hover:text-foreground"
                     onClick={handleSelectAll}
                   >
                     <CheckSquare className="size-3" />
@@ -220,7 +220,7 @@ export function MemoryView() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-7 text-[11px] text-muted-foreground hover:text-foreground"
+                  className="h-7 text-2xs text-muted-foreground hover:text-foreground"
                   onClick={handleClearSelection}
                 >
                   Clear
@@ -228,7 +228,7 @@ export function MemoryView() {
                 <Button
                   size="sm"
                   variant={confirmBulkDelete ? "destructive" : "outline"}
-                  className="h-7 gap-1 text-[11px]"
+                  className="h-7 gap-1 text-2xs"
                   disabled={bulkDeleting}
                   onClick={handleBulkDelete}
                 >

@@ -69,7 +69,7 @@ export function DashboardAlertsSection({
               <div className="flex items-center gap-2">
                 <Bot className="size-4 text-primary" />
                 <h4 className="text-xs font-semibold text-muted-foreground">Proposed System Jobs</h4>
-                <Badge className="ml-1 text-[10px]">{proposals.length}</Badge>
+                <Badge className="ml-1 text-3xs">{proposals.length}</Badge>
               </div>
               {proposals.map((p) => {
                 const goal = goals.find((g) => g.id === p.goalId);
@@ -80,7 +80,7 @@ export function DashboardAlertsSection({
                       {p.plannedJobs.map((sj, i) => (
                         <li key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
                           <Bot className="size-3 shrink-0" /> {sj.name}
-                          <span className="rounded bg-muted px-1 py-0.5 text-[10px]">{sj.systemCategory}</span>
+                          <span className="rounded bg-muted px-1 py-0.5 text-3xs">{sj.systemCategory}</span>
                         </li>
                       ))}
                     </ul>
@@ -104,14 +104,14 @@ export function DashboardAlertsSection({
               <div className="flex items-center gap-2">
                 <Sparkles className="size-4 text-blue-500" />
                 <h4 className="text-xs font-semibold text-muted-foreground">Suggested Charts</h4>
-                <Badge variant="outline" className="ml-1 text-[10px] border-blue-500/40 text-blue-500">{suggestedVizs.length}</Badge>
+                <Badge variant="outline" className="ml-1 text-3xs border-blue-500/40 text-blue-500">{suggestedVizs.length}</Badge>
               </div>
               {suggestedVizs.map((viz) => (
                 <div key={viz.id} className="rounded-lg border border-dashed border-blue-500/40 bg-blue-500/5 p-3">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium">{viz.name}</span>
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">{viz.chartType}</Badge>
+                      <Badge variant="outline" className="text-3xs px-1.5 py-0">{viz.chartType}</Badge>
                     </div>
                     <div className="flex items-center gap-1">
                       <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs text-emerald-500" onClick={() => onAcceptViz(viz.id)}>
@@ -131,9 +131,9 @@ export function DashboardAlertsSection({
             <div className="mb-3 flex items-center gap-2">
               <AlertTriangle className={cn("size-4", itemCount > 0 ? "text-destructive" : "text-muted-foreground/50")} />
               <h4 className="text-xs font-semibold text-muted-foreground">Needs Attention</h4>
-              {itemCount > 0 && <Badge variant="destructive" className="ml-1 text-[10px]">{itemCount}</Badge>}
+              {itemCount > 0 && <Badge variant="destructive" className="ml-1 text-3xs">{itemCount}</Badge>}
               {itemCount > 0 && (
-                <Button size="sm" variant="ghost" className="ml-auto h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                <Button size="sm" variant="ghost" className="ml-auto h-6 px-2 text-2xs text-muted-foreground hover:text-foreground"
                   disabled={dismissingAll || loading} onClick={onDismissAll}>Dismiss all</Button>
               )}
             </div>
@@ -172,7 +172,7 @@ function SectionHeader({ icon: Icon, title, iconColor, badge, collapsed, onToggl
       <Icon className={cn("size-5", iconColor ?? "text-muted-foreground")} />
       <h3 className="flex-1 text-base font-semibold">{title}</h3>
       {badge !== undefined && badge > 0 && (
-        <Badge variant="destructive" className="h-5 min-w-5 justify-center px-1.5 py-0 text-[10px]">{badge}</Badge>
+        <Badge variant="destructive" className="h-5 min-w-5 justify-center px-1.5 py-0 text-3xs">{badge}</Badge>
       )}
       <button onClick={onToggle} className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
         {collapsed ? "View more" : "View less"}

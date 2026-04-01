@@ -140,7 +140,7 @@ function RadioSection<T extends string>({
 }) {
   return (
     <div>
-      <p className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+      <p className="mb-1 px-1 text-3xs font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
       {options.map((opt) => (
@@ -155,7 +155,7 @@ function RadioSection<T extends string>({
           </span>
           <span>{opt.label}</span>
           {opt.description && (
-            <span className="ml-auto text-[10px] text-muted-foreground">{opt.description}</span>
+            <span className="ml-auto text-3xs text-muted-foreground">{opt.description}</span>
           )}
         </button>
       ))}

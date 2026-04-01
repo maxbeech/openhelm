@@ -98,7 +98,7 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
               <div key={conv.id} className="flex items-center gap-0.5 shrink-0">
                 <input
                   autoFocus
-                  className="h-5 w-24 rounded border border-primary bg-background px-1.5 text-[10px] outline-none"
+                  className="h-5 w-24 rounded border border-primary bg-background px-1.5 text-3xs outline-none"
                   value={renameValue}
                   onChange={(e) => setRenameValue(e.target.value)}
                   onKeyDown={(e) => {
@@ -135,7 +135,7 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
                   type="button"
                   onClick={() => setActiveConversation(conv.id)}
                   className={cn(
-                    "flex h-5 items-center gap-0.5 rounded-md px-2 text-[10px] font-medium transition-colors whitespace-nowrap cursor-pointer",
+                    "flex h-5 items-center gap-0.5 rounded-md px-2 text-3xs font-medium transition-colors whitespace-nowrap cursor-pointer",
                     isActive
                       ? "bg-primary/90 text-primary-foreground"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -166,15 +166,13 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
                     <Trash2 className="mr-2 size-3" />
                     Clear history
                   </DropdownMenuItem>
-                  {conversations.length > 1 && (
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => handleDelete(conv.id)}
-                    >
-                      <X className="mr-2 size-3" />
-                      Delete thread
-                    </DropdownMenuItem>
-                  )}
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => handleDelete(conv.id)}
+                  >
+                    <X className="mr-2 size-3" />
+                    Delete thread
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>

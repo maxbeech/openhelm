@@ -36,7 +36,7 @@ export function DataTableGrid({ columns, rows, loading, onCellChange, onDeleteRo
     <table className="w-full border-collapse text-sm">
       <thead>
         <tr className="border-b border-border bg-muted/30">
-          <th className="w-8 px-1 py-2 text-center text-[10px] text-muted-foreground/50">#</th>
+          <th className="w-8 px-1 py-2 text-center text-3xs text-muted-foreground/50">#</th>
           {columns.map((col) => (
             <th
               key={col.id}
@@ -61,7 +61,7 @@ export function DataTableGrid({ columns, rows, loading, onCellChange, onDeleteRo
       <tbody>
         {rows.map((row, idx) => (
           <tr key={row.id} className="group border-b border-border/30 hover:bg-accent/20">
-            <td className="px-1 py-1.5 text-center text-[10px] text-muted-foreground/40">
+            <td className="px-1 py-1.5 text-center text-3xs text-muted-foreground/40">
               {idx + 1}
             </td>
             {columns.map((col) => (
