@@ -24,6 +24,7 @@ interface GoalCreationSheetProps {
   onOpenChange: (open: boolean) => void;
   initialName?: string;
   projectId: string;
+  parentGoalId?: string;
   onComplete: () => void;
 }
 
@@ -38,6 +39,7 @@ export function GoalCreationSheet({
   onOpenChange,
   initialName = "",
   projectId,
+  parentGoalId,
   onComplete,
 }: GoalCreationSheetProps) {
   const { createGoal } = useGoalStore();
@@ -82,6 +84,7 @@ export function GoalCreationSheet({
         projectId,
         name: name.trim(),
         description: description.trim() || undefined,
+        parentId: parentGoalId,
       });
       if (credentialIds.length > 0) {
         await setCredentialScopesForEntity({ scopeType: "goal", scopeId: goal.id, credentialIds });
@@ -112,7 +115,7 @@ export function GoalCreationSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-full flex-col sm:max-w-lg">
         <SheetHeader className="border-b border-border pb-4">
-          <SheetTitle>Create a Goal</SheetTitle>
+          <SheetTitle>{parentGoalId ? "Create a Sub-Goal" : "Create a Goal"}</SheetTitle>
           <SheetDescription className="sr-only">
             Create a new goal and optionally add jobs to run on a schedule.
           </SheetDescription>

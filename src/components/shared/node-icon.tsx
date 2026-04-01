@@ -20,7 +20,7 @@ export function NodeIcon({
   defaultIcon = "flag",
   className,
 }: NodeIconProps) {
-  const cls = cn("size-3.5 shrink-0", className);
+  const cls = cn("size-3.5 shrink-0 text-muted-foreground", className);
 
   if (icon) {
     const IconComponent = ICON_MAP[icon];
@@ -29,10 +29,9 @@ export function NodeIcon({
     }
   }
 
-  // Fallback
   return defaultIcon === "briefcase" ? (
-    <Briefcase className={cn(cls, "text-muted-foreground")} />
+    <Briefcase className={cls} />
   ) : (
-    <Flag className={cn(cls, "text-muted-foreground")} />
+    <Flag className={cls} />
   );
 }

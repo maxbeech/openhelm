@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { ActionGroup } from "./action-group";
 import type { ChatMessage } from "@openhelm/shared";
@@ -18,7 +19,10 @@ export function ChatMessageBubble({ message, projectId }: ChatMessageBubbleProps
   const isUser = message.role === "user";
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 8, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
       className={cn(
         "flex flex-col",
         isUser ? "items-end" : "items-start",
@@ -39,7 +43,16 @@ export function ChatMessageBubble({ message, projectId }: ChatMessageBubbleProps
             </p>
           ) : (
             <div className="markdown-content break-words leading-relaxed">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{stripToolCallXml(message.content)}</ReactMarkdown>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  table: ({ children }) => (
+                    <div className="overflow-x-auto">
+                      <table>{children}</table>
+                    </div>
+                  ),
+                }}
+              >{stripToolCallXml(message.content)}</ReactMarkdown>
             </div>
           )
         ) : !isUser && message.pendingActions?.length ? (
@@ -61,6 +74,6 @@ export function ChatMessageBubble({ message, projectId }: ChatMessageBubbleProps
           minute: "2-digit",
         })}
       </span>
-    </div>
+    </motion.div>
   );
 }

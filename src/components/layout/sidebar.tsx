@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import logoSvg from "@/assets/logo.svg";
 import { Settings, ChevronDown, Plus, LayoutDashboard, Layers, Waypoints, Database, KeyRound, Pencil, MessageSquare, Star, X } from "lucide-react";
+import { motion } from "framer-motion";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
 import { FeedbackDialog } from "@/components/shared/feedback-dialog";
@@ -128,77 +129,48 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
 
       {/* Dashboard + Memory */}
       <div className="border-b border-sidebar-border px-2 py-2 space-y-0.5">
-        <button
-          onClick={() => setContentView("dashboard")}
-          className={cn(
-            "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-            contentView === "dashboard"
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
-          )}
-        >
-          <LayoutDashboard className="size-4" />
-          <span className="flex-1 text-left">Dashboard</span>
-          {openCount > 0 && (
-            <span className="flex size-5 items-center justify-center rounded-full bg-destructive text-3xs font-bold text-destructive-foreground">
-              {openCount > 99 ? "99+" : openCount}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setContentView("memory")}
-          className={cn(
-            "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-            contentView === "memory"
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
-          )}
-        >
-          <Waypoints className="size-4" />
-          <span className="flex-1 text-left">Memory</span>
-          {memoryCount > 0 && (
-            <span className="text-3xs font-medium text-muted-foreground">
-              {memoryCount}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setContentView("data-tables")}
-          className={cn(
-            "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-            contentView === "data-tables" || contentView === "data-table-detail"
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
-          )}
-        >
-          <Database className="size-4" />
-          <span className="flex-1 text-left">Data</span>
-          {tableCount > 0 && (
-            <span className="text-3xs font-medium text-muted-foreground">
-              {tableCount}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setContentView("credentials")}
-          className={cn(
-            "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-            contentView === "credentials"
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
-          )}
-        >
-          <KeyRound className="size-4" />
-          <span className="flex-1 text-left">Credentials</span>
-          {credentialCount > 0 && (
-            <span className="text-3xs font-medium text-muted-foreground">
-              {credentialCount}
-            </span>
-          )}
-        </button>
+        {([
+          { view: "dashboard" as const, icon: LayoutDashboard, label: "Dashboard", badge: openCount > 0 ? (openCount > 99 ? "99+" : String(openCount)) : null, badgeType: "alert" as const },
+          { view: "memory" as const, icon: Waypoints, label: "Memory", badge: memoryCount > 0 ? String(memoryCount) : null, badgeType: "count" as const },
+          { view: "data-tables" as const, icon: Database, label: "Data", badge: tableCount > 0 ? String(tableCount) : null, badgeType: "count" as const },
+          { view: "credentials" as const, icon: KeyRound, label: "Credentials", badge: credentialCount > 0 ? String(credentialCount) : null, badgeType: "count" as const },
+        ]).map(({ view, icon: Icon, label, badge, badgeType }) => {
+          const isActive = view === "data-tables"
+            ? contentView === "data-tables" || contentView === "data-table-detail"
+            : contentView === view;
+          return (
+            <button
+              key={view}
+              onClick={() => setContentView(view)}
+              className={cn(
+                "relative flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+                isActive
+                  ? "text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
+              )}
+            >
+              {isActive && (
+                <motion.span
+                  layoutId="sidebar-nav-active"
+                  className="absolute inset-0 rounded-md bg-sidebar-accent"
+                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                />
+              )}
+              <Icon className="relative size-4" />
+              <span className="relative flex-1 text-left">{label}</span>
+              {badge && badgeType === "alert" && (
+                <span className="relative flex size-5 items-center justify-center rounded-full bg-destructive text-3xs font-bold text-destructive-foreground">
+                  {badge}
+                </span>
+              )}
+              {badge && badgeType === "count" && (
+                <span className="relative text-3xs font-medium text-muted-foreground">
+                  {badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Tree Navigation */}

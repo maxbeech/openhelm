@@ -20,6 +20,8 @@ interface SidebarJobNodeProps {
   isSelected: boolean;
   isDragMode: boolean;
   onSelect: () => void;
+  /** Indent level for nested goals (0 = direct child of root goal) */
+  indentLevel?: number;
 }
 
 function formatScheduleLabel(job: Job): string {
@@ -102,6 +104,7 @@ export function SidebarJobNode({
   isSelected,
   isDragMode,
   onSelect,
+  indentLevel = 0,
 }: SidebarJobNodeProps) {
   const scheduleLabel = useMemo(() => formatScheduleLabel(job), [job]);
   // Last 5, reversed so newest on right (timeline reading order)
@@ -122,7 +125,7 @@ export function SidebarJobNode({
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={{ ...style, paddingLeft: indentLevel > 0 ? `${indentLevel * 16}px` : undefined }}
       className={cn("group flex items-stretch", isDragging && "opacity-50")}
     >
       {/* Grip always rendered to prevent layout shift; invisible when drag inactive.

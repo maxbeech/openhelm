@@ -31,6 +31,8 @@ import {
   notifyAutopilotFailed,
   notifyChatResponse,
 } from "./lib/notifications";
+import { AnimatePresence, motion } from "framer-motion";
+import { pageVariants, pageTransition } from "./lib/motion";
 import { OnboardingWizard } from "./components/onboarding/onboarding-wizard";
 import { AppShell } from "./components/layout/app-shell";
 import { WelcomeView } from "./components/content/welcome-view";
@@ -698,14 +700,25 @@ export default function App() {
         data-tauri-drag-region
         className="no-select flex min-h-screen flex-col items-center justify-center gap-4 bg-background"
       >
-        <div data-tauri-drag-region className="flex items-center gap-2">
+        <motion.div
+          data-tauri-drag-region
+          className="flex items-center gap-2"
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
+        >
           <img src={logoSvg} alt="OpenHelm" className="size-10" />
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
             OpenHelm
           </h1>
-        </div>
+        </motion.div>
         {agentTimeout ? (
-          <div className="flex flex-col items-center gap-3">
+          <motion.div
+            className="flex flex-col items-center gap-3"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.2 }}
+          >
             <p className="max-w-xs text-center text-sm text-destructive">
               The background agent is not responding. Check that Claude Code is
               installed and try restarting.
@@ -717,12 +730,27 @@ export default function App() {
               <RefreshCw className="size-4" />
               Restart
             </button>
-          </div>
+          </motion.div>
         ) : (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <motion.div
+            className="flex items-center gap-2 text-sm text-muted-foreground"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.4, delay: 0.3 }}
+          >
             <div className="size-2 animate-pulse rounded-full bg-primary" />
-            {sailingPhrase}
-          </div>
+            <AnimatePresence mode="wait">
+              <motion.span
+                key={sailingPhrase}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.2 }}
+              >
+                {sailingPhrase}
+              </motion.span>
+            </AnimatePresence>
+          </motion.div>
         )}
       </div>
     );
@@ -758,33 +786,126 @@ export default function App() {
           selectedRunId ? <RunDetailView runId={selectedRunId} /> : undefined
         }
       >
-        {contentView === "dashboard" &&
-          (showWelcome ? (
-            <WelcomeView projectId={activeProjectId!} />
-          ) : (
-            <DashboardView />
-          ))}
-        {contentView === "home" && <DashboardView />}
-        {contentView === "goal-detail" && selectedGoalId && (
-          <GoalDetailView
-            goalId={selectedGoalId}
-            onNewJob={() => {
-              const { goals: allGoals } = useGoalStore.getState();
-              const goal = allGoals.find((g) => g.id === selectedGoalId);
-              setJobSheetInitialName("");
-              setJobSheetInitialGoalId(selectedGoalId);
-              setJobSheetProjectId(goal?.projectId ?? activeProjectId);
-              setShowJobSheet(true);
-            }}
-          />
-        )}
-        {contentView === "job-detail" && selectedJobId && (
-          <JobDetailView jobId={selectedJobId} />
-        )}
-        {contentView === "memory" && <MemoryView />}
-        {(contentView === "data-tables" || contentView === "data-table-detail") && <DataTableView />}
-        {contentView === "credentials" && <CredentialView />}
-        {contentView === "settings" && <SettingsScreen />}
+        <AnimatePresence mode="wait">
+          {contentView === "dashboard" && (
+            <motion.div
+              key={showWelcome ? "welcome" : "dashboard"}
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={pageTransition}
+              className="h-full"
+            >
+              {showWelcome ? (
+                <WelcomeView projectId={activeProjectId!} />
+              ) : (
+                <DashboardView />
+              )}
+            </motion.div>
+          )}
+          {contentView === "home" && (
+            <motion.div
+              key="home"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={pageTransition}
+              className="h-full"
+            >
+              <DashboardView />
+            </motion.div>
+          )}
+          {contentView === "goal-detail" && selectedGoalId && (
+            <motion.div
+              key={`goal-${selectedGoalId}`}
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={pageTransition}
+              className="h-full"
+            >
+              <GoalDetailView
+                goalId={selectedGoalId}
+                onNewJob={() => {
+                  const { goals: allGoals } = useGoalStore.getState();
+                  const goal = allGoals.find((g) => g.id === selectedGoalId);
+                  setJobSheetInitialName("");
+                  setJobSheetInitialGoalId(selectedGoalId);
+                  setJobSheetProjectId(goal?.projectId ?? activeProjectId);
+                  setShowJobSheet(true);
+                }}
+              />
+            </motion.div>
+          )}
+          {contentView === "job-detail" && selectedJobId && (
+            <motion.div
+              key={`job-${selectedJobId}`}
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={pageTransition}
+              className="h-full"
+            >
+              <JobDetailView jobId={selectedJobId} />
+            </motion.div>
+          )}
+          {contentView === "memory" && (
+            <motion.div
+              key="memory"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={pageTransition}
+              className="h-full"
+            >
+              <MemoryView />
+            </motion.div>
+          )}
+          {(contentView === "data-tables" || contentView === "data-table-detail") && (
+            <motion.div
+              key="data-tables"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={pageTransition}
+              className="h-full"
+            >
+              <DataTableView />
+            </motion.div>
+          )}
+          {contentView === "credentials" && (
+            <motion.div
+              key="credentials"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={pageTransition}
+              className="h-full"
+            >
+              <CredentialView />
+            </motion.div>
+          )}
+          {contentView === "settings" && (
+            <motion.div
+              key="settings"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={pageTransition}
+              className="h-full"
+            >
+              <SettingsScreen />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </AppShell>
 
       <NewProjectDialog

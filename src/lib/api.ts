@@ -21,6 +21,7 @@ import type {
   CreateGoalParams,
   UpdateGoalParams,
   ListGoalsParams,
+  GoalDeleteSnapshot,
   CreateJobParams,
   UpdateJobParams,
   ListJobsParams,
@@ -71,6 +72,7 @@ import type {
   ResolveDashboardItemParams,
   ChatMessage,
   SendChatMessageParams,
+  CancelChatMessageParams,
   ApproveChatActionParams,
   RejectChatActionParams,
   ApproveAllChatActionsParams,
@@ -145,12 +147,24 @@ export function unarchiveGoal(id: string): Promise<Goal> {
   return agentClient.request<Goal>("goals.unarchive", { id });
 }
 
-export function deleteGoal(id: string): Promise<{ deleted: boolean }> {
-  return agentClient.request<{ deleted: boolean }>("goals.delete", { id });
+export function deleteGoal(id: string): Promise<{ deleted: boolean; snapshot: GoalDeleteSnapshot }> {
+  return agentClient.request<{ deleted: boolean; snapshot: GoalDeleteSnapshot }>("goals.delete", { id });
 }
 
 export function reorderGoals(params: BulkReorderParams): Promise<{ ok: boolean }> {
   return agentClient.request<{ ok: boolean }>("goals.reorder", params);
+}
+
+export function getGoalChildren(goalId: string): Promise<Goal[]> {
+  return agentClient.request<Goal[]>("goals.children", { id: goalId });
+}
+
+export function getGoalAncestors(goalId: string): Promise<Goal[]> {
+  return agentClient.request<Goal[]>("goals.ancestors", { id: goalId });
+}
+
+export function restoreDeletedGoal(snapshot: GoalDeleteSnapshot): Promise<{ restored: number }> {
+  return agentClient.request<{ restored: number }>("goals.restoreDeleted", { snapshot });
 }
 
 // ─── Jobs ───
@@ -333,6 +347,12 @@ export function sendChatMessage(
   params: SendChatMessageParams,
 ): Promise<{ started: boolean }> {
   return agentClient.request<{ started: boolean }>("chat.send", params);
+}
+
+export function cancelChatMessage(
+  params: CancelChatMessageParams,
+): Promise<{ cancelled: boolean }> {
+  return agentClient.request<{ cancelled: boolean }>("chat.cancel", params);
 }
 
 export function approveChatAction(

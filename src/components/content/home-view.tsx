@@ -48,7 +48,7 @@ function StatCard({
   highlight?: boolean;
 }) {
   return (
-    <div className="min-w-0 rounded-lg border border-border bg-card p-4">
+    <div className="hover-lift min-w-0 rounded-lg border border-border bg-card p-4">
       <div className="flex items-center gap-2 min-w-0">
         <Icon
           className={`shrink-0 size-4 ${highlight ? "text-primary" : "text-muted-foreground"}`}

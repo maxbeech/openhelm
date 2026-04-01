@@ -30,7 +30,7 @@ ${VALID_ICONS.join(", ")}
 Rules:
 - Return ONLY the icon name, nothing else — no quotes, no punctuation
 - Pick the icon that best represents the concept visually
-- For code-related work, prefer: code, bug, terminal (use "code")
+- For code-related work, prefer: code, bug
 - For data/storage, prefer: database, hard_drive
 - For infrastructure, prefer: server, cloud, network
 - For testing, prefer: flask, check
@@ -61,11 +61,21 @@ export async function pickIcon(
       timeoutMs: 30_000,
     });
 
+    // Try exact match first (ideal case)
     const iconName = result.trim().toLowerCase();
     if ((VALID_ICONS as readonly string[]).includes(iconName)) {
       return iconName;
     }
-    console.error(`[icon-picker] invalid icon returned: "${iconName}"`);
+    // Fallback: scan tokens for the first valid icon name in the response
+    // (handles cases where the LLM includes extra surrounding text)
+    const tokens = result.toLowerCase().split(/[\s,.\n]+/);
+    for (const token of tokens) {
+      const cleaned = token.replace(/[^a-z_]/g, "");
+      if (cleaned && (VALID_ICONS as readonly string[]).includes(cleaned)) {
+        return cleaned;
+      }
+    }
+    console.error(`[icon-picker] no valid icon in response: "${result.slice(0, 100)}"`);
     return null;
   } catch (err) {
     console.error(

@@ -1,9 +1,12 @@
 // No local collapse state — collapse is managed by the app store for persistence
+import { useMemo, useState } from "react";
 import { ChevronRight, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { SidebarGoalNode } from "./sidebar-goal-node";
+import { GoalCreationSheet } from "@/components/goals/goal-creation-sheet";
+import { buildGoalTree } from "@/lib/goal-tree";
 import type { Project, Goal, Job, Run } from "@openhelm/shared";
 import type { ContentView } from "@/stores/app-store";
 
@@ -51,6 +54,9 @@ export function SidebarProjectGroup({
   onCloseSearch,
   jobDragMode,
 }: SidebarProjectGroupProps) {
+
+  const goalTree = useMemo(() => buildGoalTree(goals), [goals]);
+  const [pendingSubGoalParentId, setPendingSubGoalParentId] = useState<string | null>(null);
 
   const {
     attributes,
@@ -102,24 +108,33 @@ export function SidebarProjectGroup({
       {/* Project group content */}
       {!isCollapsed && (
         <div>
-          {goals.map((goal) => (
+          {goalTree.map((node) => (
             <SidebarGoalNode
-              key={goal.id}
-              goal={goal}
-              goalJobs={jobsByGoal.get(goal.id) ?? []}
+              key={node.id}
+              goal={node}
+              goalJobs={jobsByGoal.get(node.id) ?? []}
               recentRunsByJob={recentRunsByJob}
-              isCollapsed={collapsedGoalIds.includes(goal.id)}
-              isSelected={contentView === "goal-detail" && selectedGoalId === goal.id}
+              isCollapsed={collapsedGoalIds.includes(node.id)}
+              isSelected={contentView === "goal-detail" && selectedGoalId === node.id}
               contentView={contentView}
+              selectedGoalId={selectedGoalId}
               selectedJobId={selectedJobId}
-              onToggleCollapsed={() => onToggleGoalCollapsed(goal.id)}
-              onSelectGoal={() => onSelectGoal(goal.id)}
-              onSelectJob={onSelectJob}
-              onNewJobForGoal={onNewJobForGoal}
-              onCloseSearch={onCloseSearch}
               isDragMode={isDragMode}
               isDragActive={isDragActive}
               jobDragMode={jobDragMode}
+              nestTargetId={null}
+              collapsedGoalIds={collapsedGoalIds}
+              filteredJobsByGoal={jobsByGoal}
+              onToggleCollapsed={() => onToggleGoalCollapsed(node.id)}
+              onToggleGoalCollapsed={onToggleGoalCollapsed}
+              onSelectGoal={onSelectGoal}
+              onSelectJob={onSelectJob}
+              onNewJobForGoal={onNewJobForGoal}
+              onNewSubGoal={(parentGoalId) => setPendingSubGoalParentId(parentGoalId)}
+              onMoveToRoot={() => {}}
+              onArchiveGoal={() => {}}
+              onDeleteGoal={() => {}}
+              onCloseSearch={onCloseSearch}
             />
           ))}
           {standaloneJobs.length > 0 && standaloneJobs.map((job) => {
@@ -140,6 +155,16 @@ export function SidebarProjectGroup({
             );
           })}
         </div>
+      )}
+
+      {pendingSubGoalParentId && (
+        <GoalCreationSheet
+          open={true}
+          onOpenChange={(open) => { if (!open) setPendingSubGoalParentId(null); }}
+          projectId={project.id}
+          parentGoalId={pendingSubGoalParentId}
+          onComplete={() => setPendingSubGoalParentId(null)}
+        />
       )}
     </div>
   );

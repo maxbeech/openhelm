@@ -19,6 +19,7 @@ import {
 import { emit } from "../emitter.js";
 import type {
   SendChatMessageParams,
+  CancelChatMessageParams,
   ApproveChatActionParams,
   RejectChatActionParams,
   ApproveAllChatActionsParams,
@@ -42,8 +43,9 @@ function normaliseProjectId(raw: unknown): string | null {
  * Tracks which conversations have an in-flight handleChatMessage call.
  * Keyed by conversationId (or projectId fallback) so multiple threads
  * within the same project can process simultaneously.
+ * Maps to an AbortController so in-flight calls can be cancelled.
  */
-const activeChats = new Set<string>();
+const activeChats = new Map<string, AbortController>();
 function chatKey(conversationId: string | undefined, projectId: string | null): string {
   return conversationId ?? projectId ?? "__all__";
 }
@@ -60,11 +62,17 @@ export function registerChatHandlers() {
       throw new Error("A message is already being processed. Please wait for the current response.");
     }
 
-    activeChats.add(key);
+    const controller = new AbortController();
+    activeChats.set(key, controller);
 
     setImmediate(() => {
-      handleChatMessage(projectId, p.content.trim(), p.context, p.model, p.modelEffort, p.permissionMode, conversationId)
+      handleChatMessage(projectId, p.content.trim(), p.context, p.model, p.modelEffort, p.permissionMode, conversationId, controller.signal)
         .catch((err) => {
+          // Suppress errors caused by user-initiated cancellation — no toast needed.
+          if (controller.signal.aborted || (err instanceof Error && err.message.includes("cancelled"))) {
+            emit("chat.status", { status: "done", projectId, conversationId });
+            return;
+          }
           console.error("[chat] send failed:", err);
           emit("chat.error", {
             projectId,
@@ -79,6 +87,19 @@ export function registerChatHandlers() {
     });
 
     return { started: true };
+  });
+
+  registerHandler("chat.cancel", (params) => {
+    const p = params as CancelChatMessageParams;
+    const projectId = normaliseProjectId(p?.projectId);
+    const conversationId = p?.conversationId || undefined;
+    const key = chatKey(conversationId, projectId);
+    const controller = activeChats.get(key);
+    if (controller) {
+      controller.abort();
+      return { cancelled: true };
+    }
+    return { cancelled: false };
   });
 
   registerHandler("chat.approveAction", async (params) => {

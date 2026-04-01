@@ -1,5 +1,7 @@
 import { useRef, useEffect } from "react";
 import { AlertTriangle, X } from "lucide-react";
+import { motion } from "framer-motion";
+import { slidePanelVariants, slidePanelTransition } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chat-store";
 import { useAppStore } from "@/stores/app-store";
@@ -25,6 +27,7 @@ export function ChatPanel({ projectId }: ChatPanelProps) {
     panelOpen,
     closePanel,
     sendMessage,
+    cancelMessage,
     activeConversationId,
     conversationStates,
   } = useChatStore();
@@ -59,8 +62,6 @@ export function ChatPanel({ projectId }: ChatPanelProps) {
     storageKey: "chat-panel-width",
   });
 
-  if (!panelOpen) return null;
-
   const handleSend = (content: string) => {
     const { goals } = useGoalStore.getState();
     const { jobs } = useJobStore.getState();
@@ -83,8 +84,15 @@ export function ChatPanel({ projectId }: ChatPanelProps) {
     sendMessage(projectId, content, context).catch(() => {});
   };
 
+  if (!panelOpen) return null;
+
   return (
-    <div
+    <motion.div
+      variants={slidePanelVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      transition={slidePanelTransition}
       className="relative flex h-full shrink-0 flex-col border-l border-border bg-background"
       style={{ width }}
     >
@@ -132,7 +140,12 @@ export function ChatPanel({ projectId }: ChatPanelProps) {
       )}
 
       {/* Input */}
-      <ChatInput ref={chatInputRef} onSend={handleSend} disabled={sending} />
-    </div>
+      <ChatInput
+        ref={chatInputRef}
+        onSend={handleSend}
+        onCancel={activeConversationId ? () => cancelMessage(projectId, activeConversationId).catch(() => {}) : undefined}
+        disabled={sending}
+      />
+    </motion.div>
   );
 }

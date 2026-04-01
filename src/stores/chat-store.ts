@@ -77,6 +77,7 @@ interface ChatState {
   // Messages
   fetchMessages: (projectId: string | null, conversationId?: string) => Promise<void>;
   sendMessage: (projectId: string | null, content: string, context?: ChatContext) => Promise<void>;
+  cancelMessage: (projectId: string | null, conversationId: string) => Promise<void>;
   approveAction: (messageId: string, callId: string, projectId: string) => Promise<void>;
   rejectAction: (messageId: string, callId: string) => Promise<void>;
   approveAll: (messageId: string, projectId: string) => Promise<void>;
@@ -282,6 +283,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // Remove the optimistic message on failure so the user can retry cleanly.
       set((s) => ({ messages: s.messages.filter((m) => m.id !== optimisticId) }));
       set({ error: friendlyError(err, "Failed to send message") });
+    }
+  },
+
+  cancelMessage: async (projectId, conversationId) => {
+    try {
+      await api.cancelChatMessage({ projectId, conversationId });
+      get().clearConvStreaming(conversationId);
+    } catch {
+      // Cancel errors are non-critical — swallow silently
     }
   },
 

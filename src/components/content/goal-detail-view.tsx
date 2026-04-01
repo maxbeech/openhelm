@@ -1,4 +1,6 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import { motion } from "framer-motion";
+import { staggerContainer, staggerItem } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -31,6 +33,9 @@ import { getJobTokenStats, generateAutopilotForGoal } from "@/lib/api";
 import { useAgentEvent } from "@/hooks/use-agent-event";
 import { TargetList } from "@/components/targets/target-list";
 import { VisualizationList } from "@/components/visualizations/visualization-list";
+import { GoalBreadcrumb } from "@/components/goals/goal-breadcrumb";
+import { GoalSubGoalsSection } from "@/components/goals/goal-sub-goals-section";
+import { GoalCreationSheet } from "@/components/goals/goal-creation-sheet";
 import type { GoalStatus, JobTokenStat } from "@openhelm/shared";
 
 interface GoalDetailViewProps {
@@ -42,7 +47,7 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
   const { goals, updateGoal, updateGoalStatus, archiveGoal, unarchiveGoal, deleteGoal } = useGoalStore();
   const { jobs, fetchJobs } = useJobStore();
   const { runs } = useRunStore();
-  const { selectJob, setContentView, activeProjectId } = useAppStore();
+  const { selectJob, selectGoal, setContentView, activeProjectId } = useAppStore();
 
   const [credentialRefreshKey, setCredentialRefreshKey] = useState(0);
   const [confirmAction, setConfirmAction] = useState<
@@ -59,6 +64,7 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
   const [showEditSheet, setShowEditSheet] = useState(false);
   const [tokenStats, setTokenStats] = useState<JobTokenStat[]>([]);
   const [generatingAutopilot, setGeneratingAutopilot] = useState(false);
+  const [showSubGoalSheet, setShowSubGoalSheet] = useState(false);
 
   const goal = goals.find((g) => g.id === goalId);
   const goalJobs = useMemo(
@@ -150,6 +156,11 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
 
   return (
     <div className="p-6">
+      {/* Breadcrumb for sub-goals */}
+      {goal.parentId && (
+        <GoalBreadcrumb goal={goal} onSelectGoal={(id) => { setContentView("goal-detail"); selectGoal(id); }} />
+      )}
+
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-3">
@@ -207,6 +218,15 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
           <VisualizationList goalId={goalId} projectId={activeProjectId} />
         </div>
       )}
+
+      {/* Sub-Goals */}
+      <div className="mb-4">
+        <GoalSubGoalsSection
+          parentGoalId={goalId}
+          onSelectGoal={(id) => { selectGoal(id); }}
+          onNewSubGoal={() => setShowSubGoalSheet(true)}
+        />
+      </div>
 
       <Separator className="mb-6" />
 
@@ -321,6 +341,18 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
         onOpenChange={setShowEditSheet}
         onComplete={() => setCredentialRefreshKey((k) => k + 1)}
       />
+
+      {activeProjectId && (
+        <GoalCreationSheet
+          open={showSubGoalSheet}
+          onOpenChange={setShowSubGoalSheet}
+          projectId={activeProjectId}
+          parentGoalId={goalId}
+          onComplete={() => {
+            setShowSubGoalSheet(false);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -349,7 +381,7 @@ function JobsTable({
           <th className="px-3 py-2 font-medium text-right">Avg/Run</th>
         </tr>
       </thead>
-      <tbody>
+      <motion.tbody variants={staggerContainer} initial="hidden" animate="visible">
         {tableJobs.map((job) => {
           const lastRun = getLastRunForJob(job.id);
           const stat = tokenStats.find((s) => s.jobId === job.id);
@@ -358,8 +390,9 @@ function JobsTable({
             ? Math.round(totalTokens! / stat.runCount)
             : null;
           return (
-            <tr
+            <motion.tr
               key={job.id}
+              variants={staggerItem}
               onClick={() => selectJob(job.id)}
               className="cursor-pointer border-b border-border transition-colors hover:bg-accent/50"
             >
@@ -385,10 +418,10 @@ function JobsTable({
               <td className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-muted-foreground">
                 {formatTokenCount(avgTokens)}
               </td>
-            </tr>
+            </motion.tr>
           );
         })}
-      </tbody>
+      </motion.tbody>
     </table>
     </div>
   );

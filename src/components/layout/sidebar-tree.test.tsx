@@ -14,20 +14,24 @@ const mockGoals = [
   {
     id: "g1",
     projectId: "p1",
+    parentId: null,
     name: "Improve test coverage",
     description: "Improve test coverage",
     icon: null,
     status: "active" as const,
+    sortOrder: 0,
     createdAt: "2026-01-01",
     updatedAt: "2026-01-01",
   },
   {
     id: "g2",
     projectId: "p1",
+    parentId: null,
     name: "Fix TypeScript errors",
     description: "Fix TypeScript errors",
     icon: null,
     status: "active" as const,
+    sortOrder: 1,
     createdAt: "2026-01-01",
     updatedAt: "2026-01-01",
   },
@@ -151,24 +155,14 @@ describe("SidebarTree", () => {
     expect(s.selectedJobId).toBe("j1");
   });
 
-  it("shows job name input when goal + button is clicked", () => {
+  it("renders add menu trigger for each goal", () => {
     render(<SidebarTree projectId="p1" onNewJobForGoal={onNewJobForGoal} />);
-    // Click the first goal's + button (g1)
-    fireEvent.click(screen.getAllByTitle("New job in this goal")[0]);
-    expect(screen.getByPlaceholderText("Job name...")).toBeDefined();
+    // Each goal should have the dropdown trigger
+    const triggers = screen.getAllByTitle("Add sub-goal or job");
+    expect(triggers.length).toBe(2); // g1 and g2
   });
 
-  it("calls onNewJobForGoal with goalId and name on Enter", () => {
-    render(<SidebarTree projectId="p1" onNewJobForGoal={onNewJobForGoal} />);
-    // Click the first goal's + button (g1)
-    fireEvent.click(screen.getAllByTitle("New job in this goal")[0]);
-    const input = screen.getByPlaceholderText("Job name...");
-    fireEvent.change(input, { target: { value: "My new job" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect(onNewJobForGoal).toHaveBeenCalledWith("g1", "My new job");
-  });
-
-  it("collapses goal to hide nested jobs", () => {
+  it("collapses goal to hide nested jobs", async () => {
     render(<SidebarTree projectId="p1" onNewJobForGoal={onNewJobForGoal} />);
     expect(screen.getByText("Run tests")).toBeDefined();
 
@@ -177,7 +171,10 @@ describe("SidebarTree", () => {
       .filter((btn) => btn.querySelector(".lucide-chevron-right"));
     fireEvent.click(chevronButtons[0]);
 
-    expect(screen.queryByText("Run tests")).toBeNull();
+    // AnimatePresence exit animation keeps the element briefly; wait for removal
+    await waitFor(() => {
+      expect(screen.queryByText("Run tests")).toBeNull();
+    });
   });
 
   it("shows standalone jobs section", () => {

@@ -2,6 +2,7 @@ import { registerHandler } from "../handler.js";
 import { emit } from "../emitter.js";
 import * as goalQueries from "../../db/queries/goals.js";
 import * as jobQueries from "../../db/queries/jobs.js";
+import * as hierarchyQueries from "../../db/queries/goal-hierarchy.js";
 import { pickIcon } from "../../planner/icon-picker.js";
 import { extractMemoriesFromGoal } from "../../memory/goal-extractor.js";
 import { generateAndHandleSystemJobs } from "../../autopilot/index.js";
@@ -10,6 +11,7 @@ import type {
   UpdateGoalParams,
   ListGoalsParams,
   BulkReorderParams,
+  GoalDeleteSnapshot,
 } from "@openhelm/shared";
 
 export function registerGoalHandlers() {
@@ -76,7 +78,10 @@ export function registerGoalHandlers() {
   registerHandler("goals.delete", (params) => {
     const { id } = params as { id: string };
     if (!id) throw new Error("id is required");
-    return { deleted: goalQueries.deleteGoal(id) };
+    // Collect snapshot before deletion for undo support
+    const snapshot = hierarchyQueries.getGoalDeleteSnapshot(id);
+    const deleted = goalQueries.deleteGoal(id);
+    return { deleted, snapshot };
   });
 
   registerHandler("goals.reorder", (params) => {
@@ -84,5 +89,28 @@ export function registerGoalHandlers() {
     if (!p?.items?.length) throw new Error("items array is required");
     goalQueries.reorderGoals(p);
     return { ok: true };
+  });
+
+  registerHandler("goals.children", (params) => {
+    const { id } = params as { id: string };
+    if (!id) throw new Error("id is required");
+    return hierarchyQueries.getGoalChildren(id);
+  });
+
+  registerHandler("goals.ancestors", (params) => {
+    const { id } = params as { id: string };
+    if (!id) throw new Error("id is required");
+    return hierarchyQueries.getGoalAncestors(id);
+  });
+
+  registerHandler("goals.restoreDeleted", (params) => {
+    const { snapshot } = params as { snapshot: GoalDeleteSnapshot };
+    if (!snapshot?.goals?.length) throw new Error("snapshot is required");
+    hierarchyQueries.restoreGoalDeleteSnapshot(snapshot);
+    // Re-fetch the restored goals to emit events
+    for (const g of snapshot.goals) {
+      emit("goal.restored", { id: g.id });
+    }
+    return { restored: snapshot.goals.length };
   });
 }

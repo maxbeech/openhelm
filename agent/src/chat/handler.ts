@@ -102,6 +102,7 @@ export async function handleChatMessage(
   effort?: "low" | "medium" | "high",
   permissionMode?: string,
   conversationId?: string,
+  abortSignal?: AbortSignal,
 ): Promise<ChatMessage[]> {
   // Resolve project — null means "All Projects" thread
   const project = projectId ? getProject(projectId) : null;
@@ -197,6 +198,8 @@ export async function handleChatMessage(
     insideToolCall = false;
     totalStreamedText = "";
     const userMessage = buildLlmUserMessage(history, content, toolExchange || undefined);
+    if (abortSignal?.aborted) throw new Error("Chat cancelled by user");
+
     const llmResult = await callLlmWithRetry({
       model: "chat",
       modelOverride,
@@ -211,6 +214,7 @@ export async function handleChatMessage(
       permissionMode: permissionMode || "plan",
       preferRawText: true,
       resumeSessionId: sessionId ?? undefined,
+      abortSignal,
       onTextChunk: (text) => {
         const stripped = sanitizeStreamChunk(text);
         if (!stripped) return;
@@ -291,6 +295,48 @@ export async function handleChatMessage(
 
     // If no write calls and no more tool calls, exit loop
     if (readResults.length === 0) break;
+  }
+
+  // Fallback: detect when LLM described creation without tool_call blocks
+  if (pendingActions.length === 0 && allToolCalls.length === 0) {
+    const candidateText = buildTextResponse(finalTextSegments);
+    if (candidateText.length > 50) {
+      console.error(`[chat] response with no tool calls (${candidateText.length} chars). First 200: ${candidateText.slice(0, 200)}`);
+    }
+    const describesCreation = /\b(creat|set up|add|configur|defin)\w*\b.{0,50}\b(goal|job|target|visualization|data table|chart|memory)\b/i.test(candidateText);
+    if (describesCreation && !abortSignal?.aborted) {
+      console.error("[chat] LLM described creation without tool_call blocks — sending nudge");
+      try {
+        const nudgeMessage = buildLlmUserMessage(history, content,
+          `Assistant: ${candidateText}\n\nUser: Please produce the actual <tool_call> XML blocks for the actions you described above. Output only the tool calls, no explanation.`
+        );
+        const nudgeResult = await callLlmWithRetry({
+          model: "chat", modelOverride, effort, systemPrompt,
+          userMessage: nudgeMessage,
+          allowedTools: "WebSearch,WebFetch,Read,Glob,Grep",
+          disallowedTools: "Bash,Agent",
+          workingDirectory: project?.directoryPath,
+          permissionMode: permissionMode || "plan",
+          preferRawText: true,
+          resumeSessionId: sessionId ?? undefined,
+          abortSignal,
+        });
+        const nudgeParsed = parseLlmResponse(nudgeResult.text);
+        if (nudgeParsed.hasToolCalls) {
+          const writeCalls = nudgeParsed.toolCalls.filter((c) => isWriteTool(c.tool));
+          allToolCalls.push(...nudgeParsed.toolCalls);
+          for (const call of writeCalls) {
+            pendingActions.push({
+              callId: call.id, tool: call.tool, args: call.args,
+              description: describeAction(call.tool, call.args), status: "pending",
+            });
+          }
+          if (nudgeParsed.textSegments.length > 0) finalTextSegments = nudgeParsed.textSegments;
+        }
+      } catch (err) {
+        console.error("[chat] nudge follow-up failed:", err);
+      }
+    }
   }
 
   emit("chat.status", { status: "done", projectId, conversationId: convId });

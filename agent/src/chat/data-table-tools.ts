@@ -47,7 +47,7 @@ export const DATA_TABLE_TOOLS: ToolDefinition[] = [
   // ─── Write tools (require confirmation) ───
   {
     name: "create_data_table",
-    description: "Create a new data table with defined column schema. Column types: text, number, boolean, date, select, multi_select, url, email, relation.",
+    description: "Create a new data table with defined column schema. Column types: text, number, date, checkbox, select, multi_select, url, email, phone, relation, files (file attachments stored locally), rollup, formula, created_time, updated_time.",
     isWrite: true,
     parameters: {
       name: { type: "string", description: "Table name", required: true },

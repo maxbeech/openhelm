@@ -1,6 +1,10 @@
-import { eq, and, sql, max } from "drizzle-orm";
+import { eq, and, sql, max, isNull } from "drizzle-orm";
 import { getDb } from "../init.js";
 import { goals, jobs } from "../schema.js";
+import {
+  getGoalDescendants,
+  isDescendantOf,
+} from "./goal-hierarchy.js";
 import type {
   Goal,
   GoalStatus,
@@ -15,11 +19,14 @@ export function createGoal(params: CreateGoalParams): Goal {
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
 
-  // Auto-assign next sort_order for the project
+  // Auto-assign next sort_order scoped to siblings (same parentId)
+  const siblingCondition = params.parentId
+    ? eq(goals.parentId, params.parentId)
+    : and(eq(goals.projectId, params.projectId), sql`${goals.parentId} IS NULL`);
   const maxResult = db
     .select({ maxOrder: max(goals.sortOrder) })
     .from(goals)
-    .where(eq(goals.projectId, params.projectId))
+    .where(siblingCondition)
     .get();
   const sortOrder = (maxResult?.maxOrder ?? -1) + 1;
 
@@ -28,6 +35,7 @@ export function createGoal(params: CreateGoalParams): Goal {
     .values({
       id,
       projectId: params.projectId,
+      parentId: params.parentId ?? null,
       name: params.name,
       description: params.description ?? "",
       status: "active",
@@ -74,8 +82,29 @@ export function updateGoal(params: UpdateGoalParams): Goal {
 
   const now = new Date().toISOString();
 
-  // If archiving, disable and archive all associated jobs
+  // Validate parentId change — prevent circular references
+  if (params.parentId !== undefined && params.parentId !== null) {
+    if (params.parentId === params.id) {
+      throw new Error("A goal cannot be its own parent");
+    }
+    if (isDescendantOf(params.parentId, params.id)) {
+      throw new Error("Cannot nest a goal under its own descendant");
+    }
+  }
+
+  // If archiving, also archive all descendant goals and their jobs
   if (params.status === "archived" && existing.status !== "archived") {
+    const descendants = getGoalDescendants(params.id);
+    for (const desc of descendants) {
+      db.update(goals)
+        .set({ status: "archived", updatedAt: now })
+        .where(eq(goals.id, desc.id))
+        .run();
+      db.update(jobs)
+        .set({ isEnabled: false, isArchived: true, nextFireAt: null, updatedAt: now })
+        .where(eq(jobs.goalId, desc.id))
+        .run();
+    }
     db.update(jobs)
       .set({ isEnabled: false, isArchived: true, nextFireAt: null, updatedAt: now })
       .where(eq(jobs.goalId, params.id))
@@ -89,6 +118,7 @@ export function updateGoal(params: UpdateGoalParams): Goal {
       ...(params.description !== undefined && { description: params.description }),
       ...(params.status !== undefined && { status: params.status }),
       ...(params.icon !== undefined && { icon: params.icon }),
+      ...(params.parentId !== undefined && { parentId: params.parentId }),
       updatedAt: now,
     })
     .where(eq(goals.id, params.id))

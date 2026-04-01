@@ -4,6 +4,8 @@
  */
 
 import { DATA_TABLE_TOOLS, describeDataTableAction } from "./data-table-tools.js";
+import { TARGET_CHAT_TOOLS, describeTargetAction } from "./target-chat-tools.js";
+import { VISUALIZATION_CHAT_TOOLS, describeVisualizationAction } from "./visualization-chat-tools.js";
 
 export interface ParameterDef {
   type: string;
@@ -75,11 +77,12 @@ export const TOOLS: ToolDefinition[] = [
   // ─── Write tools (require confirmation) ───
   {
     name: "create_goal",
-    description: "Create a new goal for the active project.",
+    description: "Create a new goal for the active project. Can be a sub-goal of an existing goal.",
     isWrite: true,
     parameters: {
       name: { type: "string", description: "Short goal name", required: true },
       description: { type: "string", description: "Detailed description" },
+      parentGoalId: { type: "string", description: "ID of the parent goal (for creating sub-goals)" },
     },
   },
   {
@@ -149,6 +152,10 @@ export const TOOLS: ToolDefinition[] = [
   },
   // ─── Data table tools (imported) ───
   ...DATA_TABLE_TOOLS,
+  // ─── Target tools (imported) ───
+  ...TARGET_CHAT_TOOLS,
+  // ─── Visualization tools (imported) ───
+  ...VISUALIZATION_CHAT_TOOLS,
   // ─── Memory tools ───
   {
     name: "list_memories",
@@ -200,9 +207,13 @@ export function isWriteTool(name: string): boolean {
 
 /** Human-readable one-line summary of a write tool call (for the confirmation card). */
 export function describeAction(tool: string, args: Record<string, unknown>): string {
-  // Check data table tools first
+  // Check specialized tools first
   const dtDesc = describeDataTableAction(tool, args);
   if (dtDesc) return dtDesc;
+  const tgtDesc = describeTargetAction(tool, args);
+  if (tgtDesc) return tgtDesc;
+  const vizDesc = describeVisualizationAction(tool, args);
+  if (vizDesc) return vizDesc;
 
   switch (tool) {
     case "create_goal": return `Create goal: "${args.name}"`;

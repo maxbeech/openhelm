@@ -66,6 +66,7 @@ export type GoalStatus = "active" | "paused" | "archived";
 export interface Goal {
   id: string;
   projectId: string;
+  parentId: string | null;
   name: string;
   description: string;
   status: GoalStatus;
@@ -73,6 +74,12 @@ export interface Goal {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Goal with resolved children for tree rendering */
+export interface GoalTreeNode extends Goal {
+  children: GoalTreeNode[];
+  depth: number;
 }
 
 export type ScheduleType = "once" | "interval" | "cron" | "calendar" | "manual";
@@ -257,6 +264,7 @@ export interface CreateGoalParams {
   projectId: string;
   name: string;
   description?: string;
+  parentId?: string;
 }
 
 export interface UpdateGoalParams {
@@ -265,6 +273,7 @@ export interface UpdateGoalParams {
   description?: string;
   status?: GoalStatus;
   icon?: string;
+  parentId?: string | null;
 }
 
 // Jobs
@@ -423,6 +432,12 @@ export interface ListGoalsParams {
   status?: GoalStatus;
 }
 
+/** Snapshot of a goal subtree for undo-delete */
+export interface GoalDeleteSnapshot {
+  goals: Goal[];
+  jobIds: string[];
+}
+
 /** Sort mode for sidebar ordering */
 export type SortMode =
   | "custom"
@@ -544,6 +559,13 @@ export interface ListChatMessagesParams {
   conversationId?: string;
   limit?: number;
   beforeId?: string;
+}
+
+export interface CancelChatMessageParams {
+  /** NULL = "All Projects" thread */
+  projectId: string | null;
+  /** Target a specific conversation thread. */
+  conversationId?: string;
 }
 
 export interface ClearChatParams {

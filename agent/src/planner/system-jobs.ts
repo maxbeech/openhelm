@@ -15,6 +15,7 @@ import { listJobs } from "../db/queries/jobs.js";
 import { getProject } from "../db/queries/projects.js";
 import { listTargets } from "../db/queries/targets.js";
 import { evaluateTargets } from "../data-tables/target-evaluator.js";
+import { getGoalAncestors, getGoalChildren } from "../db/queries/goal-hierarchy.js";
 import type { PlannedSystemJob, Job } from "@openhelm/shared";
 
 interface SystemJobGenerationResult {
@@ -116,12 +117,30 @@ ${project.description ? `Description: ${project.description}` : ""}
 
 Goal: "${goal.name}"
 ${goal.description !== goal.name ? `Description: ${goal.description}` : ""}
+${buildHierarchyContext(goal.id)}
 
 User-created jobs for this goal:
 ${jobSummaries || "  (none yet)"}
 ${skipNote}
 ${buildTargetSummary(goal.id)}
 Generate appropriate monitoring/review system jobs for this goal.`;
+}
+
+function buildHierarchyContext(goalId: string): string {
+  try {
+    const ancestors = getGoalAncestors(goalId);
+    const children = getGoalChildren(goalId);
+    const parts: string[] = [];
+    if (ancestors.length > 0) {
+      parts.push(`Parent goals: ${ancestors.map((a) => `"${a.name}"`).join(" > ")}`);
+    }
+    if (children.length > 0) {
+      parts.push(`Sub-goals: ${children.map((c) => `"${c.name}"`).join(", ")}`);
+    }
+    return parts.length > 0 ? parts.join("\n") : "";
+  } catch {
+    return "";
+  }
 }
 
 function buildTargetSummary(goalId: string): string {

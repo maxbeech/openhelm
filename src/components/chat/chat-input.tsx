@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "react";
-import { Send, Settings2, Check } from "lucide-react";
+import { Send, Square, Settings2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -14,6 +14,7 @@ import {
 
 interface ChatInputProps {
   onSend: (content: string) => void;
+  onCancel?: () => void;
   disabled?: boolean;
 }
 
@@ -21,7 +22,7 @@ export interface ChatInputHandle {
   focus: () => void;
 }
 
-export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput({ onSend, disabled }, ref) {
+export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput({ onSend, onCancel, disabled }, ref) {
   const [value, setValue] = useState("");
   const [configOpen, setConfigOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -106,14 +107,26 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           disabled={disabled}
           className="max-h-32 min-h-[36px] flex-1 resize-none text-sm"
         />
-        <Button
-          size="sm"
-          onClick={handleSend}
-          disabled={!value.trim() || disabled}
-          className="size-9 shrink-0 p-0"
-        >
-          <Send className="size-4" />
-        </Button>
+        {disabled ? (
+          <Button
+            size="sm"
+            onClick={onCancel}
+            disabled={!onCancel}
+            className="size-9 shrink-0 p-0"
+            title="Stop generating"
+          >
+            <Square className="size-4" />
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            onClick={handleSend}
+            disabled={!value.trim()}
+            className="size-9 shrink-0 p-0"
+          >
+            <Send className="size-4" />
+          </Button>
+        )}
       </div>
       {/* Compact settings bar */}
       <div className="flex items-center">

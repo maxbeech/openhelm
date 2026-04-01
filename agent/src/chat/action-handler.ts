@@ -42,16 +42,12 @@ export async function handleActionApproval(
     const nextGoalIdx = updated.findIndex((a, i) => i > thisIdx && a.tool === "create_goal");
     const endIdx = nextGoalIdx === -1 ? updated.length : nextGoalIdx;
 
+    // Tools whose goalId sentinel "pending" should be resolved to the real goal ID
+    const linkableTools = ["create_job", "create_target", "create_visualization"];
     updated = updated.map((a, i) => {
-      // Only update jobs between this goal and the next goal
-      if (i > thisIdx && i < endIdx && a.tool === "create_job" && a.status === "pending" && a.args.goalId) {
-        // The system prompt instructs the LLM to use the sentinel string "pending"
-        // as a placeholder goalId for jobs whose goal hasn't been created yet.
-        // Compare explicitly against the sentinel — do not use a DB lookup, which
-        // would also rewrite any job whose goalId happens to reference a deleted goal.
-        if (a.args.goalId === "pending") {
-          return { ...a, args: { ...a.args, goalId: createdGoalId } };
-        }
+      // Only update actions between this goal and the next goal
+      if (i > thisIdx && i < endIdx && linkableTools.includes(a.tool) && a.status === "pending" && a.args.goalId === "pending") {
+        return { ...a, args: { ...a.args, goalId: createdGoalId } };
       }
       return a;
     });
@@ -100,13 +96,12 @@ export async function handleApproveAll(
   const pending = msg.pendingActions ?? [];
   const pendingCallIds = pending
     .filter((a) => a.status === "pending")
-    // Sort so create_goal actions run before create_job actions. This ensures
-    // the FK-linking logic in handleActionApproval can resolve the real goal ID
-    // even if the LLM emitted jobs before their parent goal in its response.
+    // Sort so create_goal runs first, then data tables, then everything else.
+    // This ensures FK-linking logic can resolve the real goal ID for sibling
+    // jobs, targets, and visualizations that reference goalId: "pending".
     .sort((a, b) => {
-      if (a.tool === "create_goal" && b.tool !== "create_goal") return -1;
-      if (b.tool === "create_goal" && a.tool !== "create_goal") return 1;
-      return 0;
+      const priority = (t: string) => t === "create_goal" ? 0 : t === "create_data_table" ? 1 : 2;
+      return priority(a.tool) - priority(b.tool);
     })
     .map((a) => a.callId);
 

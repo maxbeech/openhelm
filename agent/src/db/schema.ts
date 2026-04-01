@@ -29,6 +29,7 @@ export const goals = sqliteTable("goals", {
   projectId: text("project_id")
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
+  parentId: text("parent_id").references((): AnySQLiteColumn => goals.id, { onDelete: "cascade" }),
   name: text("name").notNull().default(""),
   description: text("description").notNull().default(""),
   status: text("status", { enum: ["active", "paused", "archived"] })

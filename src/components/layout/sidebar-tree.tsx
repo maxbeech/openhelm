@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { flushSync } from "react-dom";
+import { AnimatePresence, motion } from "framer-motion";
+import { collapseVariants } from "@/lib/motion";
 import { ChevronsDown, ChevronsUp, Folder, FolderOpen, Plus, Search, X } from "lucide-react";
 import {
   DndContext,
@@ -25,15 +27,20 @@ import { SidebarGoalNode } from "./sidebar-goal-node";
 import { SortDropdown, applySortGoals, applySortJobs } from "./sidebar-sort";
 import { SidebarArchived } from "./sidebar-archived";
 import { SidebarProjectGroup } from "./sidebar-project-group";
+import { GoalCreationSheet } from "@/components/goals/goal-creation-sheet";
 import { cn } from "@/lib/utils";
+import { buildGoalTree } from "@/lib/goal-tree";
 import type { JobTokenStat } from "@openhelm/shared";
 
 interface SidebarTreeProps {
   projectId: string | null;
   onNewJobForGoal: (goalId: string, initialName: string) => void;
+  onNewSubGoal?: (parentGoalId: string) => void;
+  onArchiveGoal?: (goalId: string) => void;
+  onDeleteGoal?: (goalId: string) => void;
 }
 
-export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
+export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiveGoal, onDeleteGoal }: SidebarTreeProps) {
   const {
     contentView,
     selectedGoalId,
@@ -66,6 +73,7 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
   // Ref guard prevents the onKeyDown(Enter) + onBlur double-fire from
   // submitting the goal creation form twice in the same event cycle.
   const goalCreatingRef = useRef(false);
+  const [pendingSubGoalParentId, setPendingSubGoalParentId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   // Tracks whether a dnd-kit drag gesture is currently in progress.
   // SortableContext items are only populated during active drag to prevent
@@ -139,6 +147,23 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
     ),
     [goals, goalSortMode, tokensByGoal],
   );
+
+  // Build goal tree for hierarchical sidebar rendering
+  const goalTree = useMemo(() => buildGoalTree(activeGoals), [activeGoals]);
+
+  // Hierarchy actions
+  const handleMoveToRoot = useCallback((goalId: string) => {
+    api.updateGoal({ id: goalId, parentId: null }).catch(() => {});
+  }, []);
+
+  const handleNestGoal = useCallback((goalId: string, newParentId: string) => {
+    api.updateGoal({ id: goalId, parentId: newParentId }).catch(() => {});
+  }, []);
+
+  const handleUnnestGoal = useCallback((goalId: string, currentParentId: string) => {
+    const parent = goals.find((g) => g.id === currentParentId);
+    api.updateGoal({ id: goalId, parentId: parent?.parentId ?? null }).catch(() => {});
+  }, [goals]);
 
   // Collapse-all: true when every active goal is in the collapsed list
   const allGoalsCollapsed =
@@ -416,58 +441,80 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
       </div>
 
       {/* Search input */}
-      {searchOpen && (
-        <div className="flex items-center gap-1 px-3 pb-1">
-          <input
-            ref={searchInputRef}
-            value={sidebarSearch}
-            onChange={(e) => setSidebarSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") closeSearch();
-            }}
-            placeholder="Search..."
-            className="flex-1 rounded-md bg-sidebar-accent px-2 py-1 text-sm text-sidebar-foreground outline-none ring-1 ring-primary/50"
-          />
-          <button
-            onClick={closeSearch}
-            className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+      <AnimatePresence>
+        {searchOpen && (
+          <motion.div
+            key="search"
+            variants={collapseVariants}
+            initial="collapsed"
+            animate="expanded"
+            exit="collapsed"
+            style={{ overflow: "hidden" }}
           >
-            <X className="size-3" />
-          </button>
-        </div>
-      )}
+            <div className="flex items-center gap-1 px-3 pb-1">
+              <input
+                ref={searchInputRef}
+                value={sidebarSearch}
+                onChange={(e) => setSidebarSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") closeSearch();
+                }}
+                placeholder="Search..."
+                className="flex-1 rounded-md bg-sidebar-accent px-2 py-1 text-sm text-sidebar-foreground outline-none ring-1 ring-primary/50"
+              />
+              <button
+                onClick={closeSearch}
+                className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+              >
+                <X className="size-3" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Inline goal name input — identical container structure to search input */}
-      {addingGoal && (
-        <div className="flex items-center gap-1 px-3 pb-1">
-          <input
-            autoFocus
-            value={newGoalInput}
-            onChange={(e) => setNewGoalInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleCreateGoal();
-              if (e.key === "Escape") {
-                setNewGoalInput("");
-                setAddingGoal(false);
-              }
-            }}
-            onBlur={handleCreateGoal}
-            placeholder="Goal name..."
-            className="flex-1 rounded-md bg-sidebar-accent px-2 py-1 text-sm text-sidebar-foreground outline-none ring-1 ring-primary/50"
-          />
-          <button
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              setNewGoalInput("");
-              setAddingGoal(false);
-            }}
-            className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
-            title="Cancel"
+      {/* Inline goal name input */}
+      <AnimatePresence>
+        {addingGoal && (
+          <motion.div
+            key="add-goal"
+            variants={collapseVariants}
+            initial="collapsed"
+            animate="expanded"
+            exit="collapsed"
+            style={{ overflow: "hidden" }}
           >
-            <X className="size-3" />
-          </button>
-        </div>
-      )}
+            <div className="flex items-center gap-1 px-3 pb-1">
+              <input
+                autoFocus
+                value={newGoalInput}
+                onChange={(e) => setNewGoalInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreateGoal();
+                  if (e.key === "Escape") {
+                    setNewGoalInput("");
+                    setAddingGoal(false);
+                  }
+                }}
+                onBlur={handleCreateGoal}
+                placeholder="Goal name..."
+                className="flex-1 rounded-md bg-sidebar-accent px-2 py-1 text-sm text-sidebar-foreground outline-none ring-1 ring-primary/50"
+              />
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setNewGoalInput("");
+                  setAddingGoal(false);
+                }}
+                className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                title="Cancel"
+              >
+                <X className="size-3" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── GROUPED VIEW (All Projects + groupByProject=true) ── */}
       {isAllProjects && groupByProject ? (
@@ -551,23 +598,32 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
               items={isDragActive ? filteredGoals.map((g) => g.id) : []} // Only register during active drag — prevents dnd-kit layout shifts during search filtering
               strategy={verticalListSortingStrategy}
             >
-              {filteredGoals.map((goal) => (
+              {goalTree.map((node) => (
                 <SidebarGoalNode
-                  key={goal.id}
-                  goal={goal}
-                  goalJobs={filteredJobsByGoal.get(goal.id) ?? []}
+                  key={node.id}
+                  goal={node}
+                  goalJobs={filteredJobsByGoal.get(node.id) ?? []}
                   recentRunsByJob={recentRunsByJob}
-                  isCollapsed={collapsedGoalIds.includes(goal.id)}
-                  isSelected={contentView === "goal-detail" && selectedGoalId === goal.id}
+                  isCollapsed={collapsedGoalIds.includes(node.id)}
+                  isSelected={contentView === "goal-detail" && selectedGoalId === node.id}
                   contentView={contentView}
+                  selectedGoalId={selectedGoalId}
                   selectedJobId={selectedJobId}
                   isDragMode={goalDragMode}
                   isDragActive={isDragActive}
                   jobDragMode={jobDragMode}
-                  onToggleCollapsed={() => toggleGoalCollapsed(goal.id)}
-                  onSelectGoal={() => selectGoal(goal.id)}
+                  nestTargetId={null}
+                  collapsedGoalIds={collapsedGoalIds}
+                  filteredJobsByGoal={filteredJobsByGoal}
+                  onToggleCollapsed={() => toggleGoalCollapsed(node.id)}
+                  onToggleGoalCollapsed={toggleGoalCollapsed}
+                  onSelectGoal={selectGoal}
                   onSelectJob={selectJob}
                   onNewJobForGoal={onNewJobForGoal}
+                  onNewSubGoal={onNewSubGoal ?? ((parentGoalId) => setPendingSubGoalParentId(parentGoalId))}
+                  onMoveToRoot={handleMoveToRoot}
+                  onArchiveGoal={onArchiveGoal ?? (() => {})}
+                  onDeleteGoal={onDeleteGoal ?? (() => {})}
                   onCloseSearch={closeSearch}
                 />
               ))}
@@ -625,6 +681,16 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
             />
           )}
         </div>
+      )}
+
+      {projectId && pendingSubGoalParentId && (
+        <GoalCreationSheet
+          open={true}
+          onOpenChange={(open) => { if (!open) setPendingSubGoalParentId(null); }}
+          projectId={projectId}
+          parentGoalId={pendingSubGoalParentId}
+          onComplete={() => setPendingSubGoalParentId(null)}
+        />
       )}
     </div>
   );

@@ -1,4 +1,6 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import { motion } from "framer-motion";
+import { staggerContainer, staggerItem } from "@/lib/motion";
 import { Target, Briefcase, Play } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import { useGoalStore } from "@/stores/goal-store";
@@ -86,14 +88,25 @@ export function DashboardView() {
     <div className="pt-4 pb-8 overflow-x-hidden">
       {/* Overview stats */}
       <section className="px-6 mb-6">
-        <div className="grid grid-cols-3 gap-3 min-w-0">
-          <StatCard icon={Target} label="Active Goals" value={activeGoalCount} />
-          <StatCard icon={Briefcase} label="Enabled Jobs" value={enabledJobCount} />
-          <StatCard icon={Play}
-            label={runningCount > 0 ? "Running Now" : "Recent Successes"}
-            value={runningCount > 0 ? runningCount : recentSuccessCount}
-            highlight={runningCount > 0} />
-        </div>
+        <motion.div
+          className="grid grid-cols-3 gap-3 min-w-0"
+          variants={staggerContainer}
+          initial="hidden"
+          animate="visible"
+        >
+          <motion.div variants={staggerItem}>
+            <StatCard icon={Target} label="Active Goals" value={activeGoalCount} />
+          </motion.div>
+          <motion.div variants={staggerItem}>
+            <StatCard icon={Briefcase} label="Enabled Jobs" value={enabledJobCount} />
+          </motion.div>
+          <motion.div variants={staggerItem}>
+            <StatCard icon={Play}
+              label={runningCount > 0 ? "Running Now" : "Recent Successes"}
+              value={runningCount > 0 ? runningCount : recentSuccessCount}
+              highlight={runningCount > 0} />
+          </motion.div>
+        </motion.div>
       </section>
 
       {/* Alerts & Actions */}
@@ -129,7 +142,7 @@ function StatCard({ icon: Icon, label, value, highlight }: {
   icon: React.ElementType; label: string; value: number; highlight?: boolean;
 }) {
   return (
-    <div className="min-w-0 rounded-lg border border-border bg-card p-3">
+    <div className="hover-lift min-w-0 rounded-lg border border-border bg-card p-3">
       <div className="flex items-center gap-2 min-w-0">
         <Icon className={`shrink-0 size-3.5 ${highlight ? "text-primary" : "text-muted-foreground"}`} />
         <span className="text-xl font-bold truncate">{value}</span>

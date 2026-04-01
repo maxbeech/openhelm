@@ -147,7 +147,7 @@ export function DashboardCard({ item }: { item: DashboardItem }) {
             ? "transform 250ms ease-in, opacity 200ms ease-in"
             : undefined,
         }}
-        className="rounded-lg border border-border bg-card overflow-hidden"
+        className="hover-lift rounded-lg border border-border bg-card overflow-hidden"
         onClick={handleCardClick}
       >
         {/* Clickable info area */}

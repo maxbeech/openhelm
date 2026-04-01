@@ -1,38 +1,19 @@
 import { useState } from "react";
-import { Flag, Briefcase, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { NodeIcon } from "@/components/shared/node-icon";
-import { ICON_MAP } from "@/lib/icon-map";
+import { ICON_NAMES } from "@/lib/icon-map";
 import { cn } from "@/lib/utils";
 
-const EMOJI_GRID = [
-  // Targets & Goals
-  "🎯", "🏆", "⭐", "🚀", "💡", "🔥", "✨", "🌟",
-  // Work & Tools
-  "🔧", "⚙️", "🛠️", "📦", "💼", "📋", "📊", "📈",
-  // Code & Tech
-  "💻", "🖥️", "🤖", "🧪", "🔬", "🧩", "🔗", "🔌",
-  // Communication
-  "📝", "📄", "📚", "📖", "✏️", "🗒️", "💬", "📣",
-  // Nature & Time
-  "🌱", "🌿", "🌍", "⏰", "📅", "🗓️", "⚡", "🔋",
-  // Security & Shield
-  "🔒", "🛡️", "🔑", "🏗️", "🧱", "🏠", "🏢", "🏭",
-  // Fun & Misc
-  "🎨", "🎵", "🎮", "🎲", "🧹", "🚩", "🏁", "🎉",
-  // People & Hands
-  "👁️", "🧠", "💪", "👍", "🤝", "🙌", "✅", "❌",
-];
-
 interface EmojiPickerProps {
-  /** Current emoji icon (null = default icon) */
+  /** Current icon name from ICON_MAP (null = default icon) */
   value: string | null;
-  /** Called when user selects an emoji */
-  onChange: (emoji: string) => void;
+  /** Called when user selects an icon */
+  onChange: (icon: string) => void;
   /** "goal" shows Flag default, "job" shows Briefcase default */
   variant: "goal" | "job";
   /** Optional: trigger AI regeneration */
@@ -53,8 +34,8 @@ export function EmojiPicker({
 }: EmojiPickerProps) {
   const [open, setOpen] = useState(false);
 
-  const handleSelect = (emoji: string) => {
-    onChange(emoji);
+  const handleSelect = (icon: string) => {
+    onChange(icon);
     setOpen(false);
   };
 
@@ -64,20 +45,16 @@ export function EmojiPicker({
         <button
           type="button"
           className={cn(
-            "flex size-9 items-center justify-center rounded-md border border-input bg-background text-lg transition-colors hover:bg-accent",
+            "flex size-9 items-center justify-center rounded-md border border-input bg-background transition-colors hover:bg-accent",
             className,
           )}
           title="Change icon"
         >
-          {value && ICON_MAP[value] ? (
-            <NodeIcon icon={value} defaultIcon={variant === "goal" ? "flag" : "briefcase"} className="size-5" />
-          ) : value ? (
-            <span className="leading-none">{value}</span>
-          ) : variant === "goal" ? (
-            <Flag className="size-4 text-muted-foreground" />
-          ) : (
-            <Briefcase className="size-4 text-muted-foreground" />
-          )}
+          <NodeIcon
+            icon={value}
+            defaultIcon={variant === "goal" ? "flag" : "briefcase"}
+            className="size-4"
+          />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[280px] p-2">
@@ -93,17 +70,18 @@ export function EmojiPicker({
           </button>
         )}
         <div className="grid grid-cols-8 gap-0.5">
-          {EMOJI_GRID.map((emoji) => (
+          {ICON_NAMES.map((name) => (
             <button
-              key={emoji}
+              key={name}
               type="button"
-              onClick={() => handleSelect(emoji)}
+              onClick={() => handleSelect(name)}
+              title={name.replace(/_/g, " ")}
               className={cn(
-                "flex size-8 items-center justify-center rounded text-base transition-colors hover:bg-accent",
-                value === emoji && "bg-accent ring-1 ring-primary",
+                "flex size-8 items-center justify-center rounded transition-colors hover:bg-accent",
+                value === name && "bg-accent ring-1 ring-primary",
               )}
             >
-              {emoji}
+              <NodeIcon icon={name} className="size-4" />
             </button>
           ))}
         </div>

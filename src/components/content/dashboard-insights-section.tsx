@@ -112,20 +112,20 @@ export function DashboardInsightsSection({ collapsed = false, onToggle }: Props)
             ) : projectGroups ? (
               Array.from(projectGroups.entries()).map(([pid, pGoals]) => {
                 const project = projects.find((p) => p.id === pid);
-                const withTargets = pGoals.filter((g) => targetsByGoal.has(g.id));
-                if (withTargets.length === 0) return null;
+                const rootGoals = pGoals.filter((g) => !g.parentId);
+                if (rootGoals.length === 0) return null;
                 return (
                   <div key={pid} className="mb-4">
                     <h5 className="text-xs font-medium text-muted-foreground mb-2">{project?.name ?? "Unknown"}</h5>
-                    {withTargets.map((g) => (
-                      <GoalTargetGroup key={g.id} goalName={g.name} targets={targetsByGoal.get(g.id) ?? []} getEval={getEval} />
+                    {rootGoals.map((g) => (
+                      <GoalTargetGroup key={g.id} goal={g} allGoals={pGoals} targetsByGoal={targetsByGoal} getEval={getEval} />
                     ))}
                   </div>
                 );
               })
             ) : (
-              activeGoals.filter((g) => targetsByGoal.has(g.id)).map((g) => (
-                <GoalTargetGroup key={g.id} goalName={g.name} targets={targetsByGoal.get(g.id) ?? []} getEval={getEval} />
+              activeGoals.filter((g) => !g.parentId).map((g) => (
+                <GoalTargetGroup key={g.id} goal={g} allGoals={activeGoals} targetsByGoal={targetsByGoal} getEval={getEval} />
               ))
             )}
           </div>
@@ -159,14 +159,26 @@ export function DashboardInsightsSection({ collapsed = false, onToggle }: Props)
   );
 }
 
-function GoalTargetGroup({ goalName, targets, getEval }: {
-  goalName: string; targets: Target[]; getEval: (id: string) => TargetEvaluation | undefined;
+function GoalTargetGroup({ goal, allGoals, targetsByGoal, getEval, depth = 0 }: {
+  goal: { id: string; name: string };
+  allGoals: { id: string; name: string; parentId: string | null }[];
+  targetsByGoal: Map<string, Target[]>;
+  getEval: (id: string) => TargetEvaluation | undefined;
+  depth?: number;
 }) {
+  const goalTargets = targetsByGoal.get(goal.id) ?? [];
+  const children = allGoals.filter((g) => g.parentId === goal.id);
+  const hasContent = goalTargets.length > 0 || children.some((c) =>
+    (targetsByGoal.get(c.id) ?? []).length > 0 ||
+    allGoals.some((g) => g.parentId === c.id)
+  );
+  if (!hasContent) return null;
+
   return (
-    <div className="mb-3">
-      <p className="text-xs font-medium mb-1.5">{goalName}</p>
+    <div className="mb-3" style={{ paddingLeft: depth * 12 }}>
+      <p className="text-xs font-medium mb-1.5">{goal.name}</p>
       <div className="space-y-1.5 pl-1">
-        {targets.map((t) => {
+        {goalTargets.map((t) => {
           const evaluation = getEval(t.id);
           return evaluation ? (
             <div key={t.id} className="flex items-center gap-2">
@@ -176,6 +188,16 @@ function GoalTargetGroup({ goalName, targets, getEval }: {
           ) : null;
         })}
       </div>
+      {children.map((child) => (
+        <GoalTargetGroup
+          key={child.id}
+          goal={child}
+          allGoals={allGoals}
+          targetsByGoal={targetsByGoal}
+          getEval={getEval}
+          depth={depth + 1}
+        />
+      ))}
     </div>
   );
 }

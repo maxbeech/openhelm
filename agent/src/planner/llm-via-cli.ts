@@ -37,6 +37,8 @@ export interface LlmCallConfig {
   preferRawText?: boolean;
   /** Resume a previous session (avoids CLI cold start in tool loops) */
   resumeSessionId?: string;
+  /** When aborted, kills the underlying Claude Code process immediately. */
+  abortSignal?: AbortSignal;
 }
 
 const MODEL_MAP: Record<ModelTier, string> = {
@@ -89,6 +91,7 @@ export async function callLlmViaCli(config: LlmCallConfig): Promise<LlmCallResul
     onToolUse: config.onToolUse,
     preferRawText: config.preferRawText,
     resumeSessionId: config.resumeSessionId,
+    abortSignal: config.abortSignal,
   });
 
   console.error(`[llm] ${model} completed in ${Date.now() - t0}ms (${result.text.length} chars)`);

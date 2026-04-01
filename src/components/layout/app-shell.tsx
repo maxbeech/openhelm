@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { AnimatePresence } from "framer-motion";
 import { AlertTriangle, MessageSquare, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sidebar } from "./sidebar";
@@ -123,14 +124,18 @@ export function AppShell({
             </button>
           </div>
         )}
-        <main className="flex-1 overflow-auto">{children}</main>
+        <main className="relative flex-1 overflow-auto">{children}</main>
       </div>
-      {rightPanel && (
-        <div className="flex h-full w-[440px] shrink-0 flex-col border-l border-border bg-card">
-          {rightPanel}
-        </div>
-      )}
-      <ChatPanel projectId={activeProjectId} />
+      <AnimatePresence>
+        {rightPanel && (
+          <div className="flex h-full w-[440px] shrink-0 flex-col border-l border-border bg-card">
+            {rightPanel}
+          </div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {panelOpen && <ChatPanel projectId={activeProjectId} />}
+      </AnimatePresence>
     </div>
   );
 }

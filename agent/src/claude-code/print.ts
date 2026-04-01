@@ -61,6 +61,8 @@ export interface PrintConfig {
   preferRawText?: boolean;
   /** Resume a previous session (skips --no-session-persistence) */
   resumeSessionId?: string;
+  /** When aborted, SIGTERMs the child process immediately. */
+  abortSignal?: AbortSignal;
 }
 
 export interface PrintResult {
@@ -110,6 +112,23 @@ export function runClaudeCodePrint(config: PrintConfig): Promise<PrintResult> {
     const stdoutChunks: string[] = [];
     const stderrChunks: string[] = [];
     let resolved = false;
+    let abortedBySignal = false;
+
+    // Kill the child process when the abort signal fires.
+    if (config.abortSignal) {
+      if (config.abortSignal.aborted) {
+        child.kill("SIGTERM");
+        reject(new PrintError("Chat cancelled by user", null));
+        return;
+      }
+      const onAbort = () => {
+        if (resolved) return;
+        abortedBySignal = true;
+        child.kill("SIGTERM");
+        setTimeout(() => { if (child.exitCode === null) child.kill("SIGKILL"); }, 5000);
+      };
+      config.abortSignal.addEventListener("abort", onAbort, { once: true });
+    }
     // Use stream-json for streaming callbacks OR structured JSON output: the
     // result event's "result" field is a prose summary, so we must read the
     // assistant message text blocks directly when jsonSchema is requested.
@@ -146,6 +165,11 @@ export function runClaudeCodePrint(config: PrintConfig): Promise<PrintResult> {
       if (resolved) return;
       resolved = true;
       clearTimeout(timeoutTimer);
+
+      if (abortedBySignal) {
+        reject(new PrintError("Chat cancelled by user", null));
+        return;
+      }
 
       let text: string;
       if (useStreamJson) {

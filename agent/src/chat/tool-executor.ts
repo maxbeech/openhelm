@@ -9,6 +9,8 @@ import { listRuns, createRun } from "../db/queries/runs.js";
 import { listRunLogs } from "../db/queries/run-logs.js";
 import { listMemories, listAllMemories, createMemory, updateMemory, deleteMemory } from "../db/queries/memories.js";
 import { executeDataTableReadTool, executeDataTableWriteTool } from "./data-table-tools.js";
+import { executeTargetReadTool, executeTargetWriteTool } from "./target-chat-tools.js";
+import { executeVisualizationReadTool, executeVisualizationWriteTool } from "./visualization-chat-tools.js";
 import { generateEmbedding } from "../memory/embeddings.js";
 import { jobQueue } from "../scheduler/queue.js";
 import { executor } from "../executor/index.js";
@@ -36,9 +38,13 @@ export function executeReadTool(call: ChatToolCall, projectId: string | null): T
   const a = call.args;
   const pid = projectId ?? undefined;
   try {
-    // Delegate data table reads
+    // Delegate specialized tool reads
     const dtResult = executeDataTableReadTool(call, pid);
     if (dtResult) return dtResult;
+    const tgtResult = executeTargetReadTool(call, pid);
+    if (tgtResult) return tgtResult;
+    const vizResult = executeVisualizationReadTool(call, pid);
+    if (vizResult) return vizResult;
 
     switch (call.tool) {
       case "list_goals": {
@@ -94,18 +100,23 @@ export function executeReadTool(call: ChatToolCall, projectId: string | null): T
 /** Execute a write (mutating) tool after user confirmation. */
 export async function executeWriteTool(call: ChatToolCall, projectId: string | null): Promise<ToolExecutionResult> {
   const a = call.args;
-  if (!projectId && ["create_goal", "create_job", "save_memory", "create_data_table"].includes(call.tool)) {
+  if (!projectId && ["create_goal", "create_job", "save_memory", "create_data_table", "create_target", "create_visualization"].includes(call.tool)) {
     return fail(call, "Cannot create project-scoped entities in the All Projects thread — switch to a specific project first.");
   }
   try {
     const dtResult = executeDataTableWriteTool(call, projectId);
     if (dtResult) return dtResult;
+    const tgtResult = executeTargetWriteTool(call, projectId);
+    if (tgtResult) return tgtResult;
+    const vizResult = executeVisualizationWriteTool(call, projectId);
+    if (vizResult) return vizResult;
     switch (call.tool) {
       case "create_goal":
         return ok(call, createGoal({
           projectId: projectId!,
           name: a.name as string,
           description: a.description as string | undefined,
+          parentId: a.parentGoalId as string | undefined,
         }));
 
       case "create_job": {
