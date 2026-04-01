@@ -66,7 +66,8 @@ export function DashboardSystemSection({
             {recentRuns.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">No runs yet.</p>
             ) : (
-              <div className="space-y-1">
+              <div className="overflow-x-auto -mx-6 px-6">
+              <div className="space-y-1 min-w-[280px]">
                 {recentRuns.map((run) => (
                   <RecentRunRow key={run.id} run={run} jobs={jobs} projects={projects}
                     onSelect={() => onSelectRun(run.id)}
@@ -79,6 +80,7 @@ export function DashboardSystemSection({
                     <ChevronDown className="size-3.5" /> View more
                   </button>
                 )}
+              </div>
               </div>
             )}
           </div>
@@ -103,13 +105,20 @@ function RecentRunRow({ run, jobs, projects, onSelect, onRetry, onNewRun }: {
   const isFailed = run.status === "failed" || run.status === "permanent_failure";
   const isTerminal = ["succeeded", "failed", "permanent_failure", "cancelled"].includes(run.status);
   return (
-    <div className="group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent">
+    <div className="group relative flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent">
       <button onClick={onSelect} className="min-w-0 flex-1 text-left">
         <span className="truncate font-medium">{job?.name ?? "Unknown Job"}</span>
-        {project && <span className="ml-2 text-2xs text-muted-foreground">{project.name}</span>}
+        {project && <span className="ml-1 text-2xs text-muted-foreground">{project.name}</span>}
       </button>
+      <RunStatusBadge status={run.status} />
+      {(run.inputTokens != null || run.outputTokens != null) && (
+        <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground hidden [@media(min-width:320px)]:inline">
+          {formatTokenCount((run.inputTokens ?? 0) + (run.outputTokens ?? 0))}
+        </span>
+      )}
+      <span className="shrink-0 text-2xs text-muted-foreground">{formatRelativeTime(run.createdAt)}</span>
       {isTerminal && (
-        <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="absolute right-2 hidden items-center gap-1 group-hover:flex bg-accent rounded">
           {isFailed && (
             <button onClick={(e) => { e.stopPropagation(); onRetry(); }}
               className="flex h-6 items-center gap-1 rounded px-1.5 text-2xs text-destructive transition-colors hover:bg-background hover:text-destructive">
@@ -122,13 +131,6 @@ function RecentRunRow({ run, jobs, projects, onSelect, onRetry, onNewRun }: {
           </button>
         </div>
       )}
-      <RunStatusBadge status={run.status} />
-      {(run.inputTokens != null || run.outputTokens != null) && (
-        <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
-          {formatTokenCount((run.inputTokens ?? 0) + (run.outputTokens ?? 0))}
-        </span>
-      )}
-      <span className="shrink-0 text-2xs text-muted-foreground">{formatRelativeTime(run.createdAt)}</span>
     </div>
   );
 }

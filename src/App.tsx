@@ -29,6 +29,7 @@ import {
   notifyDashboardItem,
   notifyRunCompleted,
   notifyAutopilotFailed,
+  notifyChatResponse,
 } from "./lib/notifications";
 import { OnboardingWizard } from "./components/onboarding/onboarding-wizard";
 import { AppShell } from "./components/layout/app-shell";
@@ -263,17 +264,31 @@ export default function App() {
       const eventConvId = data.conversationId;
       // Only update message list when viewing the same conversation
       if (eventConvId && eventConvId === activeConvId) {
-        const existing = useChatStore.getState().messages.find((m) => m.id === data.id);
-        if (existing) {
-          updateMessageInStore(data);
+        if (data.role === "user") {
+          // Replace any optimistic placeholder for this conversation with the persisted message.
+          useChatStore.setState((s) => {
+            const withoutOptimistic = s.messages.filter(
+              (m) => !m.id.startsWith(`pending-${eventConvId}-`),
+            );
+            if (withoutOptimistic.some((m) => m.id === data.id)) return { messages: withoutOptimistic };
+            return { messages: [...withoutOptimistic, data] };
+          });
         } else {
-          addMessageToStore(data);
+          const existing = useChatStore.getState().messages.find((m) => m.id === data.id);
+          if (existing) {
+            updateMessageInStore(data);
+          } else {
+            addMessageToStore(data);
+          }
         }
       }
       // Clear per-conversation transient state regardless of which thread is active
       if (data.role === "assistant" && eventConvId) {
         clearConvStreaming(eventConvId);
         setConvSending(eventConvId, false);
+        // Send notification if window is not focused
+        const conv = useChatStore.getState().conversations.find((c) => c.id === eventConvId);
+        notifyChatResponse(conv?.title ?? null, data.content?.slice(0, 150));
       }
     },
     [addMessageToStore, updateMessageInStore, clearConvStreaming, setConvSending],
@@ -289,7 +304,21 @@ export default function App() {
       }
       clearConvStreaming(convId);
       if (data.status === "reading" && data.tools) {
-        const label = data.tools.map((t) => t.replace(/_/g, " ")).join(", ");
+        const friendlyNames: Record<string, string> = {
+          list_goals: "goals",
+          list_jobs: "jobs",
+          list_runs: "runs",
+          get_goal: "goal details",
+          get_job: "job details",
+          get_run_logs: "run logs",
+          list_data_tables: "data tables",
+          get_data_table: "table schema",
+          get_data_table_rows: "table data",
+          list_memories: "memories",
+        };
+        const label = data.tools
+          .map((t) => friendlyNames[t] ?? t.replace(/_/g, " "))
+          .join(", ");
         setConvStatus(convId, `Looking up ${label}...`);
       } else if (data.status === "analyzing") {
         setConvStatus(convId, "Analyzing results...");

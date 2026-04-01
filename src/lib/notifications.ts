@@ -78,6 +78,31 @@ export async function notifyRunCompleted(
   }
 }
 
+/**
+ * Notify the user that the AI chat assistant has finished responding.
+ * Only fires when the window is not focused (user is in another app).
+ */
+export async function notifyChatResponse(
+  threadTitle: string | null,
+  preview?: string | null,
+): Promise<void> {
+  // Skip if the window is focused — user is already looking at it
+  if (document.hasFocus()) return;
+  const level = await getNotificationLevel();
+  if (level === "never") return;
+  try {
+    const title = threadTitle
+      ? `Chat: ${threadTitle}`
+      : "Chat response ready";
+    const body = preview
+      ? preview.slice(0, 120) + (preview.length > 120 ? "…" : "")
+      : "The AI has finished responding.";
+    await sendNativeNotification(title, body);
+  } catch (err) {
+    console.error("[notifications] notifyChatResponse invoke failed:", err);
+  }
+}
+
 export async function notifyAutopilotFailed(
   goalName: string,
   error: string,

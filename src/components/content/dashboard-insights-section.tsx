@@ -90,7 +90,7 @@ export function DashboardInsightsSection({ collapsed = false, onToggle }: Props)
           {topTargets.length > 0 ? (
             topTargets.map(({ target, evaluation }) => (
               <div key={target.id} className="flex items-center gap-2">
-                <span className="w-28 truncate text-xs text-muted-foreground">{target.label ?? "Target"}</span>
+                <span className="w-20 shrink-0 truncate text-xs text-muted-foreground">{target.label ?? "Target"}</span>
                 <div className="flex-1"><TargetProgressBar evaluation={evaluation} compact /></div>
               </div>
             ))

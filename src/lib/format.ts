@@ -55,7 +55,7 @@ export function formatSchedule(
   }
 }
 
-function describeCron(expr: string): string {
+export function describeCron(expr: string): string {
   const parts = expr.split(" ");
   if (parts.length < 5) return `Cron: ${expr}`;
 

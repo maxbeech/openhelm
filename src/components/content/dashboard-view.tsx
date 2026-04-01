@@ -83,10 +83,10 @@ export function DashboardView() {
   const alertCount = items.length + proposals.length + suggestedVizs.length;
 
   return (
-    <div className="pt-4 pb-8">
+    <div className="pt-4 pb-8 overflow-x-hidden">
       {/* Overview stats */}
       <section className="px-6 mb-6">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-3 min-w-0">
           <StatCard icon={Target} label="Active Goals" value={activeGoalCount} />
           <StatCard icon={Briefcase} label="Enabled Jobs" value={enabledJobCount} />
           <StatCard icon={Play}
@@ -129,12 +129,12 @@ function StatCard({ icon: Icon, label, value, highlight }: {
   icon: React.ElementType; label: string; value: number; highlight?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <div className="flex items-center gap-2">
-        <Icon className={`size-3.5 ${highlight ? "text-primary" : "text-muted-foreground"}`} />
-        <span className="text-xl font-bold">{value}</span>
+    <div className="min-w-0 rounded-lg border border-border bg-card p-3">
+      <div className="flex items-center gap-2 min-w-0">
+        <Icon className={`shrink-0 size-3.5 ${highlight ? "text-primary" : "text-muted-foreground"}`} />
+        <span className="text-xl font-bold truncate">{value}</span>
       </div>
-      <p className="mt-0.5 text-2xs text-muted-foreground">{label}</p>
+      <p className="mt-0.5 text-2xs text-muted-foreground truncate">{label}</p>
     </div>
   );
 }

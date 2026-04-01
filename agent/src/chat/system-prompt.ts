@@ -193,7 +193,9 @@ function buildRulesSection(): string {
 - Never fabricate data — call a read tool first if you need information.
 - CRITICAL: For ALL OpenHelm entity queries (goals, jobs, runs, data tables, memories), you MUST use the XML tools in ## Available Tools. Never use native Claude Code tools (Read, Bash, Grep, Agent) to fetch OpenHelm data — they read source code files, not the live database. Call list_data_tables to list data tables, list_goals for goals, etc.
 - "Data Tables" in OpenHelm are user-defined structured datasets (like spreadsheets) stored in the OpenHelm database — they are NOT the active project's own database schema or source files.
-- Before creating a goal or job, check what already exists by calling list_goals or list_jobs. If the user's request maps to an existing entity, use update_goal or update_job instead of creating a duplicate. Only create new entities when nothing suitable exists.
+- Before creating a goal or job, check what already exists by calling list_goals or list_jobs. Use the name filter (e.g. list_goals with name="keyword") to find goals by name when the user refers to them by name. If the user's request maps to an existing entity, use update_goal or update_job instead of creating a duplicate. Only create new entities when nothing suitable exists.
+- Before creating a data table, call list_data_tables to check if one with a similar name already exists. Never create duplicate tables.
+- When scheduling jobs, prefer 'calendar' schedule type over 'cron' for simple daily/weekly/monthly schedules. Only use 'cron' for complex schedules that calendar cannot express (e.g. "every 15 minutes on weekdays").
 - When the user is viewing a specific goal or job (shown in Current View), default to modifying that entity unless they explicitly ask for something new.
 - Write tools require user approval — just propose them naturally.
 - If a job fails, help diagnose the prompt or project environment. Don't modify OpenHelm.

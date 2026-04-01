@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useMemo } from "react";
 import { Plus, Pencil, Trash2, X, Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,16 +32,31 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
+  // Dynamic max-width: show more title when fewer tabs are open
+  const tabMaxWidth = useMemo(() => {
+    const count = conversations.length;
+    if (count <= 2) return "max-w-[280px]";
+    if (count <= 3) return "max-w-[200px]";
+    if (count <= 5) return "max-w-[150px]";
+    return "max-w-[100px]";
+  }, [conversations.length]);
+
   const handleCreate = () => {
+    // If there's already a blank (untitled) thread, switch to it instead of creating another.
+    const blankThread = conversations.find((c) => !c.title);
+    if (blankThread) {
+      setActiveConversation(blankThread.id);
+      return;
+    }
     createThread(projectId);
     setTimeout(() => {
       scrollRef.current?.scrollTo({ left: scrollRef.current.scrollWidth, behavior: "smooth" });
     }, 50);
   };
 
-  const startRename = (id: string, currentTitle: string | null, idx: number) => {
+  const startRename = (id: string, currentTitle: string | null) => {
     setRenamingId(id);
-    setRenameValue(currentTitle ?? `Thread ${idx + 1}`);
+    setRenameValue(currentTitle ?? "New Chat");
   };
 
   const commitRename = () => {
@@ -90,7 +105,7 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
       >
         {conversations.map((conv, idx) => {
           const isActive = conv.id === activeConversationId;
-          const label = conv.title ?? `Thread ${idx + 1}`;
+          const label = conv.title ?? "New Chat";
           const isDragOver = dragOverIdx === idx && dragIdx !== idx;
 
           if (renamingId === conv.id) {
@@ -126,7 +141,7 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
               onDrop={() => handleDrop(idx)}
               onDragEnd={handleDragEnd}
               className={cn(
-                "group relative flex shrink-0 items-center",
+                "group relative flex shrink-0 cursor-grab items-center active:cursor-grabbing",
                 isDragOver && "border-l-2 border-primary",
               )}
             >
@@ -141,7 +156,7 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
                       : "text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
                 >
-                  <span className="max-w-[100px] truncate">{label}</span>
+                  <span className={cn(tabMaxWidth, "truncate")}>{label}</span>
                 </button>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -158,7 +173,7 @@ export function ThreadTabs({ projectId }: ThreadTabsProps) {
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="min-w-[120px]">
-                  <DropdownMenuItem onClick={() => startRename(conv.id, conv.title, idx)}>
+                  <DropdownMenuItem onClick={() => startRename(conv.id, conv.title)}>
                     <Pencil className="mr-2 size-3" />
                     Rename
                   </DropdownMenuItem>

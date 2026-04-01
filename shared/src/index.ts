@@ -227,7 +227,8 @@ export type SettingKey =
   | "sidebar_project_group_order"
   | "auth_interrupted_runs"
   | "autopilot_backfill_failures"
-  | "stripe_trial_end";
+  | "stripe_trial_end"
+  | "terminal_access_granted";
 
 export interface Setting {
   key: SettingKey;

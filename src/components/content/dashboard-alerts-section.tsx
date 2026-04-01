@@ -108,12 +108,12 @@ export function DashboardAlertsSection({
               </div>
               {suggestedVizs.map((viz) => (
                 <div key={viz.id} className="rounded-lg border border-dashed border-blue-500/40 bg-blue-500/5 p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{viz.name}</span>
-                      <Badge variant="outline" className="text-3xs px-1.5 py-0">{viz.chartType}</Badge>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <span className="text-sm font-medium truncate">{viz.name}</span>
+                      <Badge variant="outline" className="shrink-0 text-3xs px-1.5 py-0">{viz.chartType}</Badge>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex shrink-0 items-center gap-1">
                       <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs text-emerald-500" onClick={() => onAcceptViz(viz.id)}>
                         <Check className="size-3" /> Accept
                       </Button>

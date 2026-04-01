@@ -238,14 +238,39 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (projectId, content, context) => {
-    const convId = get().activeConversationId;
-    if (convId) get().setConvSending(convId, true);
+    // Ensure a conversation exists before sending — if none is active the agent
+    // would create one server-side with an unknown ID, causing the messageCreated
+    // event to be silently filtered out (eventConvId !== null).
+    let convId = get().activeConversationId;
+    if (!convId) {
+      await get().createThread(projectId);
+      convId = get().activeConversationId;
+    }
+    if (!convId) {
+      set({ error: "Failed to start conversation" });
+      return;
+    }
+
+    // Optimistic: show the user message immediately without waiting for the agent round-trip.
+    const optimisticId = `pending-${convId}-${Date.now()}`;
+    get().addMessageToStore({
+      id: optimisticId,
+      conversationId: convId,
+      role: "user",
+      content,
+      toolCalls: null,
+      toolResults: null,
+      pendingActions: null,
+      createdAt: new Date().toISOString(),
+    });
+
+    get().setConvSending(convId, true);
     set({ error: null });
     const { chatModel, chatEffort, chatPermissionMode } = get();
     try {
       await api.sendChatMessage({
         projectId,
-        conversationId: convId ?? undefined,
+        conversationId: convId,
         content,
         context,
         model: chatModel,
@@ -253,7 +278,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         permissionMode: chatPermissionMode,
       });
     } catch (err) {
-      if (convId) get().setConvSending(convId, false);
+      get().setConvSending(convId, false);
+      // Remove the optimistic message on failure so the user can retry cleanly.
+      set((s) => ({ messages: s.messages.filter((m) => m.id !== optimisticId) }));
       set({ error: friendlyError(err, "Failed to send message") });
     }
   },

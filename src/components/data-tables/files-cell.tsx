@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Paperclip, X, Plus, ExternalLink } from "lucide-react";
+import { Paperclip, X, Plus, ExternalLink, Upload, Loader2 } from "lucide-react";
 import type { FileReference } from "@openhelm/shared";
+import { pickAndCopyFile, openFileExternally, isLocalFile } from "@/lib/tauri-file";
 
 interface Props {
   value: unknown;
@@ -28,13 +29,8 @@ export function FilesCell({ value, onChange }: Props) {
     onChange(files.filter((f) => f.id !== id));
   };
 
-  const handleAdd = (name: string, url: string) => {
-    const newFile: FileReference = {
-      id: `f_${crypto.randomUUID().slice(0, 8)}`,
-      name,
-      url,
-    };
-    onChange([...files, newFile]);
+  const handleAdd = (file: FileReference) => {
+    onChange([...files, file]);
   };
 
   return (
@@ -83,15 +79,13 @@ function FilePill({ file, onRemove }: { file: FileReference; onRemove: () => voi
 function FilesDropdown({ anchorRect, files, onAdd, onRemove, onClose }: {
   anchorRect: DOMRect;
   files: FileReference[];
-  onAdd: (name: string, url: string) => void;
+  onAdd: (file: FileReference) => void;
   onRemove: (id: string) => void;
   onClose: () => void;
 }) {
   const [urlInput, setUrlInput] = useState("");
+  const [uploading, setUploading] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { inputRef.current?.focus({ preventScroll: true }); }, []);
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -100,6 +94,18 @@ function FilesDropdown({ anchorRect, files, onAdd, onRemove, onClose }: {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose]);
+
+  const handleUpload = async () => {
+    setUploading(true);
+    try {
+      const ref = await pickAndCopyFile();
+      if (ref) onAdd(ref);
+    } catch (err) {
+      console.error("[FilesCell] upload failed:", err);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleAddUrl = () => {
     const url = urlInput.trim();
@@ -110,14 +116,14 @@ function FilesDropdown({ anchorRect, files, onAdd, onRemove, onClose }: {
       return;
     }
     const name = url.split("/").pop() || url;
-    onAdd(name, url);
+    onAdd({ id: `f_${crypto.randomUUID().slice(0, 8)}`, name, url });
     setUrlInput("");
   };
 
   const PANEL_WIDTH = 260;
   const MARGIN = 8;
   const spaceBelow = window.innerHeight - anchorRect.bottom;
-  const top = spaceBelow > 220 ? anchorRect.bottom + 2 : anchorRect.top - 220 - 2;
+  const top = spaceBelow > 240 ? anchorRect.bottom + 2 : anchorRect.top - 240 - 2;
   const left = Math.min(anchorRect.left, Math.max(MARGIN, window.innerWidth - PANEL_WIDTH - MARGIN));
 
   return createPortal(
@@ -135,12 +141,13 @@ function FilesDropdown({ anchorRect, files, onAdd, onRemove, onClose }: {
           <div key={f.id} className="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-accent">
             <Paperclip className="size-3 shrink-0 text-muted-foreground" />
             <span className="flex-1 truncate">{f.name}</span>
-            {f.url && (
-              <a href={f.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
-                className="shrink-0 text-muted-foreground hover:text-foreground">
-                <ExternalLink className="size-3" />
-              </a>
-            )}
+            <button
+              onClick={() => void openFileExternally(f.url)}
+              title={isLocalFile(f.url) ? "Open in default app" : "Open link"}
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+            >
+              <ExternalLink className="size-3" />
+            </button>
             <button onClick={() => onRemove(f.id)}
               className="shrink-0 text-muted-foreground hover:text-destructive">
               <X className="size-3" />
@@ -149,17 +156,30 @@ function FilesDropdown({ anchorRect, files, onAdd, onRemove, onClose }: {
         ))}
       </div>
 
-      {/* Add by URL */}
+      {/* Upload from disk */}
+      <div className="border-t border-border px-2 py-1.5">
+        <button
+          onClick={() => void handleUpload()}
+          disabled={uploading}
+          className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
+        >
+          {uploading
+            ? <Loader2 className="size-3 animate-spin" />
+            : <Upload className="size-3" />}
+          {uploading ? "Copying…" : "Upload file…"}
+        </button>
+      </div>
+
+      {/* Add by URL (secondary) */}
       <div className="border-t border-border px-2 py-1.5 flex gap-1">
         <input
-          ref={inputRef}
           value={urlInput}
           onChange={(e) => setUrlInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") handleAddUrl();
             if (e.key === "Escape") onClose();
           }}
-          placeholder="Paste file URL..."
+          placeholder="Or paste URL…"
           className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/50"
         />
         <button

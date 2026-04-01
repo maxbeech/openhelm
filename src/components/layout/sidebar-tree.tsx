@@ -437,9 +437,9 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
         </div>
       )}
 
-      {/* Inline goal name input */}
+      {/* Inline goal name input — identical container structure to search input */}
       {addingGoal && (
-        <div className="px-3 pb-1">
+        <div className="flex items-center gap-1 px-3 pb-1">
           <input
             autoFocus
             value={newGoalInput}
@@ -453,8 +453,19 @@ export function SidebarTree({ projectId, onNewJobForGoal }: SidebarTreeProps) {
             }}
             onBlur={handleCreateGoal}
             placeholder="Goal name..."
-            className="w-full rounded-md bg-sidebar-accent px-2 py-1 text-sm text-sidebar-foreground outline-none ring-1 ring-primary/50"
+            className="flex-1 rounded-md bg-sidebar-accent px-2 py-1 text-sm text-sidebar-foreground outline-none ring-1 ring-primary/50"
           />
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              setNewGoalInput("");
+              setAddingGoal(false);
+            }}
+            className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+            title="Cancel"
+          >
+            <X className="size-3" />
+          </button>
         </div>
       )}
 

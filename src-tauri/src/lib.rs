@@ -99,6 +99,9 @@ fn build_node_path(bin_dir: &std::path::Path, resource_dir: &str) -> String {
 
 struct SidecarChild(Mutex<Option<CommandChild>>);
 
+/// Resolved data directory — same root used by the agent sidecar.
+struct DataDir(String);
+
 /// Environment variables needed to (re)spawn the sidecar.
 struct SidecarEnv {
     path: String,
@@ -135,6 +138,100 @@ fn spawn_sidecar(
     }
 
     cmd.spawn().map_err(|e| e.to_string())
+}
+
+/// Open a locally-stored file with the OS default application.
+///
+/// `shell:allow-open` scopes only permit mailto/tel/https — `file://` is blocked.
+/// This command shells out directly to macOS `open`, which accepts bare paths.
+#[tauri::command]
+fn open_local_file(path: String) -> Result<(), String> {
+    use std::path::Path;
+    // Reject anything that isn't an absolute path — no shell metacharacters needed.
+    if !Path::new(&path).is_absolute() {
+        return Err("Path must be absolute".into());
+    }
+    std::process::Command::new("open")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Copy a user-selected file into the OpenHelm files directory and return its metadata.
+///
+/// Called from the frontend after `@tauri-apps/plugin-dialog` `open()` returns a path.
+/// The destination is `<data_dir>/files/<timestamp_hex>-<original_name>`.
+#[tauri::command]
+fn copy_file_to_storage(
+    data_dir_state: tauri::State<'_, DataDir>,
+    path: String,
+) -> Result<serde_json::Value, String> {
+    use std::path::Path;
+
+    let src = Path::new(&path);
+    if !src.exists() {
+        return Err(format!("Source file not found: {path}"));
+    }
+
+    let files_dir = Path::new(&data_dir_state.0).join("files");
+    std::fs::create_dir_all(&files_dir).map_err(|e| e.to_string())?;
+
+    let file_name = src
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file");
+
+    // Unique prefix from wall-clock nanoseconds — no extra dependency needed.
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dest_name = format!("{:016x}-{}", ts, file_name);
+    let dest = files_dir.join(&dest_name);
+
+    std::fs::copy(src, &dest).map_err(|e| e.to_string())?;
+
+    let size = std::fs::metadata(&dest)
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    let mime_type = ext_to_mime(ext);
+
+    Ok(serde_json::json!({
+        "name": file_name,
+        "path": dest.to_string_lossy(),
+        "size": size,
+        "mimeType": mime_type,
+    }))
+}
+
+fn ext_to_mime(ext: &str) -> &'static str {
+    match ext.to_ascii_lowercase().as_str() {
+        "pdf" => "application/pdf",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "mp4" => "video/mp4",
+        "mov" => "video/quicktime",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "zip" => "application/zip",
+        "csv" => "text/csv",
+        "txt" => "text/plain",
+        "md" => "text/markdown",
+        "json" => "application/json",
+        "doc" | "docx" => "application/msword",
+        "xls" | "xlsx" => "application/vnd.ms-excel",
+        "ppt" | "pptx" => "application/vnd.ms-powerpoint",
+        _ => "application/octet-stream",
+    }
 }
 
 #[tauri::command]
@@ -252,6 +349,8 @@ pub fn run() {
             relaunch_app,
             send_notification,
             request_notification_permission,
+            copy_file_to_storage,
+            open_local_file,
         ])
         .on_window_event(|_window, _event| {
             // Window close (red ✕) quits the app normally.
@@ -334,6 +433,16 @@ pub fn run() {
                     std::env::var("OPENHELM_DATA_DIR").ok()
                 }
             };
+
+            // Expose resolved data dir to Tauri commands (e.g. copy_file_to_storage).
+            {
+                let resolved = openhelm_data_dir.clone().unwrap_or_else(|| {
+                    std::env::var("HOME")
+                        .map(|h| format!("{}/.openhelm", h))
+                        .unwrap_or_else(|_| ".openhelm".to_string())
+                });
+                app.manage(DataDir(resolved));
+            }
 
             // Store environment for sidecar (re)spawning
             let sidecar_env = SidecarEnv {

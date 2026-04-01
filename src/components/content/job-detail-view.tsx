@@ -186,7 +186,7 @@ export function JobDetailView({ jobId }: JobDetailViewProps) {
       )}
 
       {/* Meta row */}
-      <div className="mb-4 flex items-center gap-4 text-sm text-muted-foreground">
+      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
         <div className="flex items-center gap-1.5">
           <Clock className="size-3.5 shrink-0" />
           <span>{formatSchedule(job.scheduleType, job.scheduleConfig)}</span>
@@ -265,7 +265,8 @@ export function JobDetailView({ jobId }: JobDetailViewProps) {
       {jobRuns.length === 0 ? (
         <p className="py-4 text-sm text-muted-foreground">No runs yet</p>
       ) : (
-        <table className="w-full table-fixed text-sm">
+        <div className="overflow-x-auto -mx-6 px-6">
+        <table className="w-full min-w-[420px] table-fixed text-sm">
           <colgroup>
             <col className="w-32" />
             <col className="w-28" />
@@ -323,6 +324,7 @@ export function JobDetailView({ jobId }: JobDetailViewProps) {
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
 

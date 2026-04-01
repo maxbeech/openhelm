@@ -24,10 +24,11 @@ export const TOOLS: ToolDefinition[] = [
   // ─── Read tools ───
   {
     name: "list_goals",
-    description: "List goals for the active project.",
+    description: "List goals for the active project. Use the 'name' filter to search by name when you know the goal name but not the ID.",
     isWrite: false,
     parameters: {
       status: { type: "string", description: "Filter by status", enum: ["active", "paused", "archived"] },
+      name: { type: "string", description: "Filter by name (case-insensitive partial match)" },
     },
   },
   {
@@ -89,9 +90,13 @@ export const TOOLS: ToolDefinition[] = [
       name: { type: "string", description: "Job name", required: true },
       prompt: { type: "string", description: "The Claude Code prompt", required: true },
       goalId: { type: "string", description: "Goal ID to attach to (optional)" },
-      scheduleType: { type: "string", description: "'once', 'interval', or 'cron'", required: true, enum: ["once", "interval", "cron"] },
+      scheduleType: { type: "string", description: "'once', 'interval', 'calendar', or 'cron'. Prefer 'calendar' over 'cron' for simple schedules (daily/weekly/monthly).", required: true, enum: ["once", "interval", "calendar", "cron"] },
       intervalMinutes: { type: "number", description: "For interval: minutes between runs" },
-      cronExpression: { type: "string", description: "For cron: cron expression" },
+      cronExpression: { type: "string", description: "For cron: cron expression (only use for complex schedules not expressible via calendar)" },
+      calendarFrequency: { type: "string", description: "For calendar: 'daily', 'weekly', or 'monthly'", enum: ["daily", "weekly", "monthly"] },
+      calendarTime: { type: "string", description: "For calendar: time in HH:MM format (e.g. '09:00')" },
+      calendarDayOfWeek: { type: "number", description: "For calendar weekly: day of week 0=Sun, 1=Mon, ..., 6=Sat" },
+      calendarDayOfMonth: { type: "number", description: "For calendar monthly: day of month 1-31" },
       workingDirectory: { type: "string", description: "Working directory (defaults to project dir)" },
     },
   },

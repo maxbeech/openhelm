@@ -150,6 +150,14 @@ export function executeDataTableWriteTool(
       if (!a.name) return fail(call, "name is required");
       if (!a.columns) return fail(call, "columns is required");
       if (!projectId) return fail(call, "Cannot create data table in All Projects thread");
+      // Prevent duplicate tables with the same name in the same project
+      const existing = listDataTables({ projectId });
+      const duplicate = existing.find(
+        (t) => t.name.toLowerCase() === (a.name as string).toLowerCase(),
+      );
+      if (duplicate) {
+        return fail(call, `A data table named "${a.name}" already exists in this project (id: ${duplicate.id}). Use update or delete it first.`);
+      }
       const columns = Array.isArray(a.columns) ? a.columns : JSON.parse(a.columns as string);
       const table = createDataTable({
         projectId,

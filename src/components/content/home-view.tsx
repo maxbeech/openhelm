@@ -18,7 +18,7 @@ export function HomeView() {
   return (
     <div className="mx-auto max-w-lg px-6 py-16">
       <h2 className="mb-6 text-lg font-semibold">Overview</h2>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-4 min-w-0">
         <StatCard icon={Target} label="Active Goals" value={activeGoalCount} />
         <StatCard
           icon={Briefcase}
@@ -48,14 +48,14 @@ function StatCard({
   highlight?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <div className="flex items-center gap-2">
+    <div className="min-w-0 rounded-lg border border-border bg-card p-4">
+      <div className="flex items-center gap-2 min-w-0">
         <Icon
-          className={`size-4 ${highlight ? "text-primary" : "text-muted-foreground"}`}
+          className={`shrink-0 size-4 ${highlight ? "text-primary" : "text-muted-foreground"}`}
         />
-        <span className="text-2xl font-bold">{value}</span>
+        <span className="text-2xl font-bold truncate">{value}</span>
       </div>
-      <p className="mt-1 text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-xs text-muted-foreground truncate">{label}</p>
     </div>
   );
 }

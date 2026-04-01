@@ -1,3 +1,4 @@
+import { useRef, useEffect } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chat-store";
@@ -7,7 +8,7 @@ import { useJobStore } from "@/stores/job-store";
 import { useRunStore } from "@/stores/run-store";
 import { useResizePanel } from "@/hooks/use-resize-panel";
 import { ChatMessageList } from "./chat-message-list";
-import { ChatInput } from "./chat-input";
+import { ChatInput, type ChatInputHandle } from "./chat-input";
 import { ThreadTabs } from "./thread-tabs";
 import type { ChatContext } from "@openhelm/shared";
 
@@ -17,6 +18,8 @@ interface ChatPanelProps {
 }
 
 export function ChatPanel({ projectId }: ChatPanelProps) {
+  const chatInputRef = useRef<ChatInputHandle>(null);
+
   const {
     messages,
     panelOpen,
@@ -25,6 +28,19 @@ export function ChatPanel({ projectId }: ChatPanelProps) {
     activeConversationId,
     conversationStates,
   } = useChatStore();
+
+  // Focus the input whenever the panel opens or the active thread changes.
+  useEffect(() => {
+    if (panelOpen) {
+      setTimeout(() => chatInputRef.current?.focus(), 50);
+    }
+  }, [panelOpen]);
+
+  useEffect(() => {
+    if (panelOpen && activeConversationId) {
+      setTimeout(() => chatInputRef.current?.focus(), 50);
+    }
+  }, [activeConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
   const error = useChatStore((s) => s.error);
   const clearError = useChatStore((s) => s.clearError);
 
@@ -116,7 +132,7 @@ export function ChatPanel({ projectId }: ChatPanelProps) {
       )}
 
       {/* Input */}
-      <ChatInput onSend={handleSend} disabled={sending} />
+      <ChatInput ref={chatInputRef} onSend={handleSend} disabled={sending} />
     </div>
   );
 }

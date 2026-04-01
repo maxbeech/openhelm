@@ -74,13 +74,14 @@ function UsageCard({ label, current, prev, budget, useSonnet = false }: CardProp
       </div>
 
       {/* OpenHelm + delta */}
-      <div className="mt-1 flex items-center gap-2 text-3xs">
-        <span className="text-muted-foreground">
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-3xs">
+        <span className="text-muted-foreground whitespace-nowrap">
           <span className="font-medium text-primary">{formatTokenCount(ohTokens)}</span> via OpenHelm
         </span>
-        <span className="text-muted-foreground/40">·</span>
-        <span className="text-muted-foreground">vs prev:</span>
-        <DeltaBadge current={currentTotal} prev={prevTotal} />
+        <span className="flex items-center gap-1 text-muted-foreground whitespace-nowrap">
+          <span className="text-muted-foreground/40">vs prev</span>
+          <DeltaBadge current={currentTotal} prev={prevTotal} />
+        </span>
       </div>
     </div>
   );
@@ -91,7 +92,7 @@ export function ClaudeUsageWidgets({ summary, className }: Props) {
 
   return (
     <div className={className}>
-      <div className="flex gap-2">
+      <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
         <UsageCard label="Today" current={today} prev={todayPrev} budget={dailyBudget} />
         <UsageCard label="This Week" current={week} prev={weekPrev} budget={weeklyBudget} />
         <UsageCard label="This Week (Sonnet)" current={week} prev={weekPrev} budget={weeklyBudget} useSonnet />

@@ -8,9 +8,11 @@ import type {
   Run,
   RunStatus,
   ScheduleConfigCalendar,
+  ScheduleConfigCron,
   ScheduleConfigInterval,
 } from "@openhelm/shared";
 import { cn, normalizeModelShortName } from "@/lib/utils";
+import { describeCron } from "@/lib/format";
 
 interface SidebarJobNodeProps {
   job: Job;
@@ -32,8 +34,10 @@ function formatScheduleLabel(job: Job): string {
       const u = unit === "minutes" ? "min" : unit === "hours" ? "hr" : "day";
       return `Every ${amount} ${u}${amount > 1 ? "s" : ""}`;
     }
-    case "cron":
-      return "Cron";
+    case "cron": {
+      const cfg = job.scheduleConfig as ScheduleConfigCron;
+      return describeCron(cfg.expression);
+    }
     case "calendar": {
       const cfg = job.scheduleConfig as ScheduleConfigCalendar;
       const [h, m] = cfg.time.split(":").map(Number);

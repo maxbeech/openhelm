@@ -41,8 +41,14 @@ export function executeReadTool(call: ChatToolCall, projectId: string | null): T
     if (dtResult) return dtResult;
 
     switch (call.tool) {
-      case "list_goals":
-        return ok(call, listGoals({ projectId: pid, status: a.status as any }));
+      case "list_goals": {
+        let results = listGoals({ projectId: pid, status: a.status as any });
+        if (a.name) {
+          const needle = (a.name as string).toLowerCase();
+          results = results.filter((g) => g.name.toLowerCase().includes(needle));
+        }
+        return ok(call, results);
+      }
 
       case "list_jobs":
         return ok(call, listJobs({ projectId: pid, goalId: a.goalId as string | undefined }));
@@ -103,7 +109,7 @@ export async function executeWriteTool(call: ChatToolCall, projectId: string | n
         }));
 
       case "create_job": {
-        const scheduleType = a.scheduleType as string;
+        let scheduleType = a.scheduleType as string;
         let scheduleConfig: ScheduleConfig;
         if (scheduleType === "once") {
           scheduleConfig = { fireAt: new Date(Date.now() + 10_000).toISOString() };
@@ -116,7 +122,17 @@ export async function executeWriteTool(call: ChatToolCall, projectId: string | n
           } else {
             scheduleConfig = { amount: mins, unit: "minutes" };
           }
+        } else if (scheduleType === "calendar") {
+          const freq = (a.calendarFrequency as string) ?? "daily";
+          const time = (a.calendarTime as string) ?? "09:00";
+          scheduleConfig = {
+            frequency: freq,
+            time,
+            ...(freq === "weekly" && a.calendarDayOfWeek != null && { dayOfWeek: a.calendarDayOfWeek as number }),
+            ...(freq === "monthly" && a.calendarDayOfMonth != null && { dayOfMonth: a.calendarDayOfMonth as number }),
+          };
         } else {
+          // cron
           scheduleConfig = { expression: (a.cronExpression as string) ?? "0 9 * * 1" };
         }
         return ok(call, createJob({

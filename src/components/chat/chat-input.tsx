@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import { Send, Settings2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,10 +17,18 @@ interface ChatInputProps {
   disabled?: boolean;
 }
 
-export function ChatInput({ onSend, disabled }: ChatInputProps) {
+export interface ChatInputHandle {
+  focus: () => void;
+}
+
+export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput({ onSend, disabled }, ref) {
   const [value, setValue] = useState("");
   const [configOpen, setConfigOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => textareaRef.current?.focus(),
+  }));
   const configRef = useRef<HTMLDivElement>(null);
   const {
     chatModel, chatEffort, chatPermissionMode,
@@ -124,7 +132,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
       </div>
     </div>
   );
-}
+});
 
 /** A labelled group of radio-style option buttons. */
 function RadioSection<T extends string>({
