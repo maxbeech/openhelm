@@ -29,7 +29,12 @@ export const useRunStore = create<RunState>((set) => ({
   fetchRuns: async (projectId) => {
     set({ loading: true, error: null });
     try {
-      const runs = await api.listRuns(projectId ? { projectId, limit: 100 } : { limit: 100 });
+      // Fetch runs for the last 14 days (the dashboard chart window).
+      // Using `since` avoids the fixed limit cutting off older-but-still-visible runs.
+      const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+      const runs = await api.listRuns(
+        projectId ? { projectId, since, limit: 5000 } : { since, limit: 5000 },
+      );
       set({ runs, loading: false });
     } catch (err) {
       set({

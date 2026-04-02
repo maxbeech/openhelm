@@ -12,12 +12,17 @@ interface ChatMessageListProps {
   projectId: string;
 }
 
+const STREAMING_ID = "__streaming__";
+
 export function ChatMessageList({ messages, sending, projectId }: ChatMessageListProps) {
   const activeConvId = useChatStore((s) => s.activeConversationId);
   const convState = useChatStore((s) => activeConvId ? s.conversationStates[activeConvId] : null);
   const statusText = convState?.statusText ?? null;
   const streamingText = convState?.streamingText ?? "";
+  const storeSending = convState?.sending ?? false;
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Track previous render state for debug logging
+  const prevRef = useRef({ msgCount: 0, lastRole: "", streaming: 0, sending: false, storeSending: false });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -34,50 +39,102 @@ export function ChatMessageList({ messages, sending, projectId }: ChatMessageLis
     );
   }
 
-  // If the last message is already an assistant response, the streaming
-  // indicator must not show. The appendConvStreaming store guard also
-  // prevents stale text from accumulating after sending is cleared.
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
-  const showSending = sending && lastMsg?.role !== "assistant";
+  const lastIsAssistant = lastMsg?.role === "assistant";
+
+  // === DEBUG: Log state transitions to diagnose duplicate message bug ===
+  const cur = {
+    msgCount: messages.length,
+    lastRole: lastMsg?.role ?? "none",
+    streaming: streamingText.length,
+    sending,
+    storeSending,
+  };
+  const prev = prevRef.current;
+  // Log when the assistant message appears or streaming state changes significantly
+  if (
+    cur.lastRole !== prev.lastRole ||
+    cur.msgCount !== prev.msgCount ||
+    (prev.streaming > 0 && cur.streaming === 0) ||
+    (prev.streaming === 0 && cur.streaming > 0) ||
+    cur.sending !== prev.sending ||
+    cur.storeSending !== prev.storeSending
+  ) {
+    console.log(
+      `[chat-list] msgs=${cur.msgCount} last=${cur.lastRole}` +
+      ` stream=${cur.streaming} sendProp=${cur.sending} sendStore=${cur.storeSending}` +
+      ` lastIsAsst=${lastIsAssistant}`,
+    );
+  }
+  prevRef.current = cur;
+  // === END DEBUG ===
+
+  // Inject virtual streaming message into the display list so streaming text
+  // and the committed message share ONE DOM position (prevents duplicates).
+  const hasStreamingContent = streamingText.length > 0 && !lastIsAssistant;
+  const displayMessages: (ChatMessage & { _streaming?: boolean })[] = [...messages];
+  if (hasStreamingContent) {
+    displayMessages.push({
+      id: STREAMING_ID,
+      conversationId: activeConvId ?? "",
+      role: "assistant",
+      content: streamingText.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, ""),
+      toolCalls: null,
+      toolResults: null,
+      pendingActions: null,
+      createdAt: new Date().toISOString(),
+      _streaming: true,
+    } as ChatMessage & { _streaming?: boolean });
+  }
+
+  // Show the animated logo + optional status during pre-streaming phase
+  // (when sending but no streaming text has arrived yet)
+  const showLoader = (sending || storeSending) && !lastIsAssistant && !streamingText;
 
   return (
     <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
-      {messages.map((msg) => {
+      {displayMessages.map((msg) => {
         if (msg.role === "user") {
           return <ChatMessageBubble key={msg.id} message={msg} projectId={projectId} />;
         }
+
+        const isStreaming = (msg as ChatMessage & { _streaming?: boolean })._streaming === true;
+
         return (
           <div key={msg.id} className="flex items-start gap-2">
             <div className="mt-1 flex-shrink-0">
-              <AnimatedHelmLogo animating={false} size={28} />
+              <AnimatedHelmLogo animating={isStreaming} size={28} />
             </div>
-            <ChatMessageBubble message={msg} projectId={projectId} />
+            {isStreaming ? (
+              <div className="flex flex-col items-start">
+                <div className="max-w-[85%] rounded-xl bg-muted px-3 py-2 text-sm text-foreground opacity-80">
+                  <div className="markdown-content break-words leading-relaxed [&>*:last-child]:inline">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {msg.content ?? ""}
+                    </ReactMarkdown>
+                    <span className="inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-foreground/50" />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <ChatMessageBubble message={msg} projectId={projectId} />
+            )}
           </div>
         );
       })}
 
-      {showSending && (
+      {showLoader && (
         <div className="flex items-start gap-2">
           <div className="mt-1 flex-shrink-0">
             <AnimatedHelmLogo animating={true} size={28} />
           </div>
-          <div className="flex flex-col items-start gap-2">
-            {!streamingText && statusText && (
+          {statusText && (
+            <div className="flex flex-col items-start gap-2">
               <div className="rounded-xl bg-muted px-3 py-2 text-sm text-muted-foreground">
                 {statusText}
               </div>
-            )}
-            {streamingText && (
-              <div className="max-w-[85%] rounded-xl bg-muted px-3 py-2 text-sm text-foreground opacity-80">
-                <div className="markdown-content break-words leading-relaxed [&>*:last-child]:inline">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {streamingText.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, "")}
-                  </ReactMarkdown>
-                  <span className="inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-foreground/50" />
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
 

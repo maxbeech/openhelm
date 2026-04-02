@@ -82,6 +82,9 @@ export function listRuns(params?: ListRunsParams): Run[] {
   if (params?.status) {
     conditions.push(eq(runs.status, params.status));
   }
+  if (params?.since) {
+    conditions.push(gte(runs.createdAt, params.since));
+  }
 
   const limit = params?.limit ?? 50;
   const offset = params?.offset ?? 0;

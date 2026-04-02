@@ -71,8 +71,11 @@ async def find_pid_on_port(
     """
     for _ in range(retries):
         try:
+            # Use -sTCP:LISTEN to return only the process listening on the
+            # port (Chrome), not processes connected to it (e.g. the Python
+            # MCP server acting as a CDP client).
             proc = await asyncio.create_subprocess_exec(
-                "lsof", "-ti", f":{port}",
+                "lsof", "-t", "-i", f"TCP:{port}", "-sTCP:LISTEN",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )

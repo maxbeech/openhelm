@@ -418,6 +418,7 @@ export interface ListRunsParams {
   projectId?: string;
   jobId?: string;
   status?: RunStatus;
+  since?: string; // ISO timestamp — only return runs created at or after this time
   limit?: number;
   offset?: number;
 }

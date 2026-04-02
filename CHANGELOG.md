@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Browser cleanup: Chrome instances spawned by openhelm-browser MCP were not being killed after job runs completed, accumulating in the macOS Dock
+  - `find_pid_on_port` was using `lsof -ti :PORT` which returned the Python MCP server PID (CDP client) instead of the Chrome PID (CDP server); fixed to use `lsof -t -i TCP:PORT -sTCP:LISTEN`
+  - Agent-side cleanup now scans for orphaned nodriver Chrome processes (by `uc_*` temp dir pattern) as a fallback when PID tracking fails
+  - Python MCP server shutdown cleanup now also scans for orphaned nodriver Chrome processes instead of relying solely on tracked PIDs
+
 ## [0.7.0] - 2026-04-02
 
 ### Added

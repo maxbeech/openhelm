@@ -1,10 +1,16 @@
 /**
  * Agent-side cleanup for orphaned Chrome browser processes.
  *
- * The browser MCP server tracks Chrome PIDs in per-run files at
- * ~/.openhelm/browser-pids/run-{runId}.json. When a run finishes, the
- * MCP server's own cleanup may not complete (e.g. SIGKILL race), so the
- * agent reads the PID file and kills any surviving Chrome processes.
+ * Two cleanup strategies:
+ *
+ * 1. **PID-file based** — The browser MCP server tracks Chrome PIDs in
+ *    per-run files at ~/.openhelm/browser-pids/run-{runId}.json. After a
+ *    run finishes the agent reads the file and kills survivors.
+ *
+ * 2. **Process-scan based** — Scans `ps` output for Chrome processes
+ *    launched with nodriver temp user-data-dirs (`uc_*` prefix) and a
+ *    `--remote-debugging-port` flag. This catches instances whose PID was
+ *    tracked incorrectly (e.g. Python MCP server PID instead of Chrome).
  */
 
 import { readFileSync, readdirSync, unlinkSync, existsSync } from "fs";
@@ -40,6 +46,53 @@ function safeKill(pid: number, signal: NodeJS.Signals): void {
     process.kill(pid, signal);
   } catch {
     // ESRCH = process already dead — expected
+  }
+}
+
+/**
+ * Find orphaned nodriver Chrome processes by scanning `ps` output.
+ *
+ * Matches Chrome main processes (not Helper/renderer sub-processes) that
+ * have a `user-data-dir` inside a temp directory with the `uc_` prefix
+ * (nodriver's signature) AND a `--remote-debugging-port` flag.
+ *
+ * @param excludePids PIDs to skip (e.g. from a currently active run).
+ */
+function findOrphanedNodriverPids(excludePids?: Set<number>): number[] {
+  try {
+    // Get all Chrome main processes with their full command lines
+    const out = execFileSync(
+      "ps",
+      ["axo", "pid,args"],
+      { encoding: "utf-8", timeout: 5000 },
+    );
+
+    const orphans: number[] = [];
+    for (const line of out.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      // Must be a Chrome/Chromium main process (not Helper/renderer)
+      const lower = trimmed.toLowerCase();
+      if (!CHROME_NAMES.some((n) => lower.includes(n))) continue;
+      if (lower.includes("helper") || lower.includes("crashpad")) continue;
+
+      // Must have a nodriver temp user-data-dir (uc_ prefix in temp path)
+      if (!/user-data-dir=\S*\/uc_/.test(trimmed)) continue;
+
+      // Must have remote-debugging-port (confirms automation instance)
+      if (!trimmed.includes("--remote-debugging-port")) continue;
+
+      // Extract PID (first token)
+      const pid = parseInt(trimmed.split(/\s+/)[0], 10);
+      if (isNaN(pid)) continue;
+      if (excludePids?.has(pid)) continue;
+
+      orphans.push(pid);
+    }
+    return orphans;
+  } catch {
+    return [];
   }
 }
 
@@ -88,19 +141,53 @@ function killPidsFromFile(filePath: string): number {
   return pidsToKill.length;
 }
 
+/** Kill a list of PIDs with SIGTERM + delayed SIGKILL. */
+function killPids(pids: number[]): number {
+  let killed = 0;
+  for (const pid of pids) {
+    safeKill(pid, "SIGTERM");
+    killed++;
+  }
+  if (killed > 0) {
+    const copy = [...pids];
+    setTimeout(() => {
+      for (const pid of copy) {
+        safeKill(pid, "SIGKILL");
+      }
+    }, 3000);
+  }
+  return killed;
+}
+
 /**
  * Kill any orphaned browser processes from a specific run.
  * Called in the executor's post-run cleanup phase.
+ *
+ * Uses both PID-file based cleanup AND process-scan cleanup to catch
+ * instances whose PID was tracked incorrectly.
+ *
+ * NOTE: The process scan kills ALL nodriver Chrome processes on the
+ * machine. This is safe when executor concurrency is 1 (the default).
+ * If concurrency > 1 is ever used, this should be made run-aware.
  */
 export function cleanupBrowsersForRun(runId: string): void {
   try {
+    let killedFromFile = 0;
     const filePath = join(BROWSER_PIDS_DIR, `run-${runId}.json`);
-    if (!existsSync(filePath)) return;
+    if (existsSync(filePath)) {
+      killedFromFile = killPidsFromFile(filePath);
+    }
 
-    const killed = killPidsFromFile(filePath);
-    if (killed > 0) {
+    // Scan for orphaned nodriver Chrome processes as a fallback.
+    // This catches instances whose PID was incorrectly recorded.
+    const orphans = findOrphanedNodriverPids();
+    const killedFromScan = killPids(orphans);
+
+    const total = killedFromFile + killedFromScan;
+    if (total > 0) {
       console.error(
-        `[browser-cleanup] killed ${killed} orphaned Chrome process(es) from run ${runId}`,
+        `[browser-cleanup] killed ${total} orphaned Chrome process(es) from run ${runId}` +
+          (killedFromScan > 0 ? ` (${killedFromScan} via process scan)` : ""),
       );
     }
   } catch (err) {
@@ -109,29 +196,34 @@ export function cleanupBrowsersForRun(runId: string): void {
 }
 
 /**
- * Sweep all orphaned browser PID files from ~/.openhelm/browser-pids/.
+ * Sweep all orphaned browser PID files from ~/.openhelm/browser-pids/
+ * AND scan for orphaned nodriver Chrome processes.
  * Called at agent startup to clean up after crashes.
  */
 export function cleanupOrphanedBrowserPids(): void {
   try {
-    if (!existsSync(BROWSER_PIDS_DIR)) return;
-
-    const files = readdirSync(BROWSER_PIDS_DIR);
     let totalKilled = 0;
 
-    for (const file of files) {
-      if (file.startsWith("run-") && file.endsWith(".json")) {
-        totalKilled += killPidsFromFile(join(BROWSER_PIDS_DIR, file));
+    // 1. PID-file based cleanup
+    if (existsSync(BROWSER_PIDS_DIR)) {
+      const files = readdirSync(BROWSER_PIDS_DIR);
+      for (const file of files) {
+        if (file.startsWith("run-") && file.endsWith(".json")) {
+          totalKilled += killPidsFromFile(join(BROWSER_PIDS_DIR, file));
+        }
       }
     }
 
+    // 2. Process-scan fallback — catch any nodriver Chrome processes that
+    //    escaped PID-file tracking entirely.
+    const orphans = findOrphanedNodriverPids();
+    const scannedKilled = killPids(orphans);
+    totalKilled += scannedKilled;
+
     if (totalKilled > 0) {
       console.error(
-        `[browser-cleanup] startup sweep: killed ${totalKilled} orphaned Chrome process(es)`,
-      );
-    } else if (files.length > 0) {
-      console.error(
-        `[browser-cleanup] startup sweep: cleaned ${files.length} stale PID file(s)`,
+        `[browser-cleanup] startup sweep: killed ${totalKilled} orphaned Chrome process(es)` +
+          (scannedKilled > 0 ? ` (${scannedKilled} via process scan)` : ""),
       );
     }
   } catch {

@@ -281,23 +281,66 @@ class ProcessCleanup:
                                  f"Failed to kill process {pid} for {instance_id}: {e}")
             return False
     
+    def _find_nodriver_chrome_pids(self) -> List[int]:
+        """Find Chrome processes spawned by nodriver (uc_* temp user-data-dir).
+
+        This is a safety-net that catches instances whose PID was tracked
+        incorrectly (e.g. when find_pid_on_port returned the Python MCP
+        server PID instead of the Chrome PID).
+        """
+        pids: List[int] = []
+        try:
+            for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+                try:
+                    name = (proc.info.get("name") or "").lower()
+                    if not any(n in name for n in ["chrome", "chromium", "msedge"]):
+                        continue
+                    # Skip helper/renderer sub-processes
+                    if "helper" in name:
+                        continue
+                    cmdline = proc.info.get("cmdline") or []
+                    cmd_str = " ".join(cmdline)
+                    # Must have nodriver temp dir AND remote debugging port
+                    if "/uc_" not in cmd_str:
+                        continue
+                    if "--remote-debugging-port" not in cmd_str:
+                        continue
+                    pids.append(proc.info["pid"])
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+        except Exception as e:
+            debug_logger.log_warning(
+                "process_cleanup", "_find_nodriver_chrome_pids",
+                f"Error scanning for nodriver Chrome processes: {e}",
+            )
+        return pids
+
     def _cleanup_all_tracked(self):
-        """Clean up all tracked browser processes."""
-        if not self.browser_processes:
-            debug_logger.log_info("process_cleanup", "cleanup_all", "No browser processes to clean up")
-            return
-        
-        debug_logger.log_info("process_cleanup", "cleanup_all", 
-                            f"Cleaning up {len(self.browser_processes)} browser processes...")
-        
+        """Clean up all tracked browser processes and any orphaned nodriver instances."""
         killed_count = 0
-        for instance_id, pid in list(self.browser_processes.items()):
-            if self._kill_process_by_pid(pid, instance_id):
+
+        # 1. Kill tracked PIDs (if they are actually Chrome)
+        if self.browser_processes:
+            debug_logger.log_info("process_cleanup", "cleanup_all",
+                                f"Cleaning up {len(self.browser_processes)} tracked browser processes...")
+            for instance_id, pid in list(self.browser_processes.items()):
+                if self._kill_process_by_pid(pid, instance_id):
+                    killed_count += 1
+
+        # 2. Fallback: scan for any nodriver Chrome processes that were not
+        #    tracked correctly (e.g. PID file had the Python MCP server PID).
+        orphan_pids = self._find_nodriver_chrome_pids()
+        for pid in orphan_pids:
+            if self._kill_process_by_pid(pid, "orphan-scan"):
                 killed_count += 1
-        
-        debug_logger.log_info("process_cleanup", "cleanup_all", 
-                            f"Cleaned up {killed_count}/{len(self.browser_processes)} browser processes")
-        
+
+        if killed_count > 0:
+            debug_logger.log_info("process_cleanup", "cleanup_all",
+                                f"Cleaned up {killed_count} browser processes total"
+                                f" ({len(orphan_pids)} from orphan scan)")
+        else:
+            debug_logger.log_info("process_cleanup", "cleanup_all", "No browser processes to clean up")
+
         self.browser_processes.clear()
         self.tracked_pids.clear()
         self._clear_pid_file()

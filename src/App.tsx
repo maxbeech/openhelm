@@ -264,6 +264,13 @@ export default function App() {
     (data: ChatMessage & { projectId?: string | null; conversationId?: string }) => {
       const activeConvId = useChatStore.getState().activeConversationId;
       const eventConvId = data.conversationId;
+      const state = useChatStore.getState();
+      const convSt = eventConvId ? state.conversationStates[eventConvId] : null;
+      console.log(
+        `[chat-event] messageCreated role=${data.role} conv=${eventConvId?.slice(-6)}` +
+        ` active=${activeConvId?.slice(-6)} msgs=${state.messages.length}` +
+        ` sending=${convSt?.sending} stream=${convSt?.streamingText?.length ?? 0}`,
+      );
       // Only update message list when viewing the same conversation
       if (eventConvId && eventConvId === activeConvId) {
         if (data.role === "user") {
@@ -307,14 +314,24 @@ export default function App() {
     (data: { status: string; tools?: string[]; projectId?: string | null; conversationId?: string }) => {
       const convId = data.conversationId;
       if (!convId) return;
+      const state = useChatStore.getState();
+      const convSt = state.conversationStates[convId];
+      console.log(
+        `[chat-event] status=${data.status} conv=${convId.slice(-6)}` +
+        ` msgs=${state.messages.length} sending=${convSt?.sending}` +
+        ` stream=${convSt?.streamingText?.length ?? 0}`,
+      );
       if (data.status === "done") {
-        // Atomic clear to prevent intermediate renders
+        // Clear sending and statusText but KEEP streamingText — it will be
+        // cleared atomically by messageCreated alongside adding the committed
+        // message. Clearing it here would cause a blank frame between the
+        // streaming text disappearing and the committed message appearing.
         useChatStore.setState((s) => {
           const prev = s.conversationStates[convId] ?? { sending: false, statusText: null, streamingText: "" };
           return {
             conversationStates: {
               ...s.conversationStates,
-              [convId]: { ...prev, sending: false, statusText: null, streamingText: "" },
+              [convId]: { ...prev, sending: false, statusText: null },
             },
           };
         });
@@ -349,7 +366,15 @@ export default function App() {
 
   const handleChatStreaming = useCallback(
     (data: { text: string; projectId?: string | null; conversationId?: string }) => {
-      if (data.conversationId) appendConvStreaming(data.conversationId, data.text);
+      if (data.conversationId) {
+        const state = useChatStore.getState();
+        const convSt = state.conversationStates[data.conversationId];
+        console.log(
+          `[chat-event] streaming +${data.text.length}chars conv=${data.conversationId.slice(-6)}` +
+          ` sending=${convSt?.sending} existingStream=${convSt?.streamingText?.length ?? 0}`,
+        );
+        appendConvStreaming(data.conversationId, data.text);
+      }
     },
     [appendConvStreaming],
   );

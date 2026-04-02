@@ -7,20 +7,22 @@ interface AnimatedHelmLogoProps {
 }
 
 /**
- * Rotate a polygon around a pivot point and add a smooth billowing
- * curvature. This creates the effect of a sail/canvas catching wind —
- * the whole shape tilts while the free edge curves outward.
+ * Animate a sail polygon with a 2D traveling wave through its body,
+ * like a canvas flag flapping in the wind. Points near the mast stay
+ * anchored; the wave amplitude increases with distance from the mast.
+ * The wave phase varies across both x and y, creating undulation through
+ * the entire sail surface.
  */
 function billowSail(
   points: [number, number][],
-  pivotX: number,
-  pivotY: number,
-  rotationDeg: number,
-  curvature: number,
   mastX: number,
-  samples = 18,
+  time: number,
+  amplitude: number,
+  direction: number,
+  freq: number,
+  phase: number,
+  samples = 22,
 ): string {
-  // Find max distance from mast for curvature scaling
   let maxDist = 0, minY = Infinity, maxY = -Infinity;
   for (const [x, y] of points) {
     const d = Math.abs(x - mastX);
@@ -31,10 +33,6 @@ function billowSail(
   const yRange = maxY - minY || 1;
   if (maxDist === 0) maxDist = 1;
 
-  const rad = (rotationDeg * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-
   const out: [number, number][] = [];
   for (let e = 0; e < points.length; e++) {
     const [x0, y0] = points[e];
@@ -44,22 +42,37 @@ function billowSail(
       let x = x0 + (x1 - x0) * t;
       let y = y0 + (y1 - y0) * t;
 
-      // Add curvature: displace horizontally, proportional to distance
-      // from mast and vertical bulge (maximum at centre of sail)
+      // Distance from mast: 0 = anchored at mast, 1 = farthest point
       const distRatio = Math.abs(x - mastX) / maxDist;
+      // Vertical position normalized: 0 = top, 1 = bottom
       const yNorm = (y - minY) / yRange;
-      const bulge = Math.sin(yNorm * Math.PI);
-      x += curvature * distRatio * distRatio * bulge;
 
-      // Rotate around pivot
-      const dx = x - pivotX;
-      const dy = y - pivotY;
-      x = pivotX + dx * cos - dy * sin;
-      y = pivotY + dx * sin + dy * cos;
+      // Amplitude grows with distance from mast (anchored near mast)
+      const amp = amplitude * distRatio * Math.sqrt(distRatio);
 
+      // Primary traveling wave: phase varies with both position dimensions,
+      // creating a 2D undulation like a flag
+      const wave1 = Math.sin(
+        yNorm * Math.PI * 2.5 + distRatio * Math.PI * 1.5 + time * freq + phase,
+      );
+      // Secondary slower wave for organic, non-repeating motion
+      const wave2 = Math.sin(
+        yNorm * Math.PI * 1.2 + distRatio * Math.PI * 0.8 + time * freq * 0.6 + phase + 1.5,
+      ) * 0.35;
+
+      // Horizontal displacement: outward from mast
+      const dx = direction * amp * (wave1 + wave2);
+      // Subtle vertical ripple
+      const dy = amp * 0.12 * Math.sin(
+        yNorm * Math.PI * 3 + time * freq * 0.7 + phase + 0.8,
+      );
+
+      x += dx;
+      y += dy;
       out.push([x, y]);
     }
   }
+
   if (out.length === 0) return "";
   let d = `M${out[0][0].toFixed(1)} ${out[0][1].toFixed(1)}`;
   for (let i = 1; i < out.length; i++) {
@@ -85,20 +98,10 @@ const REST = {
 };
 
 function computePaths(t: number, a: number) {
-  // Each sail: rotation oscillates smoothly, curvature follows independently
-  const rRight = a * 8 * Math.sin(t * 2.0);
-  const cRight = a * 45 * Math.sin(t * 2.0 + 0.5);
-
-  const rTop = a * 10 * Math.sin(t * 2.6 + 0.8);
-  const cTop = a * 35 * Math.sin(t * 2.6 + 1.3);
-
-  const rLeft = a * 7 * Math.sin(t * 1.7 + 1.5);
-  const cLeft = a * -40 * Math.sin(t * 1.7 + 2.0);
-
   return {
-    right: billowSail(SAIL_RIGHT, 290, 290, rRight, cRight, 290),
-    top: billowSail(SAIL_TOP, 290, 170, rTop, cTop, 290),
-    left: billowSail(SAIL_LEFT, 272, 200, rLeft, cLeft, 272),
+    right: billowSail(SAIL_RIGHT, 290, t, a * 45, +1, 5.0, 0),
+    top:   billowSail(SAIL_TOP,   290, t, a * 30, +1, 5.8, 0.9),
+    left:  billowSail(SAIL_LEFT,  272, t, a * 42, -1, 4.5, 1.6),
   };
 }
 

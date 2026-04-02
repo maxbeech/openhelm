@@ -16,7 +16,9 @@ import { getBrowserMcpPaths, type BrowserMcpPaths } from "./browser-setup.js";
  * Prepended to job prompts when the bundled browser MCP is available.
  */
 export const BROWSER_MCP_PREAMBLE =
-  "Use the openhelm-browser MCP for browser automation. Close all browser instances when done.\n\n";
+  "IMPORTANT: You MUST use `mcp__openhelm-browser__spawn_browser` to open any browser. " +
+  "Do NOT use chrome-devtools, stealth-browser-mcp, or any other browser tool. " +
+  "Close all browser instances with `mcp__openhelm-browser__close_instance` when done.\n\n";
 
 /**
  * Injected as a system-level instruction via --append-system-prompt when the
@@ -24,11 +26,11 @@ export const BROWSER_MCP_PREAMBLE =
  * than user-prompt preambles and virtually guarantee Claude uses the right MCP.
  */
 export const BROWSER_SYSTEM_PROMPT =
-  "CRITICAL RULE: You MUST use the `openhelm-browser` MCP server for ALL browser automation — " +
-  "spawning browsers, navigating, clicking, screenshots, etc. " +
-  "NEVER use stealth-browser-mcp, chrome-devtools, or any other browser MCP unless " +
-  "the user's prompt explicitly names a specific alternative by name. " +
-  "This is a hard requirement, not a preference.";
+  "BROWSER AUTOMATION RULE (mandatory, no exceptions): " +
+  "The ONLY browser tool you may call is `mcp__openhelm-browser__spawn_browser` and the other `mcp__openhelm-browser__*` tools. " +
+  "You MUST NOT call any tool from chrome-devtools, stealth-browser-mcp, or any MCP server other than openhelm-browser for browser automation. " +
+  "If openhelm-browser tools are unavailable or return an error, stop and report the error — do NOT fall back to another browser MCP. " +
+  "Always call `mcp__openhelm-browser__close_instance` for every browser instance you open before finishing.";
 
 /**
  * Prepended to job prompts to instruct Claude on CAPTCHA handling.
