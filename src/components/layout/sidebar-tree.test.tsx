@@ -168,7 +168,7 @@ describe("SidebarTree", () => {
 
     const chevronButtons = screen
       .getAllByRole("button")
-      .filter((btn) => btn.querySelector(".lucide-chevron-right"));
+      .filter((btn) => btn.tagName === "BUTTON" && btn.querySelector(".lucide-chevron-right"));
     fireEvent.click(chevronButtons[0]);
 
     // AnimatePresence exit animation keeps the element briefly; wait for removal

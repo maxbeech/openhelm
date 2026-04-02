@@ -18,45 +18,42 @@ describe("EmojiPicker", () => {
     expect(container.querySelector("svg")).toBeInTheDocument();
   });
 
-  it("shows the emoji when value is set", () => {
-    render(
-      <EmojiPicker value="🚀" onChange={vi.fn()} variant="goal" />,
+  it("shows the icon when a valid icon name is set", () => {
+    const { container } = render(
+      <EmojiPicker value="rocket" onChange={vi.fn()} variant="goal" />,
     );
-    expect(screen.getByText("🚀")).toBeInTheDocument();
+    // "rocket" maps to the Rocket Lucide icon, rendered as SVG
+    expect(container.querySelector("svg")).toBeInTheDocument();
   });
 
-  it("opens popover on click and shows emoji grid", () => {
+  it("opens popover on click and shows icon grid", () => {
     render(
       <EmojiPicker value={null} onChange={vi.fn()} variant="goal" />,
     );
     fireEvent.click(screen.getByTitle("Change icon"));
-    // Should see emoji in the grid
-    expect(screen.getByText("🎯")).toBeInTheDocument();
-    expect(screen.getByText("🔧")).toBeInTheDocument();
+    // Icon grid buttons are identified by their title (icon name)
+    expect(screen.getByTitle("target")).toBeInTheDocument();
+    expect(screen.getByTitle("wrench")).toBeInTheDocument();
   });
 
-  it("calls onChange when an emoji is selected", () => {
+  it("calls onChange when an icon is selected", () => {
     const onChange = vi.fn();
     render(
       <EmojiPicker value={null} onChange={onChange} variant="goal" />,
     );
     fireEvent.click(screen.getByTitle("Change icon"));
-    fireEvent.click(screen.getByText("🎯"));
-    expect(onChange).toHaveBeenCalledWith("🎯");
+    fireEvent.click(screen.getByTitle("target"));
+    expect(onChange).toHaveBeenCalledWith("target");
   });
 
-  it("highlights the currently selected emoji", () => {
+  it("highlights the currently selected icon", () => {
     render(
-      <EmojiPicker value="🎯" onChange={vi.fn()} variant="goal" />,
+      <EmojiPicker value="target" onChange={vi.fn()} variant="goal" />,
     );
     fireEvent.click(screen.getByTitle("Change icon"));
-    // The selected emoji button in the grid should have ring styling
-    const buttons = screen.getAllByText("🎯");
-    // One is in the trigger, one in the grid
-    const gridButton = buttons.find((b) =>
-      b.closest("button")?.className.includes("ring-1"),
-    );
-    expect(gridButton).toBeTruthy();
+    // The selected icon button in the grid should have ring styling
+    const gridButton = screen.getByTitle("target");
+    expect(gridButton.className).toContain("ring-1");
   });
 
   it("shows AI regenerate button when onRegenerate is provided", () => {

@@ -157,7 +157,8 @@ describe("SidebarJobNode", () => {
         onSelect={onSelect}
       />,
     );
-    fireEvent.click(screen.getByRole("button"));
+    const button = screen.getAllByRole("button").find((el) => el.tagName === "BUTTON")!;
+    fireEvent.click(button);
     expect(onSelect).toHaveBeenCalledOnce();
   });
 
@@ -170,7 +171,7 @@ describe("SidebarJobNode", () => {
         onSelect={vi.fn()}
       />,
     );
-    const button = screen.getByRole("button");
+    const button = screen.getAllByRole("button").find((el) => el.tagName === "BUTTON")!;
     expect(button.className).toContain("bg-sidebar-accent");
   });
 
