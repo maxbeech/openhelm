@@ -113,7 +113,9 @@ export const useGoalStore = create<GoalState>((set) => ({
       const ordered: Goal[] = orderedIds.map((id) => byId.get(id)!).filter(Boolean);
       const inSet = new Set(orderedIds);
       const rest = s.goals.filter((g) => !inSet.has(g.id));
-      return { goals: [...ordered, ...rest] };
+      // Update sortOrder so buildGoalTree renders in the new order immediately
+      const updated = ordered.map((g, i) => ({ ...g, sortOrder: i }));
+      return { goals: [...updated, ...rest] };
     });
   },
 }));

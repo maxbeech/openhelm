@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { flushSync } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { collapseVariants } from "@/lib/motion";
-import { ChevronsDown, ChevronsUp, Folder, FolderOpen, Plus, Search, X } from "lucide-react";
+import { ChevronsDown, ChevronsUp, Folder, FolderOpen, GripVertical, Plus, Search, X } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -10,6 +10,8 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -70,6 +72,7 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
 
   const [addingGoal, setAddingGoal] = useState(false);
   const [newGoalInput, setNewGoalInput] = useState("");
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
   // Ref guard prevents the onKeyDown(Enter) + onBlur double-fire from
   // submitting the goal creation form twice in the same event cycle.
   const goalCreatingRef = useRef(false);
@@ -114,6 +117,12 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
     }
     return map;
   }, [jobs, tokensByJob]);
+
+  // The goal being dragged — used by the DragOverlay to render a compact card
+  const activeDragGoal = useMemo(
+    () => (activeDragId ? goals.find((g) => g.id === activeDragId) ?? null : null),
+    [activeDragId, goals],
+  );
 
   // ─── DnD sensors ─────────────────────────────────────────────────────────
 
@@ -326,22 +335,25 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
 
   // Unified handler for DndContexts that contain both goals and their nested
   // jobs. Detects whether the dragged item is a goal or a job and handles both.
+  // Only ROOT goals (no parentId) are reorderable in the outer SortableContext —
+  // child goals are disabled in useSortable and excluded from the items list.
   const handleContextDragEnd = useCallback((event: DragEndEvent, scopeGoals: typeof activeGoals) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
-    // Goal drag?
-    const goalOldIndex = scopeGoals.findIndex((g) => g.id === active.id);
+    // Goal drag? Only root goals can be reordered here
+    const rootGoals = scopeGoals.filter((g) => !g.parentId);
+    const goalOldIndex = rootGoals.findIndex((g) => g.id === active.id);
     if (goalOldIndex !== -1) {
-      const goalNewIndex = scopeGoals.findIndex((g) => g.id === over.id);
+      const goalNewIndex = rootGoals.findIndex((g) => g.id === over.id);
       if (goalNewIndex === -1) return;
-      const reordered = arrayMove(scopeGoals, goalOldIndex, goalNewIndex);
+      const reordered = arrayMove(rootGoals, goalOldIndex, goalNewIndex);
       flushSync(() => reorderGoalsOptimistic(reordered.map((g) => g.id)));
       api.reorderGoals({ items: reordered.map((g, i) => ({ id: g.id, sortOrder: i })) }).catch(() => {});
       return;
     }
 
-    // Job drag within a goal? Find the goal that owns it.
+    // Job drag within a goal? Search all scope goals (including children)
     for (const goal of scopeGoals) {
       const goalJobs = filteredJobsByGoal.get(goal.id) ?? [];
       const jobOldIndex = goalJobs.findIndex((j) => j.id === active.id);
@@ -590,12 +602,14 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
-            onDragStart={() => setIsDragActive(true)}
-            onDragEnd={(e) => { setIsDragActive(false); handleContextDragEnd(e, filteredGoals); }}
-            onDragCancel={() => setIsDragActive(false)}
+            onDragStart={(e: DragStartEvent) => { setIsDragActive(true); setActiveDragId(String(e.active.id)); }}
+            onDragEnd={(e) => { setIsDragActive(false); setActiveDragId(null); handleContextDragEnd(e, filteredGoals); }}
+            onDragCancel={() => { setIsDragActive(false); setActiveDragId(null); }}
           >
             <SortableContext
-              items={isDragActive ? filteredGoals.map((g) => g.id) : []} // Only register during active drag — prevents dnd-kit layout shifts during search filtering
+              // Only register ROOT goals — child goals are nested inside parent nodes and
+              // must not be registered here or dnd-kit's collision detection gets confused
+              items={isDragActive ? filteredGoals.filter((g) => !g.parentId).map((g) => g.id) : []}
               strategy={verticalListSortingStrategy}
             >
               {goalTree.map((node) => (
@@ -628,6 +642,16 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
                 />
               ))}
             </SortableContext>
+            {/* DragOverlay renders a compact card following the cursor, while the
+                original item is hidden (opacity-0) preserving its layout space */}
+            <DragOverlay dropAnimation={null}>
+              {activeDragGoal && (
+                <div className="flex items-center gap-1.5 rounded-md border border-sidebar-border bg-sidebar px-2 py-1 shadow-lg text-sm text-sidebar-foreground">
+                  <GripVertical className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{activeDragGoal.name || activeDragGoal.description}</span>
+                </div>
+              )}
+            </DragOverlay>
           </DndContext>
 
           {/* Standalone jobs (no goal) */}

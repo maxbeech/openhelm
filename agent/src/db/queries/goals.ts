@@ -92,23 +92,25 @@ export function updateGoal(params: UpdateGoalParams): Goal {
     }
   }
 
-  // If archiving, also archive all descendant goals and their jobs
+  // If archiving, also archive all descendant goals and their jobs atomically
   if (params.status === "archived" && existing.status !== "archived") {
     const descendants = getGoalDescendants(params.id);
-    for (const desc of descendants) {
-      db.update(goals)
-        .set({ status: "archived", updatedAt: now })
-        .where(eq(goals.id, desc.id))
-        .run();
-      db.update(jobs)
+    db.transaction((tx) => {
+      for (const desc of descendants) {
+        tx.update(goals)
+          .set({ status: "archived", updatedAt: now })
+          .where(eq(goals.id, desc.id))
+          .run();
+        tx.update(jobs)
+          .set({ isEnabled: false, isArchived: true, nextFireAt: null, updatedAt: now })
+          .where(eq(jobs.goalId, desc.id))
+          .run();
+      }
+      tx.update(jobs)
         .set({ isEnabled: false, isArchived: true, nextFireAt: null, updatedAt: now })
-        .where(eq(jobs.goalId, desc.id))
+        .where(eq(jobs.goalId, params.id))
         .run();
-    }
-    db.update(jobs)
-      .set({ isEnabled: false, isArchived: true, nextFireAt: null, updatedAt: now })
-      .where(eq(jobs.goalId, params.id))
-      .run();
+    });
   }
 
   const row = db
@@ -130,21 +132,31 @@ export function updateGoal(params: UpdateGoalParams): Goal {
 
 export function deleteGoal(id: string): boolean {
   const db = getDb();
-  // Delete associated jobs first (FK is set null, not cascade)
-  // Deleting jobs cascades to their runs and run_logs via FK
-  db.delete(jobs).where(eq(jobs.goalId, id)).run();
-  const result = db.delete(goals).where(eq(goals.id, id)).run();
-  return result.changes > 0;
+  // goals.parentId has ON DELETE CASCADE, so deleting a parent cascades to children.
+  // But jobs.goalId has ON DELETE SET NULL — without explicit cleanup the child goals'
+  // jobs would survive with a null goalId, leaking as orphaned standalone jobs.
+  const descendants = getGoalDescendants(id);
+  const allGoalIds = [id, ...descendants.map((d) => d.id)];
+  let result: { changes: number };
+  db.transaction((tx) => {
+    for (const gid of allGoalIds) {
+      tx.delete(jobs).where(eq(jobs.goalId, gid)).run();
+    }
+    result = tx.delete(goals).where(eq(goals.id, id)).run();
+  });
+  return result!.changes > 0;
 }
 
 /** Bulk-update sort_order for multiple goals */
 export function reorderGoals(params: BulkReorderParams): void {
   const db = getDb();
   const now = new Date().toISOString();
-  for (const item of params.items) {
-    db.update(goals)
-      .set({ sortOrder: item.sortOrder, updatedAt: now })
-      .where(eq(goals.id, item.id))
-      .run();
-  }
+  db.transaction((tx) => {
+    for (const item of params.items) {
+      tx.update(goals)
+        .set({ sortOrder: item.sortOrder, updatedAt: now })
+        .where(eq(goals.id, item.id))
+        .run();
+    }
+  });
 }

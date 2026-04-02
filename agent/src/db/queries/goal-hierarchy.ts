@@ -75,23 +75,25 @@ export function restoreGoalDeleteSnapshot(snapshot: GoalDeleteSnapshot): void {
   const db = getDb();
   const now = new Date().toISOString();
 
-  // Re-insert goals in order (parents before children)
-  for (const goal of snapshot.goals) {
-    const existing = db.select().from(goals).where(eq(goals.id, goal.id)).get();
-    if (existing) continue; // already restored (e.g. race condition)
-    db.insert(goals)
-      .values({
-        id: goal.id,
-        projectId: goal.projectId,
-        parentId: goal.parentId,
-        name: goal.name,
-        description: goal.description,
-        status: goal.status,
-        icon: goal.icon,
-        sortOrder: goal.sortOrder,
-        createdAt: goal.createdAt,
-        updatedAt: now,
-      })
-      .run();
-  }
+  // Re-insert goals in order (parents before children) atomically
+  db.transaction((tx) => {
+    for (const goal of snapshot.goals) {
+      const existing = tx.select().from(goals).where(eq(goals.id, goal.id)).get();
+      if (existing) continue; // already restored (e.g. race condition)
+      tx.insert(goals)
+        .values({
+          id: goal.id,
+          projectId: goal.projectId,
+          parentId: goal.parentId,
+          name: goal.name,
+          description: goal.description,
+          status: goal.status,
+          icon: goal.icon,
+          sortOrder: goal.sortOrder,
+          createdAt: goal.createdAt,
+          updatedAt: now,
+        })
+        .run();
+    }
+  });
 }

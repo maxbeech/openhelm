@@ -20,19 +20,27 @@ export function buildGoalTree(goals: Goal[]): GoalTreeNode[] {
     const node = byId.get(goal.id)!;
     if (goal.parentId && byId.has(goal.parentId)) {
       const parent = byId.get(goal.parentId)!;
-      node.depth = parent.depth + 1;
       parent.children.push(node);
     } else {
       roots.push(node);
     }
   }
 
-  // Sort children by sortOrder
+  // Sort children by sortOrder, then compute depths top-down so that
+  // depth is always correct regardless of the order goals arrived from the DB.
   const sortChildren = (nodes: GoalTreeNode[]) => {
     nodes.sort((a, b) => a.sortOrder - b.sortOrder);
     for (const node of nodes) sortChildren(node.children);
   };
   sortChildren(roots);
+
+  const assignDepths = (nodes: GoalTreeNode[], depth: number) => {
+    for (const node of nodes) {
+      node.depth = depth;
+      assignDepths(node.children, depth + 1);
+    }
+  };
+  assignDepths(roots, 0);
 
   return roots;
 }

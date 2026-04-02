@@ -47,10 +47,11 @@ export function SidebarGoalNode({
   onToggleCollapsed, onToggleGoalCollapsed, onSelectGoal, onSelectJob,
   onNewJobForGoal, onNewSubGoal, onMoveToRoot, onArchiveGoal, onDeleteGoal, onCloseSearch,
 }: SidebarGoalNodeProps) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({
-    id: goal.id, disabled: !isDragMode,
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    // Only root goals (depth 0) are reorderable in the outer SortableContext
+    id: goal.id, disabled: !isDragMode || goal.depth > 0,
   });
-  const style = { transform: CSS.Transform.toString(transform) };
+  const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition };
   const indent = goal.depth * 16;
 
   const [addingJob, setAddingJob] = useState(false);
@@ -73,7 +74,7 @@ export function SidebarGoalNode({
     <div
       ref={setNodeRef}
       style={style}
-      className={cn("group mb-1", isDragging && "opacity-50")}
+      className={cn("group mb-1", isDragging && "opacity-0")}
     >
       <SidebarGoalContextMenu
         goal={goal}
@@ -85,7 +86,10 @@ export function SidebarGoalNode({
       >
         <div
           className={cn(
-            "sticky top-[30px] z-10 bg-sidebar pr-3",
+            "bg-sidebar pr-3",
+            // sticky only when not dragging — CSS transform on dragged parent
+            // breaks sticky positioning in WebKit (Tauri WebView)
+            !isDragging && "sticky top-[30px] z-10",
             isNestTarget && "ring-2 ring-primary/50 rounded-md",
           )}
           style={{ paddingLeft: `${4 + indent}px` }}
