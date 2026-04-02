@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.1] - 2026-04-02
+
+### Fixed
+- Sentry OPENHELM-14/15: goal.children crash on drag-and-drop
+- Various bug fixes and stability improvements
+
+### Changed
+- Sidebar UX improvements and other minor enhancements
+
 ## [0.6.0] - 2026-04-01
 
 ### Added
