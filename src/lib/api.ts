@@ -561,6 +561,10 @@ export function checkTerminalAccess(): Promise<{ granted: boolean }> {
 // ── Power management ──────────────────────────────────────────────────────────
 
 export function checkWakeAuth(): Promise<{ authorized: boolean; error?: string }> {
+  return agentClient.request<{ authorized: boolean; error?: string }>("power.isAuthorized", {});
+}
+
+export function installWakeAuth(): Promise<{ authorized: boolean; error?: string }> {
   return agentClient.request<{ authorized: boolean; error?: string }>("power.checkAuth", {});
 }
 

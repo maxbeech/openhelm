@@ -302,6 +302,8 @@ export default function App() {
       if (!convId) return;
       if (data.status === "done") {
         setConvStatus(convId, null);
+        setConvSending(convId, false);
+        clearConvStreaming(convId);
         return;
       }
       clearConvStreaming(convId);
@@ -328,7 +330,7 @@ export default function App() {
         setConvStatus(convId, "Thinking...");
       }
     },
-    [clearConvStreaming, setConvStatus],
+    [clearConvStreaming, setConvStatus, setConvSending],
   );
 
   const handleChatStreaming = useCallback(

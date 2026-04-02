@@ -1,9 +1,6 @@
-// No local collapse state — collapse is managed by the app store for persistence
 import { useMemo, useState } from "react";
-import { ChevronRight, GripVertical } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { SidebarGoalNode } from "./sidebar-goal-node";
 import { GoalCreationSheet } from "@/components/goals/goal-creation-sheet";
 import { buildGoalTree } from "@/lib/goal-tree";
@@ -21,16 +18,17 @@ interface SidebarProjectGroupProps {
   selectedJobId: string | null;
   collapsedGoalIds: string[];
   isCollapsed: boolean;
-  isDragMode: boolean;
-  isDragActive: boolean;
+  dropTargetGoalId: string | null;
+  activeDragId: string | null;
   onSelectGoal: (id: string) => void;
   onSelectJob: (id: string) => void;
   onToggleCollapsed: () => void;
   onToggleGoalCollapsed: (id: string) => void;
   onNewJobForGoal: (goalId: string, initialName: string) => void;
+  onMoveToRoot: (goalId: string) => void;
+  onArchiveGoal: (goalId: string) => void;
+  onDeleteGoal: (goalId: string) => void;
   onCloseSearch?: () => void;
-  // Drag handle for job nodes within goal
-  jobDragMode: boolean;
 }
 
 export function SidebarProjectGroup({
@@ -44,51 +42,26 @@ export function SidebarProjectGroup({
   selectedJobId,
   collapsedGoalIds,
   isCollapsed,
-  isDragMode,
-  isDragActive,
+  dropTargetGoalId,
+  activeDragId,
   onSelectGoal,
   onSelectJob,
   onToggleCollapsed,
   onToggleGoalCollapsed,
   onNewJobForGoal,
+  onMoveToRoot,
+  onArchiveGoal,
+  onDeleteGoal,
   onCloseSearch,
-  jobDragMode,
 }: SidebarProjectGroupProps) {
 
   const goalTree = useMemo(() => buildGoalTree(goals), [goals]);
   const [pendingSubGoalParentId, setPendingSubGoalParentId] = useState<string | null>(null);
 
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    isDragging,
-  } = useSortable({ id: project.id, disabled: !isDragMode });
-
-  // No transition — prevents the FLIP snap-back animation on drag release
-  const style = { transform: CSS.Transform.toString(transform) };
-
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={cn("mb-2", isDragging && "opacity-50")}
-    >
+    <div className="mb-2">
       {/* Project group header */}
       <div className="group flex items-center gap-1 px-3 py-1">
-        {/* Grip always rendered to prevent layout shift; invisible when drag inactive */}
-        <span
-          {...(isDragMode ? { ...attributes, ...listeners } : {})}
-          className={cn(
-            "shrink-0",
-            isDragMode
-              ? "cursor-grab text-muted-foreground/40 opacity-0 transition-opacity hover:text-muted-foreground group-hover:opacity-100 active:cursor-grabbing"
-              : "invisible pointer-events-none cursor-default",
-          )}
-        >
-          <GripVertical className="size-3" />
-        </span>
         <button
           onClick={onToggleCollapsed}
           className="flex min-w-0 flex-1 items-center gap-1 text-left"
@@ -119,10 +92,8 @@ export function SidebarProjectGroup({
               contentView={contentView}
               selectedGoalId={selectedGoalId}
               selectedJobId={selectedJobId}
-              isDragMode={isDragMode}
-              isDragActive={isDragActive}
-              jobDragMode={jobDragMode}
-              nestTargetId={null}
+              dropTargetGoalId={dropTargetGoalId}
+              activeDragId={activeDragId}
               collapsedGoalIds={collapsedGoalIds}
               filteredJobsByGoal={jobsByGoal}
               onToggleCollapsed={() => onToggleGoalCollapsed(node.id)}
@@ -131,29 +102,26 @@ export function SidebarProjectGroup({
               onSelectJob={onSelectJob}
               onNewJobForGoal={onNewJobForGoal}
               onNewSubGoal={(parentGoalId) => setPendingSubGoalParentId(parentGoalId)}
-              onMoveToRoot={() => {}}
-              onArchiveGoal={() => {}}
-              onDeleteGoal={() => {}}
+              onMoveToRoot={onMoveToRoot}
+              onArchiveGoal={onArchiveGoal}
+              onDeleteGoal={onDeleteGoal}
               onCloseSearch={onCloseSearch}
             />
           ))}
-          {standaloneJobs.length > 0 && standaloneJobs.map((job) => {
-            // Standalone jobs within a project group — not sortable here (handled at tree level)
-            return (
-              <button
-                key={job.id}
-                onClick={() => onSelectJob(job.id)}
-                className={cn(
-                  "mb-0.5 flex w-full items-center gap-1.5 rounded-md py-1 pl-7 pr-2 text-left text-sm transition-colors",
-                  contentView === "job-detail" && selectedJobId === job.id
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
-                )}
-              >
-                <span className="truncate">{job.name}</span>
-              </button>
-            );
-          })}
+          {standaloneJobs.length > 0 && standaloneJobs.map((job) => (
+            <button
+              key={job.id}
+              onClick={() => onSelectJob(job.id)}
+              className={cn(
+                "mb-0.5 flex w-full items-center gap-1.5 rounded-md py-1 pl-7 pr-2 text-left text-sm transition-colors",
+                contentView === "job-detail" && selectedJobId === job.id
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
+              )}
+            >
+              <span className="truncate">{job.name}</span>
+            </button>
+          ))}
         </div>
       )}
 

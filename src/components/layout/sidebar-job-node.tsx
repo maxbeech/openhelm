@@ -1,7 +1,6 @@
 import { useMemo } from "react";
-import { Bot, GripVertical, Pause } from "lucide-react";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { Bot, Pause } from "lucide-react";
+import { useDraggable } from "@dnd-kit/core";
 import { NodeIcon } from "@/components/shared/node-icon";
 import type {
   Job,
@@ -18,10 +17,11 @@ interface SidebarJobNodeProps {
   job: Job;
   recentRuns: Run[];
   isSelected: boolean;
-  isDragMode: boolean;
   onSelect: () => void;
   /** Indent level for nested goals (0 = direct child of root goal) */
   indentLevel?: number;
+  /** When true, drag is disabled (used in archived section) */
+  disableDrag?: boolean;
 }
 
 function formatScheduleLabel(job: Job): string {
@@ -30,7 +30,6 @@ function formatScheduleLabel(job: Job): string {
       return "One-time";
     case "interval": {
       const raw = job.scheduleConfig as ScheduleConfigInterval & { minutes?: number };
-      // Support legacy { minutes } format from planner/chat
       const amount = raw.amount ?? (raw.minutes != null ? (raw.minutes >= 1440 ? raw.minutes / 1440 : raw.minutes >= 60 ? raw.minutes / 60 : raw.minutes) : 1);
       const unit = raw.unit ?? (raw.minutes != null ? (raw.minutes >= 1440 ? "days" : raw.minutes >= 60 ? "hours" : "minutes") : "days");
       const u = unit === "minutes" ? "min" : unit === "hours" ? "hr" : "day";
@@ -52,7 +51,6 @@ function formatScheduleLabel(job: Job): string {
       if (cfg.frequency === "daily") return `Daily · ${time}`;
       if (cfg.frequency === "weekly") {
         const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        // daysOfWeek (multi-day) takes precedence over legacy single-day dayOfWeek
         const label = cfg.daysOfWeek && cfg.daysOfWeek.length > 0
           ? cfg.daysOfWeek.map((d) => days[d]).join(", ")
           : days[cfg.dayOfWeek ?? 1];
@@ -68,9 +66,6 @@ function formatScheduleLabel(job: Job): string {
 }
 
 const dotColor: Record<RunStatus, string> = {
-  // "deferred" = run is waiting for a scheduled future time (scheduler promotes
-  // it to "queued" when its scheduledFor time arrives). Shown in blue to
-  // distinguish it from an actively queued run.
   deferred: "bg-blue-400",
   succeeded: "bg-emerald-500",
   failed: "bg-red-500",
@@ -102,12 +97,11 @@ export function SidebarJobNode({
   job,
   recentRuns,
   isSelected,
-  isDragMode,
   onSelect,
   indentLevel = 0,
+  disableDrag = false,
 }: SidebarJobNodeProps) {
   const scheduleLabel = useMemo(() => formatScheduleLabel(job), [job]);
-  // Last 5, reversed so newest on right (timeline reading order)
   const dots = recentRuns.slice(0, 5).reverse();
   const isDisabled = !job.isEnabled;
 
@@ -115,33 +109,24 @@ export function SidebarJobNode({
     attributes,
     listeners,
     setNodeRef,
-    transform,
     isDragging,
-  } = useSortable({ id: job.id, disabled: !isDragMode });
-
-  // No transition — prevents the FLIP snap-back animation on drag release
-  const style = { transform: CSS.Transform.toString(transform) };
+  } = useDraggable({
+    id: job.id,
+    data: { type: "job", jobId: job.id },
+    disabled: disableDrag,
+  });
 
   return (
     <div
       ref={setNodeRef}
-      style={{ ...style, paddingLeft: indentLevel > 0 ? `${indentLevel * 16}px` : undefined }}
-      className={cn("group flex items-stretch", isDragging && "opacity-50")}
+      {...(disableDrag ? {} : { ...attributes, ...listeners })}
+      style={{ paddingLeft: indentLevel > 0 ? `${indentLevel * 16}px` : undefined }}
+      className={cn(
+        "group flex items-stretch",
+        isDragging && "opacity-30",
+        !disableDrag && "cursor-grab active:cursor-grabbing",
+      )}
     >
-      {/* Grip always rendered to prevent layout shift; invisible when drag inactive.
-          The grip+padding total (pl-2=8px + icon 14px = 22px) plus the button's
-          pl-3.5 (14px) = 36px — matches the original non-drag pl-9 indent. */}
-      <span
-        {...(isDragMode ? { ...attributes, ...listeners } : {})}
-        className={cn(
-          "flex items-center pl-2",
-          isDragMode
-            ? "cursor-grab text-muted-foreground/40 opacity-0 transition-opacity hover:text-muted-foreground group-hover:opacity-100 active:cursor-grabbing"
-            : "invisible pointer-events-none cursor-default",
-        )}
-      >
-        <GripVertical className="size-3.5" />
-      </span>
       <button
         onClick={onSelect}
         className={cn(

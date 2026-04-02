@@ -94,6 +94,20 @@ def section_tool(section: str):
             return func
     return decorator
 
+async def _idle_cleanup_loop():
+    """Periodically close browser instances that have been idle too long.
+
+    This prevents Chrome processes from accumulating when Claude spawns
+    browsers but forgets to call close_instance before finishing.
+    """
+    while True:
+        await asyncio.sleep(60)  # check every 60 seconds
+        try:
+            await browser_manager.cleanup_inactive()
+        except Exception as e:
+            debug_logger.log_warning("server", "idle_cleanup", f"Idle cleanup error: {e}")
+
+
 @asynccontextmanager
 async def app_lifespan(server):
     """
@@ -105,9 +119,12 @@ async def app_lifespan(server):
     debug_logger.log_info("server", "startup", "Starting Browser Automation MCP Server...")
     # Load browser-injectable credentials from temp file and immediately delete it
     _load_browser_credentials()
+    # Start background task that auto-closes idle browser instances
+    cleanup_task = asyncio.create_task(_idle_cleanup_loop())
     try:
         yield
     finally:
+        cleanup_task.cancel()
         debug_logger.log_info("server", "shutdown", "Shutting down Browser Automation MCP Server...")
         try:
             await browser_manager.close_all()

@@ -15,7 +15,6 @@ interface CategoryDef {
 }
 
 const CATEGORIES: { key: SortCategory; def: CategoryDef }[] = [
-  { key: "custom",  def: { label: "Custom",      asc: "custom",       desc: "custom",       defaultDir: "asc"  } },
   { key: "alpha",   def: { label: "A – Z",        asc: "alpha_asc",    desc: "alpha_desc",   defaultDir: "asc"  } },
   { key: "created", def: { label: "Created at",   asc: "created_asc",  desc: "created_desc", defaultDir: "asc"  } },
   { key: "updated", def: { label: "Updated at",   asc: "updated_asc",  desc: "updated_desc", defaultDir: "asc"  } },
@@ -127,11 +126,6 @@ export function SortDropdown({
   }, []);
 
   const handleRowClick = (cat: SortCategory, def: CategoryDef) => {
-    if (cat === "custom") {
-      onChange("custom");
-      setOpen(false);
-      return;
-    }
     if (cat === activeCategory) {
       // Toggle direction if already selected
       onChange(value === def.asc ? def.desc : def.asc);

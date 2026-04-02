@@ -1,7 +1,6 @@
 """Browser instance management with nodriver."""
 
 import asyncio
-import sys
 import uuid
 from typing import Dict, Optional, List
 from datetime import datetime, timedelta
@@ -15,6 +14,7 @@ from persistent_storage import persistent_storage
 from dynamic_hook_system import dynamic_hook_system
 from platform_utils import get_platform_info, check_browser_executable, merge_browser_args
 from process_cleanup import process_cleanup
+from stealth import inject_stealth
 from macos_background import (
     is_macos,
     free_port as macos_free_port,
@@ -25,6 +25,9 @@ from macos_background import (
 
 class BrowserManager:
     """Manages multiple browser instances."""
+
+    # Idle timeout in seconds — instances unused for this long are auto-closed.
+    IDLE_TIMEOUT_SECONDS = 300  # 5 minutes
 
     def __init__(self):
         self._instances: Dict[str, dict] = {}
@@ -81,7 +84,7 @@ class BrowserManager:
 
             # --- Process tracking ---
             if used_background:
-                pid = await find_pid_on_port(config.port, retries=5, delay=0.2)
+                pid = await find_pid_on_port(config.port, retries=15, delay=0.3)
                 if pid:
                     process_cleanup.track_browser_process_by_pid(instance_id, pid)
                 else:
@@ -192,7 +195,16 @@ class BrowserManager:
 
     @staticmethod
     async def _configure_tab(tab, options: BrowserOptions):
-        """Apply user-agent, headers, and viewport to a connected tab."""
+        """Apply stealth JS, user-agent, headers, and viewport to a connected tab."""
+        # Inject stealth patches before any page JS runs
+        try:
+            await inject_stealth(tab)
+        except Exception as e:
+            debug_logger.log_warning(
+                "browser_manager", "_configure_tab",
+                f"Failed to inject stealth script: {e}"
+            )
+
         if options.user_agent:
             await tab.send(uc.cdp.emulation.set_user_agent_override(
                 user_agent=options.user_agent
@@ -208,9 +220,9 @@ class BrowserManager:
             width=options.viewport_width,
             height=options.viewport_height,
         )
-        print(
-            f"[DEBUG] Set viewport to {options.viewport_width}x{options.viewport_height}",
-            file=sys.stderr,
+        debug_logger.log_info(
+            "browser_manager", "_configure_tab",
+            f"Viewport: {options.viewport_width}x{options.viewport_height}, stealth injected"
         )
     
     async def _setup_dynamic_hooks(self, tab: Tab, instance_id: str):
@@ -229,6 +241,9 @@ class BrowserManager:
         """
         Get browser instance by ID.
 
+        Also refreshes the instance's last-activity timestamp so the idle
+        cleanup task knows the instance is still in use.
+
         Args:
             instance_id (str): The ID of the browser instance.
 
@@ -236,7 +251,10 @@ class BrowserManager:
             Optional[dict]: The browser instance data if found, else None.
         """
         async with self._lock:
-            return self._instances.get(instance_id)
+            data = self._instances.get(instance_id)
+            if data:
+                data['instance'].update_activity()
+            return data
 
     async def list_instances(self) -> List[BrowserInstance]:
         """
@@ -361,6 +379,11 @@ class BrowserManager:
             return await asyncio.wait_for(_do_close(), timeout=5.0)
         except asyncio.TimeoutError:
             debug_logger.log_info("browser_manager", "close_instance", f"Close timeout for {instance_id}, forcing cleanup")
+            # Kill the Chrome process even if CDP operations timed out
+            try:
+                process_cleanup.kill_browser_process(instance_id)
+            except Exception:
+                pass
             try:
                 async with self._lock:
                     if instance_id in self._instances:
@@ -588,15 +611,15 @@ class BrowserManager:
         except Exception as e:
             raise Exception(f"Failed to get page state: {str(e)}")
 
-    async def cleanup_inactive(self, timeout_minutes: int = 30):
+    async def cleanup_inactive(self, timeout_seconds: int = IDLE_TIMEOUT_SECONDS):
         """
-        Clean up inactive browser instances.
+        Close browser instances that have been idle longer than *timeout_seconds*.
 
-        Args:
-            timeout_minutes (int, optional): Timeout in minutes to consider an instance inactive. Defaults to 30.
+        Called periodically by the server's background cleanup task to prevent
+        Chrome processes from accumulating when Claude forgets to close them.
         """
         now = datetime.now()
-        timeout = timedelta(minutes=timeout_minutes)
+        timeout = timedelta(seconds=timeout_seconds)
 
         to_close = []
         async with self._lock:
@@ -606,6 +629,10 @@ class BrowserManager:
                     to_close.append(instance_id)
 
         for instance_id in to_close:
+            debug_logger.log_info(
+                "browser_manager", "cleanup_inactive",
+                f"Auto-closing idle browser instance {instance_id}",
+            )
             await self.close_instance(instance_id)
 
     async def close_all(self):

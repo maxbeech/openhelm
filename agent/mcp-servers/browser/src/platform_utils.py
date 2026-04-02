@@ -99,23 +99,27 @@ def get_required_sandbox_args() -> List[str]:
 
 def merge_browser_args(user_args: Optional[List[str]] = None) -> List[str]:
     """
-    Merge user-provided browser arguments with platform-specific required arguments.
-    
+    Merge user-provided browser arguments with platform-specific required arguments
+    and stealth args that prevent common bot-detection fingerprints.
+
     Args:
         user_args: User-provided browser arguments
-        
+
     Returns:
         List[str]: Combined list of browser arguments
     """
+    from stealth import get_stealth_args
+
     user_args = user_args or []
     required_args = get_required_sandbox_args()
-    
+    stealth_args = get_stealth_args()
+
     combined_args = list(user_args)
-    
-    for arg in required_args:
+
+    for arg in required_args + stealth_args:
         if arg not in combined_args:
             combined_args.append(arg)
-    
+
     return combined_args
 
 

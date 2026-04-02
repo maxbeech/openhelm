@@ -42,8 +42,8 @@ export function ExecutionSection() {
 
   async function handleWakeToggle(checked: boolean) {
     if (checked) {
-      // Verify admin auth before enabling — shows macOS password dialog
-      const result = await api.checkWakeAuth();
+      // Install sudoers entry — shows macOS password dialog
+      const result = await api.installWakeAuth();
       if (!result.authorized) {
         // User cancelled the auth dialog — don't enable
         return;

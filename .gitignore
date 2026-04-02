@@ -46,3 +46,4 @@ element_clones/
 # Local Claude config
 CLAUDE.local.md
 /~/.openhelm/browser-profile
+/docs
