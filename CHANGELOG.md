@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.0] - 2026-04-02
+
+### Added
+- Autopilot autonomous overhaul: significantly enhanced autopilot system to operate more independently with improved goal planning and execution
+- New scanner module for intelligent goal discovery and analysis
+- New metrics module for tracking autopilot performance and outcomes
+- Post-run assessment system for evaluating job results
+
+### Changed
+- Bump safe npm dependencies: `@sentry/react` + `@sentry/node` 10.46→10.47, `posthog-js` 1.364.3→1.364.4, and OpenTelemetry transitive updates
+- Bump Rust crates: `hyper` 1.8.1→1.9.0, `wasm-bindgen` 0.2.116→0.2.117, `js-sys`/`web-sys` 0.3.93→0.3.94, and related updates
+
+### Security
+- Reject non-absolute file paths in `data.export`, `data.importPreview`, and `data.importExecute` IPC handlers to prevent path traversal attacks via the dev bridge
+
 ## [0.6.1] - 2026-04-02
 
 ### Fixed
