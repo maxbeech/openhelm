@@ -84,6 +84,6 @@ async def write_intervention_request(
             f"Help request sent. The user has been notified to solve the CAPTCHA "
             f"at {page_url}. Poll every 30 seconds by taking a screenshot and "
             f"checking if the CAPTCHA is gone. Output a status message each time "
-            f"to prevent silence timeout. Give up after 5 minutes."
+            f"to prevent silence timeout. Give up after 15 minutes."
         ),
     }

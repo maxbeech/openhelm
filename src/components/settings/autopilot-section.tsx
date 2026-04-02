@@ -25,14 +25,17 @@ const MODE_DESCRIPTIONS: Record<AutopilotMode, string> = {
 export function AutopilotSection() {
   const [mode, setMode] = useState<AutopilotMode>("full_auto");
   const [maxRetries, setMaxRetries] = useState("2");
+  const [captainInterval, setCaptainInterval] = useState("30");
 
   useEffect(() => {
     Promise.all([
       api.getSetting("autopilot_mode"),
       api.getSetting("max_correction_retries"),
-    ]).then(([autopilot, retries]) => {
+      api.getSetting("captain_interval_minutes" as any),
+    ]).then(([autopilot, retries, interval]) => {
       if (autopilot?.value) setMode(autopilot.value as AutopilotMode);
       if (retries?.value) setMaxRetries(retries.value);
+      if (interval?.value) setCaptainInterval(interval.value);
     });
   }, []);
 
@@ -67,6 +70,32 @@ export function AutopilotSection() {
             {MODE_DESCRIPTIONS[mode]}
           </p>
         </div>
+
+        {mode !== "off" && (
+          <div className="space-y-1.5">
+            <Label className="text-sm">Autopilot scan frequency</Label>
+            <Select
+              value={captainInterval}
+              onValueChange={(v) => {
+                setCaptainInterval(v);
+                api.setSetting({ key: "captain_interval_minutes" as any, value: v });
+              }}
+            >
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="15">15 min</SelectItem>
+                <SelectItem value="30">30 min</SelectItem>
+                <SelectItem value="60">1 hour</SelectItem>
+                <SelectItem value="240">4 hours</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              How often Autopilot scans system health. Skips when nothing has changed.
+            </p>
+          </div>
+        )}
 
         {mode !== "off" && (
           <div className="space-y-1.5">

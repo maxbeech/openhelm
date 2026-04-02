@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { NodeIcon } from "@/components/shared/node-icon";
+import { OpenHelmIcon } from "@/components/shared/openhelm-icon";
 import { SidebarJobNode } from "./sidebar-job-node";
 import { SidebarGoalAddMenu } from "./sidebar-goal-add-menu";
 import { SidebarGoalContextMenu } from "./sidebar-goal-context-menu";
@@ -42,11 +43,13 @@ export function SidebarGoalNode({
   onToggleCollapsed, onToggleGoalCollapsed, onSelectGoal, onSelectJob,
   onNewJobForGoal, onNewSubGoal, onMoveToRoot, onArchiveGoal, onDeleteGoal, onCloseSearch,
 }: SidebarGoalNodeProps) {
+  const isSystem = !!goal.isSystem;
   const {
     attributes, listeners, setNodeRef: setDragRef, isDragging,
   } = useDraggable({
     id: goal.id,
     data: { type: "goal", goalId: goal.id },
+    disabled: isSystem,
   });
 
   // Droppable is ONLY on the header row — not the entire subtree.
@@ -80,12 +83,15 @@ export function SidebarGoalNode({
       {/* Combined drag handle + drop target on the header row only */}
       <div
         ref={(node) => { setDragRef(node); setDropRef(node); }}
-        {...attributes}
-        {...listeners}
-        style={{ paddingLeft: `${4 + indent}px` }}
+        {...(isSystem ? {} : { ...attributes, ...listeners })}
+        style={{
+          paddingLeft: `${4 + indent}px`,
+          ...(!isDragging ? { top: `${goal.depth * 28}px`, zIndex: 19 - goal.depth } : {}),
+        }}
         className={cn(
-          "bg-sidebar pr-3 cursor-grab active:cursor-grabbing select-none",
-          !isDragging && "sticky top-[30px] z-10",
+          "bg-sidebar pr-3 select-none",
+          !isSystem && "cursor-grab active:cursor-grabbing",
+          !isDragging && "sticky",
           isDragging && "opacity-30 pointer-events-none",
         )}
       >
@@ -97,7 +103,7 @@ export function SidebarGoalNode({
           onArchive={() => onArchiveGoal(goal.id)}
           onDelete={() => onDeleteGoal(goal.id)}
         >
-          <div className="flex items-center">
+          <div className="group flex items-center">
             <button
               onClick={(e) => { e.stopPropagation(); onToggleCollapsed(); }}
               className="flex size-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
@@ -121,6 +127,9 @@ export function SidebarGoalNode({
             >
               <NodeIcon icon={goal.icon} defaultIcon="flag" variant="goal" />
               <span className="truncate">{goal.name || goal.description}</span>
+              {isSystem && (
+                <OpenHelmIcon className="size-3 shrink-0 text-muted-foreground/60" />
+              )}
             </button>
             <SidebarGoalAddMenu
               onNewSubGoal={() => onNewSubGoal(goal.id)}
@@ -194,6 +203,7 @@ export function SidebarGoalNode({
               isSelected={contentView === "job-detail" && selectedJobId === job.id}
               onSelect={() => onSelectJob(job.id)}
               indentLevel={goal.depth + 1}
+              disableDrag={isSystem}
             />
           ))}
         </div>

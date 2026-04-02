@@ -36,6 +36,7 @@ export const goals = sqliteTable("goals", {
     .notNull()
     .default("active"),
   icon: text("icon"),
+  isSystem: integer("is_system", { mode: "boolean" }).notNull().default(false),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: text("created_at")
     .notNull()
@@ -166,7 +167,7 @@ export const dashboardItems = sqliteTable("inbox_items", {
   projectId: text("project_id")
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
-  type: text("type", { enum: ["permanent_failure", "human_in_loop", "autopilot_limit", "captcha_intervention", "auth_required", "mcp_unavailable"] }).notNull(),
+  type: text("type", { enum: ["permanent_failure", "human_in_loop", "autopilot_limit", "captcha_intervention", "auth_required", "mcp_unavailable", "captain_insight"] }).notNull(),
   status: text("status", { enum: ["open", "resolved", "dismissed"] })
     .notNull()
     .default("open"),
@@ -301,6 +302,7 @@ export const dataTables = sqliteTable("data_tables", {
   embedding: text("embedding"),
   /** Denormalized row count, updated on insert/delete */
   rowCount: integer("row_count").notNull().default(0),
+  isSystem: integer("is_system", { mode: "boolean" }).notNull().default(false),
   createdBy: text("created_by", { enum: ["user", "ai"] }).notNull().default("user"),
   createdAt: text("created_at")
     .notNull()

@@ -5,7 +5,6 @@ import * as jobQueries from "../../db/queries/jobs.js";
 import * as hierarchyQueries from "../../db/queries/goal-hierarchy.js";
 import { pickIcon } from "../../planner/icon-picker.js";
 import { extractMemoriesFromGoal } from "../../memory/goal-extractor.js";
-import { generateAndHandleSystemJobs } from "../../autopilot/index.js";
 import type {
   CreateGoalParams,
   UpdateGoalParams,
@@ -34,10 +33,8 @@ export function registerGoalHandlers() {
       console.error("[goals] memory extraction error:", err),
     );
 
-    // Fire-and-forget: generate autopilot system jobs for the new goal
-    generateAndHandleSystemJobs(goal.id, p.projectId).catch((err) =>
-      console.error("[goals] autopilot generation error:", err),
-    );
+    // Note: legacy system job generation removed — AutoCaptain handles
+    // proactive monitoring via its scanner tick.
 
     return goal;
   });
@@ -78,6 +75,9 @@ export function registerGoalHandlers() {
   registerHandler("goals.delete", (params) => {
     const { id } = params as { id: string };
     if (!id) throw new Error("id is required");
+    // Prevent deletion of system goals
+    const goal = goalQueries.getGoal(id);
+    if (goal?.isSystem) throw new Error("System goals cannot be deleted");
     // Collect snapshot before deletion for undo support
     const snapshot = hierarchyQueries.getGoalDeleteSnapshot(id);
     const deleted = goalQueries.deleteGoal(id);

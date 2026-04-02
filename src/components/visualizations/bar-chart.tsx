@@ -44,13 +44,17 @@ export function BarChartViz({ data, config, columns, compact }: Props) {
           width={compact ? 30 : 40}
         />
         <Tooltip
+          cursor={{ fill: "rgba(255,255,255,0.04)" }}
           contentStyle={{
-            backgroundColor: "hsl(var(--popover))",
-            border: "1px solid hsl(var(--border))",
-            borderRadius: "6px",
+            backgroundColor: "#0c1522",
+            border: "1px solid #1c3048",
+            borderRadius: 8,
             fontSize: 12,
-            color: "hsl(var(--popover-foreground))",
+            color: "#F8FAFC",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
           }}
+          labelStyle={{ color: "#6B8EAE", fontWeight: 600, marginBottom: 4 }}
+          itemStyle={{ padding: "1px 0" }}
         />
         {config.showLegend && !compact && <Legend wrapperStyle={{ fontSize: 12 }} />}
         {config.series.map((s, i) => (

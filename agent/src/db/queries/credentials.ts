@@ -1,4 +1,4 @@
-import { eq, and, or, desc, inArray, notInArray, sql } from "drizzle-orm";
+import { eq, and, or, desc, inArray, sql } from "drizzle-orm";
 import { getDb } from "../init.js";
 import { credentials, credentialScopeBindings, runCredentials } from "../schema.js";
 import { getJob } from "./jobs.js";
@@ -126,7 +126,7 @@ export function listCredentials(params?: ListCredentialsParams): Credential[] {
   if (params?.scopeType) conditions.push(eq(credentials.scopeType, params.scopeType));
   if (params?.projectId) {
     const projectId = params.projectId;
-    // Credentials accessible by this project: global (without bindings) + legacy project-scoped + bound via bindings
+    // Credentials accessible by this project: all global + legacy project-scoped + bound via bindings
     const boundIds = db
       .select({ credentialId: credentialScopeBindings.credentialId })
       .from(credentialScopeBindings)
@@ -139,18 +139,8 @@ export function listCredentials(params?: ListCredentialsParams): Credential[] {
       .all()
       .map((r) => r.credentialId);
 
-    // Credential IDs that have ANY binding (to exclude them from the "global" filter)
-    const allBoundIds = db
-      .selectDistinct({ credentialId: credentialScopeBindings.credentialId })
-      .from(credentialScopeBindings)
-      .all()
-      .map((r) => r.credentialId);
-
-    // Truly global = global scope with no bindings
-    const globalFilter =
-      allBoundIds.length > 0
-        ? and(eq(credentials.scopeType, "global"), notInArray(credentials.id, allBoundIds))!
-        : eq(credentials.scopeType, "global");
+    // Global credentials are always available regardless of bindings
+    const globalFilter = eq(credentials.scopeType, "global");
 
     const legacyProjectFilter = and(
       eq(credentials.scopeType, "project"),
@@ -297,7 +287,7 @@ export function resolveCredentialsForJob(jobId: string): Credential[] {
 
   // ── Legacy single-scope credentials ──────────────────────────────────────
   const legacyConditions = [
-    // Truly global = global scopeType with no bindings
+    // Global credentials are always available regardless of bindings
     eq(credentials.scopeType, "global"),
     and(eq(credentials.scopeType, "project"), eq(credentials.scopeId, job.projectId))!,
     and(eq(credentials.scopeType, "job"), eq(credentials.scopeId, jobId))!,
@@ -325,26 +315,8 @@ export function resolveCredentialsForJob(jobId: string): Credential[] {
     .all()
     .map((r) => r.credentialId);
 
-  // ── Exclude binding-based credentials from the "global" legacy filter ─────
-  // (A credential stored as scopeType="global" but with bindings should only
-  //  apply where it's explicitly bound, NOT everywhere.)
-  const allBoundCredentialIds = db
-    .selectDistinct({ credentialId: credentialScopeBindings.credentialId })
-    .from(credentialScopeBindings)
-    .all()
-    .map((r) => r.credentialId);
-
-  // Build the final filter
-  let globalFilter: ReturnType<typeof eq>;
-  if (allBoundCredentialIds.length > 0) {
-    globalFilter = and(
-      eq(credentials.scopeType, "global"),
-      notInArray(credentials.id, allBoundCredentialIds),
-    ) as ReturnType<typeof eq>;
-  } else {
-    globalFilter = eq(credentials.scopeType, "global");
-  }
-
+  // Build the final filter: global + legacy non-global + binding-matched
+  const globalFilter = eq(credentials.scopeType, "global");
   const nonGlobalLegacy = legacyConditions.slice(1); // remove the global one
   const allMatchConditions: ReturnType<typeof eq>[] = [
     globalFilter,

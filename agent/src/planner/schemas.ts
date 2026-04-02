@@ -139,6 +139,16 @@ export const SYSTEM_JOB_GENERATION_SCHEMA = {
   required: ["jobs"],
 } as const;
 
+export const OUTCOME_ASSESSMENT_SCHEMA = {
+  type: "object",
+  properties: {
+    accomplished: { type: "boolean" },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
+    reason: { type: "string" },
+  },
+  required: ["accomplished", "confidence", "reason"],
+} as const;
+
 export const PROMPT_ASSESSMENT_SCHEMA = {
   type: "object",
   properties: {

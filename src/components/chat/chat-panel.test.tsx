@@ -130,13 +130,14 @@ describe("ChatPanel", () => {
     expect(screen.getByText("Request Change")).toBeInTheDocument();
   });
 
-  it("renders Thinking... spinner while sending", () => {
+  it("renders animated logo while sending (no default text)", () => {
     useChatStore.setState({
       activeConversationId: "conv-1",
       conversationStates: { "conv-1": { sending: true, statusText: null, streamingText: "" } },
     });
     render(<ChatPanel projectId="p1" />);
-    expect(screen.getByText("Thinking...")).toBeInTheDocument();
+    // No default "Thinking..." text; only the animated logo is shown
+    expect(screen.queryByText("Thinking...")).not.toBeInTheDocument();
   });
 
   it("displays error banner when chat store has an error", () => {

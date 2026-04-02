@@ -527,7 +527,7 @@ describe("credential scope bindings", () => {
     expect(resolved.some((c) => c.id === cred.id)).toBe(true);
   });
 
-  it("resolveCredentialsForJob excludes binding-based credentials scoped to other jobs", () => {
+  it("global credentials with job bindings are available to all jobs", () => {
     const project = createTestProject();
     const job1 = createJob({
       projectId: project.id,
@@ -544,6 +544,8 @@ describe("credential scope bindings", () => {
       scheduleConfig: {},
     });
 
+    // Created with scopes → stored as scopeType="global" with bindings
+    // Global credentials are always available regardless of bindings
     const cred = createCredential({
       name: "Job2 Only Cred",
       type: "token",
@@ -552,13 +554,13 @@ describe("credential scope bindings", () => {
     });
 
     const resolvedForJob1 = resolveCredentialsForJob(job1.id);
-    expect(resolvedForJob1.some((c) => c.id === cred.id)).toBe(false);
+    expect(resolvedForJob1.some((c) => c.id === cred.id)).toBe(true);
 
     const resolvedForJob2 = resolveCredentialsForJob(job2.id);
     expect(resolvedForJob2.some((c) => c.id === cred.id)).toBe(true);
   });
 
-  it("binding-based global credentials don't apply to unrelated jobs", () => {
+  it("global credentials with bindings still resolve for all jobs", () => {
     const project = createTestProject();
     const job = createJob({
       projectId: project.id,
@@ -569,7 +571,7 @@ describe("credential scope bindings", () => {
     });
 
     // Credential with bindings: stored as scopeType="global" in the row,
-    // but bound to a different project — should NOT appear in job's resolved set
+    // bound to a different project — should STILL appear because it's global
     const otherProject = createProject({ name: "Other", directoryPath: "/other" });
     const cred = createCredential({
       name: "Other Project Only",
@@ -579,6 +581,44 @@ describe("credential scope bindings", () => {
     });
 
     const resolved = resolveCredentialsForJob(job.id);
-    expect(resolved.some((c) => c.id === cred.id)).toBe(false);
+    expect(resolved.some((c) => c.id === cred.id)).toBe(true);
+  });
+
+  it("global credentials with job bindings are available to unbound jobs", () => {
+    const project = createTestProject();
+    const jobA = createJob({
+      projectId: project.id,
+      name: "Job A",
+      prompt: "test",
+      scheduleType: "manual",
+      scheduleConfig: {},
+    });
+    const jobB = createJob({
+      projectId: project.id,
+      name: "Job B",
+      prompt: "test",
+      scheduleType: "manual",
+      scheduleConfig: {},
+    });
+    const jobC = createJob({
+      projectId: project.id,
+      name: "Job C",
+      prompt: "test",
+      scheduleType: "manual",
+      scheduleConfig: {},
+    });
+
+    // Create a global credential, then bind it to jobs A and B
+    const cred = createCredential({
+      name: "Bound Global",
+      type: "token",
+      value: { type: "token", value: "secret" },
+    });
+    setScopeBindingsForEntity({ scopeType: "job", scopeId: jobA.id, credentialIds: [cred.id] });
+    setScopeBindingsForEntity({ scopeType: "job", scopeId: jobB.id, credentialIds: [cred.id] });
+
+    // Job C should still see this global credential
+    const resolved = resolveCredentialsForJob(jobC.id);
+    expect(resolved.some((c) => c.id === cred.id)).toBe(true);
   });
 });

@@ -1,0 +1,197 @@
+import { useEffect, useId, useRef, useState } from "react";
+
+interface AnimatedHelmLogoProps {
+  animating: boolean;
+  size?: number;
+  className?: string;
+}
+
+/**
+ * Rotate a polygon around a pivot point and add a smooth billowing
+ * curvature. This creates the effect of a sail/canvas catching wind —
+ * the whole shape tilts while the free edge curves outward.
+ */
+function billowSail(
+  points: [number, number][],
+  pivotX: number,
+  pivotY: number,
+  rotationDeg: number,
+  curvature: number,
+  mastX: number,
+  samples = 18,
+): string {
+  // Find max distance from mast for curvature scaling
+  let maxDist = 0, minY = Infinity, maxY = -Infinity;
+  for (const [x, y] of points) {
+    const d = Math.abs(x - mastX);
+    if (d > maxDist) maxDist = d;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  const yRange = maxY - minY || 1;
+  if (maxDist === 0) maxDist = 1;
+
+  const rad = (rotationDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+
+  const out: [number, number][] = [];
+  for (let e = 0; e < points.length; e++) {
+    const [x0, y0] = points[e];
+    const [x1, y1] = points[(e + 1) % points.length];
+    for (let s = 0; s < samples; s++) {
+      const t = s / samples;
+      let x = x0 + (x1 - x0) * t;
+      let y = y0 + (y1 - y0) * t;
+
+      // Add curvature: displace horizontally, proportional to distance
+      // from mast and vertical bulge (maximum at centre of sail)
+      const distRatio = Math.abs(x - mastX) / maxDist;
+      const yNorm = (y - minY) / yRange;
+      const bulge = Math.sin(yNorm * Math.PI);
+      x += curvature * distRatio * distRatio * bulge;
+
+      // Rotate around pivot
+      const dx = x - pivotX;
+      const dy = y - pivotY;
+      x = pivotX + dx * cos - dy * sin;
+      y = pivotY + dx * sin + dy * cos;
+
+      out.push([x, y]);
+    }
+  }
+  if (out.length === 0) return "";
+  let d = `M${out[0][0].toFixed(1)} ${out[0][1].toFixed(1)}`;
+  for (let i = 1; i < out.length; i++) {
+    d += ` L${out[i][0].toFixed(1)} ${out[i][1].toFixed(1)}`;
+  }
+  return d + "Z";
+}
+
+const SAIL_RIGHT: [number, number][] = [
+  [502.5, 109.5], [443.5, 264.5], [290.5, 338], [290.5, 233],
+];
+const SAIL_TOP: [number, number][] = [
+  [396, 73], [376.5, 166], [290.5, 213.5], [290.5, 130.5],
+];
+const SAIL_LEFT: [number, number][] = [
+  [272, 64], [272, 338], [68, 264.5], [97.16, 128.44], [143.56, 86.52],
+];
+
+const REST = {
+  right: "M443.5 264.5L290.5 338V233L502.5 109.5L443.5 264.5Z",
+  top: "M376.5 166L290.5 213.5V130.5L396 73L376.5 166Z",
+  left: "M272 64V338L68 264.5C97.1647 128.441 143.563 86.522 272 64Z",
+};
+
+function computePaths(t: number, a: number) {
+  // Each sail: rotation oscillates smoothly, curvature follows independently
+  const rRight = a * 8 * Math.sin(t * 2.0);
+  const cRight = a * 45 * Math.sin(t * 2.0 + 0.5);
+
+  const rTop = a * 10 * Math.sin(t * 2.6 + 0.8);
+  const cTop = a * 35 * Math.sin(t * 2.6 + 1.3);
+
+  const rLeft = a * 7 * Math.sin(t * 1.7 + 1.5);
+  const cLeft = a * -40 * Math.sin(t * 1.7 + 2.0);
+
+  return {
+    right: billowSail(SAIL_RIGHT, 290, 290, rRight, cRight, 290),
+    top: billowSail(SAIL_TOP, 290, 170, rTop, cTop, 290),
+    left: billowSail(SAIL_LEFT, 272, 200, rLeft, cLeft, 272),
+  };
+}
+
+export function AnimatedHelmLogo({ animating, size = 28, className = "" }: AnimatedHelmLogoProps) {
+  const uid = useId().replace(/:/g, "");
+  const [visible, setVisible] = useState(!animating);
+  const [paths, setPaths] = useState(REST);
+
+  const animatingRef = useRef(animating);
+  const ampRef = useRef(animating ? 1 : 0);
+  const timeRef = useRef(0);
+  const prevTsRef = useRef(0);
+  const rafRef = useRef(0);
+
+  useEffect(() => { animatingRef.current = animating; }, [animating]);
+
+  useEffect(() => {
+    if (!visible) {
+      const f = requestAnimationFrame(() => setVisible(true));
+      return () => cancelAnimationFrame(f);
+    }
+  }, []);
+
+  useEffect(() => {
+    function tick(ts: number) {
+      const dt = prevTsRef.current ? (ts - prevTsRef.current) / 1000 : 0.016;
+      prevTsRef.current = ts;
+      timeRef.current += dt;
+
+      const target = animatingRef.current ? 1 : 0;
+      const amp = ampRef.current;
+      if (target > amp) ampRef.current = Math.min(1, amp + dt * 2.5);
+      else if (target < amp) ampRef.current = Math.max(0, amp - dt * 0.5);
+
+      const a = ampRef.current;
+      if (a < 0.003 && !animatingRef.current) {
+        setPaths(REST);
+        rafRef.current = 0;
+        return;
+      }
+
+      setPaths(computePaths(timeRef.current, a));
+      rafRef.current = requestAnimationFrame(tick);
+    }
+
+    cancelAnimationFrame(rafRef.current);
+    prevTsRef.current = 0;
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+    };
+  }, [animating]);
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 570 570"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      style={{
+        opacity: visible ? 1 : 0,
+        transform: visible ? "scale(1)" : "scale(0.5)",
+        transition: "opacity 0.4s ease-out, transform 0.4s ease-out",
+        flexShrink: 0,
+      }}
+    >
+      <defs>
+        <linearGradient id={`${uid}_g0`} x1="264" y1="231" x2="264" y2="506.702" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#6B8EAE" /><stop offset="1" stopColor="#96AEC5" />
+        </linearGradient>
+        <linearGradient id={`${uid}_g1`} x1="264" y1="231" x2="264" y2="506.702" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#6B8EAE" /><stop offset="1" stopColor="#96AEC5" />
+        </linearGradient>
+        <linearGradient id={`${uid}_g2`} x1="285.25" y1="64" x2="285.25" y2="338" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#E53D00" /><stop offset="1" stopColor="#FF6933" />
+        </linearGradient>
+        <linearGradient id={`${uid}_g3`} x1="285.25" y1="64" x2="285.25" y2="338" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#E53D00" /><stop offset="1" stopColor="#FF6933" />
+        </linearGradient>
+        <linearGradient id={`${uid}_g4`} x1="285.25" y1="64" x2="285.25" y2="338" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#E53D00" /><stop offset="1" stopColor="#FF6933" />
+        </linearGradient>
+      </defs>
+
+      <path d="M549.5 231L123 439.5C234.5 549.5 397.5 518 465.5 392L549.5 231Z" fill={`url(#${uid}_g0)`} fillOpacity="0.9" />
+      <path d="M114.5 424L259 353L21 268L114.5 424Z" fill={`url(#${uid}_g1)`} fillOpacity="0.9" />
+      <path d={paths.right} fill={`url(#${uid}_g2)`} fillOpacity="0.9" />
+      <path d={paths.top} fill={`url(#${uid}_g3)`} fillOpacity="0.9" />
+      <path d={paths.left} fill={`url(#${uid}_g4)`} fillOpacity="0.9" />
+    </svg>
+  );
+}

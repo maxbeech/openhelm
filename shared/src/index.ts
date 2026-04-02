@@ -71,6 +71,7 @@ export interface Goal {
   description: string;
   status: GoalStatus;
   icon: string | null;
+  isSystem: boolean;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
@@ -235,7 +236,11 @@ export type SettingKey =
   | "auth_interrupted_runs"
   | "autopilot_backfill_failures"
   | "stripe_trial_end"
-  | "terminal_access_granted";
+  | "terminal_access_granted"
+  | "show_system_items"
+  | "captain_interval_minutes"
+  | "captain_last_snapshot"
+  | "captain_investigation_cooldowns";
 
 export interface Setting {
   key: SettingKey;
@@ -265,6 +270,7 @@ export interface CreateGoalParams {
   name: string;
   description?: string;
   parentId?: string;
+  isSystem?: boolean;
 }
 
 export interface UpdateGoalParams {
@@ -794,7 +800,7 @@ export interface RegenerateSystemJobsParams {
 
 // ─── Dashboard Types ───
 
-export type DashboardItemType = "permanent_failure" | "human_in_loop" | "autopilot_limit" | "captcha_intervention" | "auth_required" | "mcp_unavailable";
+export type DashboardItemType = "permanent_failure" | "human_in_loop" | "autopilot_limit" | "captcha_intervention" | "auth_required" | "mcp_unavailable" | "captain_insight";
 export type DashboardItemStatus = "open" | "resolved" | "dismissed";
 
 export interface DashboardItem {
@@ -1224,6 +1230,7 @@ export interface DataTable {
   description: string | null;
   columns: DataTableColumn[];
   rowCount: number;
+  isSystem: boolean;
   createdBy: DataTableCreatedBy;
   createdAt: string;
   updatedAt: string;
@@ -1257,6 +1264,7 @@ export interface CreateDataTableParams {
   name: string;
   description?: string;
   columns: DataTableColumn[];
+  isSystem?: boolean;
   createdBy?: DataTableCreatedBy;
 }
 

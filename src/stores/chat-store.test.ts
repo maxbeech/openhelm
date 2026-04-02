@@ -289,12 +289,20 @@ describe("per-conversation state", () => {
   });
 
   it("appendConvStreaming accumulates text", () => {
+    useChatStore.getState().setConvSending("conv-1", true);
     useChatStore.getState().appendConvStreaming("conv-1", "Hello ");
     useChatStore.getState().appendConvStreaming("conv-1", "world");
     expect(useChatStore.getState().conversationStates["conv-1"]?.streamingText).toBe("Hello world");
   });
 
+  it("appendConvStreaming is no-op when sending is false", () => {
+    useChatStore.getState().setConvSending("conv-1", false);
+    useChatStore.getState().appendConvStreaming("conv-1", "stale text");
+    expect(useChatStore.getState().conversationStates["conv-1"]?.streamingText).toBe("");
+  });
+
   it("clearConvStreaming resets streaming text", () => {
+    useChatStore.getState().setConvSending("conv-1", true);
     useChatStore.getState().appendConvStreaming("conv-1", "text");
     useChatStore.getState().clearConvStreaming("conv-1");
     expect(useChatStore.getState().conversationStates["conv-1"]?.streamingText).toBe("");

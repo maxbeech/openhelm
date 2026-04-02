@@ -71,6 +71,10 @@ vi.mock("../src/planner/correction-evaluator.js", () => ({
   evaluateCorrectionNote: vi.fn().mockResolvedValue(null),
 }));
 
+vi.mock("../src/planner/outcome-assessor.js", () => ({
+  assessOutcome: vi.fn().mockResolvedValue(null),
+}));
+
 // Mock memory extraction — not under test here
 vi.mock("../src/memory/run-extractor.js", () => ({
   extractMemoriesFromRun: vi.fn().mockResolvedValue(undefined),
@@ -1177,5 +1181,134 @@ describe("Executor browser MCP preamble", () => {
     expect(capturedPrompt).not.toContain(BROWSER_MCP_PREAMBLE);
     expect(capturedPrompt).not.toContain(BROWSER_CAPTCHA_PREAMBLE);
     expect(capturedPrompt).toBe("navigate to example.com");
+  });
+});
+
+describe("Outcome assessment", () => {
+  it("keeps succeeded when assessOutcome returns null (LLM error)", async () => {
+    const { assessOutcome } = await import("../src/planner/outcome-assessor.js");
+    (assessOutcome as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const job = createJob({
+      projectId,
+      name: "Null Assessment Job",
+      prompt: "do something",
+      scheduleType: "once",
+      scheduleConfig: { fireAt: new Date().toISOString() },
+    });
+    const run = createRun({ jobId: job.id, triggerSource: "manual" });
+    queue.enqueue({ runId: run.id, jobId: job.id, priority: 0, enqueuedAt: Date.now() });
+
+    const executor = new Executor(mockRunner({ exitCode: 0, timedOut: false, killed: false }));
+    executor.processNext();
+
+    const deadline = Date.now() + 3000;
+    let updated = getRun(run.id);
+    while ((updated?.status === "running" || updated?.status === "queued") && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20));
+      updated = getRun(run.id);
+    }
+
+    expect(updated!.status).toBe("succeeded");
+  });
+
+  it("flips to failed when mission not accomplished with high confidence", async () => {
+    const { assessOutcome } = await import("../src/planner/outcome-assessor.js");
+    (assessOutcome as ReturnType<typeof vi.fn>).mockResolvedValue({
+      accomplished: false,
+      confidence: "high",
+      reason: "Login failed due to anti-bot block",
+    });
+
+    const job = createJob({
+      projectId,
+      name: "Failed Mission Job",
+      prompt: "log in and post",
+      scheduleType: "once",
+      scheduleConfig: { fireAt: new Date().toISOString() },
+    });
+    const run = createRun({ jobId: job.id, triggerSource: "manual" });
+    queue.enqueue({ runId: run.id, jobId: job.id, priority: 0, enqueuedAt: Date.now() });
+
+    const executor = new Executor(mockRunner({ exitCode: 0, timedOut: false, killed: false }));
+    executor.processNext();
+
+    const deadline = Date.now() + 3000;
+    let updated = getRun(run.id);
+    while ((updated?.status === "running" || updated?.status === "queued") && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20));
+      updated = getRun(run.id);
+    }
+
+    expect(updated!.status).toBe("failed");
+    expect(updated!.exitCode).toBe(0);
+
+    // Verify a log entry was created with the assessment reason
+    const logs = listRunLogs({ runId: run.id });
+    const assessmentLog = logs.find((l) => l.text.includes("Mission not accomplished"));
+    expect(assessmentLog).toBeDefined();
+    expect(assessmentLog!.stream).toBe("stderr");
+  });
+
+  it("keeps succeeded when confidence is low", async () => {
+    const { assessOutcome } = await import("../src/planner/outcome-assessor.js");
+    (assessOutcome as ReturnType<typeof vi.fn>).mockResolvedValue({
+      accomplished: false,
+      confidence: "low",
+      reason: "Ambiguous outcome",
+    });
+
+    const job = createJob({
+      projectId,
+      name: "Low Confidence Job",
+      prompt: "check something",
+      scheduleType: "once",
+      scheduleConfig: { fireAt: new Date().toISOString() },
+    });
+    const run = createRun({ jobId: job.id, triggerSource: "manual" });
+    queue.enqueue({ runId: run.id, jobId: job.id, priority: 0, enqueuedAt: Date.now() });
+
+    const executor = new Executor(mockRunner({ exitCode: 0, timedOut: false, killed: false }));
+    executor.processNext();
+
+    const deadline = Date.now() + 3000;
+    let updated = getRun(run.id);
+    while ((updated?.status === "running" || updated?.status === "queued") && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20));
+      updated = getRun(run.id);
+    }
+
+    expect(updated!.status).toBe("succeeded");
+  });
+
+  it("keeps succeeded when mission is accomplished", async () => {
+    const { assessOutcome } = await import("../src/planner/outcome-assessor.js");
+    (assessOutcome as ReturnType<typeof vi.fn>).mockResolvedValue({
+      accomplished: true,
+      confidence: "high",
+      reason: "All tasks completed successfully",
+    });
+
+    const job = createJob({
+      projectId,
+      name: "Accomplished Job",
+      prompt: "do the thing",
+      scheduleType: "once",
+      scheduleConfig: { fireAt: new Date().toISOString() },
+    });
+    const run = createRun({ jobId: job.id, triggerSource: "manual" });
+    queue.enqueue({ runId: run.id, jobId: job.id, priority: 0, enqueuedAt: Date.now() });
+
+    const executor = new Executor(mockRunner({ exitCode: 0, timedOut: false, killed: false }));
+    executor.processNext();
+
+    const deadline = Date.now() + 3000;
+    let updated = getRun(run.id);
+    while ((updated?.status === "running" || updated?.status === "queued") && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20));
+      updated = getRun(run.id);
+    }
+
+    expect(updated!.status).toBe("succeeded");
   });
 });

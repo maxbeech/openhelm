@@ -55,6 +55,9 @@ function isOnCooldown(goalId: string): boolean {
   return Date.now() - failedAt < BACKFILL_COOLDOWN_MS;
 }
 
+// Re-export scanner so callers only need to import from autopilot/index.js
+export { autopilotScanner } from "./scanner.js";
+
 /** Clear cooldown for a goal (called on manual regeneration). */
 export function clearBackfillCooldown(goalId: string): void {
   const map = getBackfillFailures();

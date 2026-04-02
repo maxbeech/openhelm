@@ -123,6 +123,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   })),
   appendConvStreaming: (convId, text) => set((s) => {
     const prev = s.conversationStates[convId] ?? DEFAULT_CONV_STATE;
+    // Guard: don't append streaming text if sending was already cleared
+    // (message committed). Prevents stale streaming events from causing
+    // duplicate text during the streaming→message transition.
+    if (!prev.sending) return s;
     return { conversationStates: { ...s.conversationStates, [convId]: { ...prev, streamingText: prev.streamingText + text } } };
   }),
   clearConvStreaming: (convId) => set((s) => ({

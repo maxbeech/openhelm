@@ -61,7 +61,7 @@ export async function readClaudeUsageByDate(
   }
 
   const cutoff = Date.now() - maxAgeMs;
-  const jsonlFiles = findRecentJsonlFiles(CLAUDE_PROJECTS_DIR, cutoff);
+  const jsonlFiles = await findRecentJsonlFiles(CLAUDE_PROJECTS_DIR, cutoff);
 
   const byDate = new Map<string, DailyUsage>();
 
@@ -77,35 +77,37 @@ export async function readClaudeUsageByDate(
   return byDate;
 }
 
-/** Recursively find all .jsonl files modified after `cutoff` epoch ms */
-function findRecentJsonlFiles(dir: string, cutoff: number): string[] {
+/** Recursively find all .jsonl files modified after `cutoff` epoch ms (async — avoids blocking the event loop) */
+async function findRecentJsonlFiles(dir: string, cutoff: number): Promise<string[]> {
   const results: string[] = [];
 
-  function recurse(current: string) {
+  async function recurse(current: string): Promise<void> {
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
+      entries = await fs.promises.readdir(current, { withFileTypes: true });
     } catch {
       return;
     }
-    for (const entry of entries) {
-      const full = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        recurse(full);
-      } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-        try {
-          const stat = fs.statSync(full);
-          if (stat.mtimeMs >= cutoff) {
-            results.push(full);
+    await Promise.all(
+      entries.map(async (entry) => {
+        const full = path.join(current, entry.name);
+        if (entry.isDirectory()) {
+          await recurse(full);
+        } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+          try {
+            const stat = await fs.promises.stat(full);
+            if (stat.mtimeMs >= cutoff) {
+              results.push(full);
+            }
+          } catch {
+            // ignore stat errors
           }
-        } catch {
-          // ignore stat errors
         }
-      }
-    }
+      }),
+    );
   }
 
-  recurse(dir);
+  await recurse(dir);
   return results;
 }
 

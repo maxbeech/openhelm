@@ -13,7 +13,7 @@ import { getSetting } from "./db/queries/settings.js";
 import { initAgentSentry, captureAgentError } from "./sentry.js";
 import { initPowerManagement, shutdownPowerManagement } from "./power/index.js";
 import { startPeriodicVerifier, stopPeriodicVerifier } from "./license/periodic-verifier.js";
-import { backfillMissingAutopilotJobs } from "./autopilot/index.js";
+import { backfillMissingAutopilotJobs, autopilotScanner } from "./autopilot/index.js";
 import { backfillMissingVisualizations } from "./data-tables/visualization-suggester.js";
 import { usageService } from "./usage/service.js";
 import { cleanupOrphanedConfigs } from "./mcp-servers/mcp-config-builder.js";
@@ -111,6 +111,7 @@ rl.on("close", () => {
   console.error("[agent] stdin closed, shutting down");
   scheduler.stop();
   executor.stopAll();
+  autopilotScanner.stop();
   stopPeriodicVerifier();
   shutdownPowerManagement().finally(() => process.exit(0));
 });
@@ -170,10 +171,8 @@ try {
 // Process any re-enqueued runs from crash recovery
 executor.processNext();
 
-// 7d. Backfill system jobs for goals that don't have any (non-blocking)
-backfillMissingAutopilotJobs().catch((err) =>
-  console.error("[agent] autopilot backfill failed (non-fatal):", err),
-);
+// 7d. Start AutoCaptain scanner (replaces legacy system job backfill)
+autopilotScanner.start();
 
 // 7e2. Backfill missing visualizations for data tables with sufficient numeric data
 try {

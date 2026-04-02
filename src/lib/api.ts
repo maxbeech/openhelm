@@ -784,4 +784,12 @@ export function getUsageSummary(): Promise<UsageSummary> {
   return agentClient.request<UsageSummary>("usage.getSummary");
 }
 
+// ─── Autopilot Scanner ───
 
+export function getAutopilotStatus(): Promise<{ intervalMinutes: number }> {
+  return agentClient.request("autopilot.getStatus");
+}
+
+export function forceAutopilotScan(): Promise<{ success: boolean }> {
+  return agentClient.request("autopilot.forceScan");
+}

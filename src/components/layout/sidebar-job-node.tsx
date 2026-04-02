@@ -1,7 +1,8 @@
 import { useMemo } from "react";
-import { Bot, Pause } from "lucide-react";
+import { Pause } from "lucide-react";
 import { useDraggable } from "@dnd-kit/core";
 import { NodeIcon } from "@/components/shared/node-icon";
+import { OpenHelmIcon } from "@/components/shared/openhelm-icon";
 import type {
   Job,
   Run,
@@ -152,7 +153,7 @@ export function SidebarJobNode({
             <Pause className="size-3 shrink-0 fill-muted-foreground/50 text-muted-foreground/50" />
           )}
           {job.source === "system" && (
-            <Bot className="size-3 shrink-0 text-muted-foreground/60" />
+            <OpenHelmIcon className="size-3 shrink-0 text-muted-foreground/60" />
           )}
           <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-3xs leading-none text-muted-foreground">
             {normalizeModelShortName(job.model)}

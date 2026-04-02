@@ -8,6 +8,8 @@ import { useRunStore } from "@/stores/run-store";
 
 vi.mock("@/lib/api", () => ({
   getJobTokenStats: vi.fn().mockResolvedValue([]),
+  getSetting: vi.fn().mockResolvedValue(null),
+  setSetting: vi.fn().mockResolvedValue(undefined),
 }));
 
 const mockGoals = [
@@ -18,6 +20,7 @@ const mockGoals = [
     name: "Improve test coverage",
     description: "Improve test coverage",
     icon: null,
+    isSystem: false,
     status: "active" as const,
     sortOrder: 0,
     createdAt: "2026-01-01",

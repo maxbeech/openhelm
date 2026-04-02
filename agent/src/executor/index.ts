@@ -31,6 +31,7 @@ import { getSetting, deleteSetting } from "../db/queries/settings.js";
 import { computeNextFireAt } from "../scheduler/schedule.js";
 import { emit } from "../ipc/emitter.js";
 import { generateRunSummary } from "../planner/summarize.js";
+import { assessOutcome, type OutcomeAssessment } from "../planner/outcome-assessor.js";
 import { evaluateCorrectionNote } from "../planner/correction-evaluator.js";
 import { extractMemoriesFromRun } from "../memory/run-extractor.js";
 import { retrieveMemories } from "../memory/retriever.js";
@@ -52,6 +53,7 @@ import {
 import { InterventionWatcher, cleanupOrphanedInterventions } from "./intervention-watcher.js";
 import { isAuthError, handleAuthFailure } from "./auth-monitor.js";
 import { isMcpError, handleMcpFailure } from "./mcp-monitor.js";
+import { handleAutopilotRunCompleted } from "../autopilot/post-run.js";
 
 const DEFAULT_MAX_CONCURRENCY = 2;
 const DEFAULT_TIMEOUT_MS = 0; // No limit (silence timeout catches stuck processes)
@@ -734,6 +736,7 @@ export class Executor {
 
     // Determine final status
     let finalStatus: RunStatus;
+    let outcomeAssessment: OutcomeAssessment | null = null;
     if (result.killed && isHitlKill) {
       finalStatus = "failed";
     } else if (result.killed) {
@@ -747,6 +750,21 @@ export class Executor {
       });
     } else if (result.exitCode === 0) {
       finalStatus = "succeeded";
+
+      // Outcome verification: LLM checks if the mission was actually accomplished
+      try {
+        outcomeAssessment = await assessOutcome(runId, job.prompt);
+        if (outcomeAssessment && !outcomeAssessment.accomplished && outcomeAssessment.confidence !== "low") {
+          finalStatus = "failed";
+          createRunLog({
+            runId,
+            stream: "stderr",
+            text: `Mission not accomplished (${outcomeAssessment.confidence} confidence): ${outcomeAssessment.reason}`,
+          });
+        }
+      } catch {
+        // Assessment failure → keep "succeeded" (optimistic fallback)
+      }
     } else {
       finalStatus = "failed";
     }
@@ -782,6 +800,10 @@ export class Executor {
       exitCode: result.exitCode,
       timedOut: result.timedOut,
     });
+
+    // Handle autopilot investigation completions (creates dashboard items)
+    const run = getRun(runId);
+    if (run) handleAutopilotRunCompleted(run);
 
     // Self-correction: attempt auto-retry for all failed runs
     // (silence timeouts are the only HITL kill type now — all are retryable)
@@ -822,6 +844,8 @@ export class Executor {
         failureContext = `Process was SIGKILL'd (exit 137) — possibly OOM or external force-kill. The task may have been partially completed.`;
       } else if (result.exitCode !== null && result.exitCode !== 0) {
         failureContext = `The run exited with code ${result.exitCode}.`;
+      } else if (result.exitCode === 0 && outcomeAssessment && !outcomeAssessment.accomplished) {
+        failureContext = `The run exited cleanly (exit code 0) but the mission was NOT accomplished: ${outcomeAssessment.reason}. The task may need a different approach, different credentials, or a workaround for blockers like anti-bot systems.`;
       }
 
       const failureSignal: FailureSignal = {

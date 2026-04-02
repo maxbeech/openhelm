@@ -19,7 +19,6 @@ import { registerDataTableHandlers } from "./data-tables.js";
 import { registerTargetHandlers } from "./targets.js";
 import { registerVisualizationHandlers } from "./visualizations.js";
 import { registerUsageHandlers } from "./usage.js";
-
 /** Register all domain IPC handlers */
 export function registerAllHandlers() {
   registerProjectHandlers();

@@ -175,6 +175,17 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--color-muted-foreground);
 }
 
+/* Sidebar scroll — native scrollbar hidden; a JS-driven custom thumb is
+   rendered as a sibling div (see SidebarTree). The wrapper uses
+   padding-right to permanently reserve gutter space so content never shifts. */
+.sidebar-scroll {
+  overflow-y: auto;
+  scrollbar-width: none;          /* Firefox */
+}
+.sidebar-scroll::-webkit-scrollbar {
+  display: none;                  /* WebKit — hide native scrollbar */
+}
+
 /* Hide scrollbar while preserving scroll functionality */
 .scrollbar-hide {
   -ms-overflow-style: none;

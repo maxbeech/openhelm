@@ -39,6 +39,7 @@ export function createGoal(params: CreateGoalParams): Goal {
       name: params.name,
       description: params.description ?? "",
       status: "active",
+      isSystem: params.isSystem ?? false,
       sortOrder,
       createdAt: now,
       updatedAt: now,

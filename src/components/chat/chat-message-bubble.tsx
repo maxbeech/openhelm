@@ -18,16 +18,8 @@ interface ChatMessageBubbleProps {
 export function ChatMessageBubble({ message, projectId }: ChatMessageBubbleProps) {
   const isUser = message.role === "user";
 
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8, scale: 0.97 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
-      className={cn(
-        "flex flex-col",
-        isUser ? "items-end" : "items-start",
-      )}
-    >
+  const content = (
+    <>
       <div
         className={cn(
           "max-w-[85%] rounded-xl px-3 py-2 text-sm",
@@ -59,7 +51,6 @@ export function ChatMessageBubble({ message, projectId }: ChatMessageBubbleProps
           <p className="text-xs text-muted-foreground">Suggested actions:</p>
         ) : null}
 
-        {/* Pending write-action group with batch approve/request change */}
         {message.pendingActions && message.pendingActions.length > 0 && (
           <ActionGroup
             messageId={message.id}
@@ -74,6 +65,28 @@ export function ChatMessageBubble({ message, projectId }: ChatMessageBubbleProps
           minute: "2-digit",
         })}
       </span>
+    </>
+  );
+
+  // Only user messages get entrance animation. Assistant messages always
+  // render with a plain div to prevent unmount/remount flashes during the
+  // streaming → final message transition.
+  if (!isUser) {
+    return (
+      <div className="flex flex-col items-start">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
+      className="flex flex-col items-end"
+    >
+      {content}
     </motion.div>
   );
 }

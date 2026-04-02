@@ -11,7 +11,9 @@ import {
   getAutopilotMode,
   generateAndHandleSystemJobs,
   clearBackfillCooldown,
+  autopilotScanner,
 } from "../../autopilot/index.js";
+import { getSetting } from "../../db/queries/settings.js";
 import type {
   ListAutopilotProposalsParams,
   ApproveAutopilotProposalParams,
@@ -115,6 +117,19 @@ export function registerAutopilotHandlers() {
     if (!goalId || !projectId) throw new Error("goalId and projectId are required");
     clearBackfillCooldown(goalId);
     await generateAndHandleSystemJobs(goalId, projectId);
+    return { success: true };
+  });
+
+  registerHandler("autopilot.getStatus", () => {
+    const intervalSetting = getSetting("captain_interval_minutes");
+    const intervalMinutes = intervalSetting?.value
+      ? parseInt(intervalSetting.value, 10) || 30
+      : 30;
+    return { intervalMinutes };
+  });
+
+  registerHandler("autopilot.forceScan", async () => {
+    await autopilotScanner.forceScan();
     return { success: true };
   });
 }

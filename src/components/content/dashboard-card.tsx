@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { AlertTriangle, Clock, KeyRound, Monitor, Server } from "lucide-react";
+import { AlertTriangle, Clock, Compass, KeyRound, Monitor, Server } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useRunStore } from "@/stores/run-store";
@@ -45,6 +45,7 @@ export function DashboardCard({ item }: { item: DashboardItem }) {
   const isCaptcha = item.type === "captcha_intervention";
   const isAuth = item.type === "auth_required";
   const isMcp = item.type === "mcp_unavailable";
+  const isCaptain = item.type === "captain_insight";
 
   const rawDescription = run?.summary?.trim() || item.message || "";
   const description =
@@ -161,6 +162,8 @@ export function DashboardCard({ item }: { item: DashboardItem }) {
               <Monitor className="mt-0.5 size-5 shrink-0 text-blue-500" />
             ) : isMcp ? (
               <Server className="mt-0.5 size-5 shrink-0 text-amber-500" />
+            ) : isCaptain ? (
+              <Compass className="mt-0.5 size-5 shrink-0 text-primary" />
             ) : (
               <Clock className="mt-0.5 size-5 shrink-0 text-amber-500" />
             )}

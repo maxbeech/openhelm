@@ -7,7 +7,7 @@
 import { readdirSync, readFileSync, unlinkSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { createDashboardItem } from "../db/queries/dashboard-items.js";
+import { createDashboardItem, resolveDashboardItem } from "../db/queries/dashboard-items.js";
 import { emit } from "../ipc/emitter.js";
 
 const POLL_INTERVAL_MS = 5_000;
@@ -35,6 +35,8 @@ export class InterventionWatcher {
   private projectId: string;
   private timer: ReturnType<typeof setInterval> | null = null;
   private processed = new Set<string>();
+  /** IDs of dashboard items created by this watcher — auto-dismissed on stop(). */
+  private createdItemIds: string[] = [];
 
   constructor(runId: string, jobId: string, projectId: string) {
     this.runId = runId;
@@ -53,6 +55,18 @@ export class InterventionWatcher {
       clearInterval(this.timer);
       this.timer = null;
     }
+    // Auto-dismiss any open CAPTCHA alerts created by this watcher so stale
+    // cards don't linger after the AI has already given up and moved on.
+    for (const id of this.createdItemIds) {
+      try {
+        const resolved = resolveDashboardItem(id, "dismissed");
+        emit("dashboard.resolved", resolved);
+        console.error(`[intervention] auto-dismissed stale CAPTCHA alert ${id} for run ${this.runId}`);
+      } catch {
+        // Item may already be resolved by user — ignore
+      }
+    }
+    this.createdItemIds = [];
     // Clean up any remaining files for this run
     this.cleanupRunFiles();
   }
@@ -93,6 +107,7 @@ export class InterventionWatcher {
         message: request.reason,
       });
 
+      this.createdItemIds.push(item.id);
       emit("dashboard.created", item);
       console.error(`[intervention] dashboard alert created for run ${this.runId}: ${request.reason}`);
 

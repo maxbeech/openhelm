@@ -231,7 +231,7 @@ describe("handleActionApproval", () => {
     expect(resolved![1]).toMatchObject({ status: "approved" });
   });
 
-  it("triggers autopilot with the real goal ID after create_goal approval", async () => {
+  it("creates a goal via chat approval without triggering legacy autopilot", async () => {
     const proj = createProject({ name: "Autopilot Trigger Test", directoryPath: "/tmp/autopilot-trigger" });
     callLlmViaCliMock.mockResolvedValueOnce(
       { text: `<tool_call>{"tool":"create_goal","args":{"name":"Autopilot Goal"}}</tool_call>`, sessionId: null },
@@ -240,18 +240,11 @@ describe("handleActionApproval", () => {
     const msgs = await handleChatMessage(proj.id, "Create a goal");
     const action = msgs[1].pendingActions![0];
 
-    generateAndHandleSystemJobsMock.mockClear();
     await handleActionApproval(msgs[1].id, action.callId, proj.id);
 
-    expect(generateAndHandleSystemJobsMock).toHaveBeenCalledOnce();
-    const [calledGoalId, calledProjectId] = generateAndHandleSystemJobsMock.mock.calls[0];
-    // The goal ID must be a real DB ID (not undefined / "pending" / the placeholder sentinel)
-    expect(calledGoalId).toBeTruthy();
-    expect(calledGoalId).not.toBe("pending");
-    expect(calledProjectId).toBe(proj.id);
-    // Confirm the ID matches the actually-created goal
-    const goal = getGoal(calledGoalId);
-    expect(goal?.name).toBe("Autopilot Goal");
+    // Legacy system job generation no longer triggered — AutoCaptain handles
+    // proactive monitoring via its scanner tick.
+    expect(generateAndHandleSystemJobsMock).not.toHaveBeenCalled();
   });
 
   it("does not trigger autopilot when approving a non-create_goal action", async () => {

@@ -67,8 +67,11 @@ export function registerDataTableHandlers() {
     const { id } = params as { id: string };
     if (!id) throw new Error("id is required");
 
-    // Before deleting, clean up relation columns in other tables pointing to this one
+    // Prevent deletion of system data tables
     const table = dtQueries.getDataTable(id);
+    if (table?.isSystem) throw new Error("System data tables cannot be deleted");
+
+    // Before deleting, clean up relation columns in other tables pointing to this one
     let modifiedTableIds: string[] = [];
     if (table) {
       modifiedTableIds = dtQueries.cleanupRelationColumnsForDeletedTable(id, table.projectId);

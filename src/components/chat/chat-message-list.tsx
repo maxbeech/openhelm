@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
-import { Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChatMessageBubble } from "./chat-message-bubble";
+import { AnimatedHelmLogo } from "./animated-helm-logo";
 import { useChatStore } from "@/stores/chat-store";
 import type { ChatMessage } from "@openhelm/shared";
 
@@ -19,7 +19,6 @@ export function ChatMessageList({ messages, sending, projectId }: ChatMessageLis
   const streamingText = convState?.streamingText ?? "";
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom on new messages or streaming chunks
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, sending, streamingText]);
@@ -35,36 +34,53 @@ export function ChatMessageList({ messages, sending, projectId }: ChatMessageLis
     );
   }
 
+  // If the last message is already an assistant response, the streaming
+  // indicator must not show. The appendConvStreaming store guard also
+  // prevents stale text from accumulating after sending is cleared.
+  const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+  const showSending = sending && lastMsg?.role !== "assistant";
+
   return (
     <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
-      {messages.map((msg) => (
-        <ChatMessageBubble key={msg.id} message={msg} projectId={projectId} />
-      ))}
-      {sending && (
-        <>
-          {/* Status indicator */}
-          <div className="flex items-start gap-2">
-            <div className="flex items-center gap-1.5 rounded-xl bg-muted px-3 py-2 text-sm text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" />
-              {statusText ?? "Thinking..."}
+      {messages.map((msg) => {
+        if (msg.role === "user") {
+          return <ChatMessageBubble key={msg.id} message={msg} projectId={projectId} />;
+        }
+        return (
+          <div key={msg.id} className="flex items-start gap-2">
+            <div className="mt-1 flex-shrink-0">
+              <AnimatedHelmLogo animating={false} size={28} />
             </div>
+            <ChatMessageBubble message={msg} projectId={projectId} />
           </div>
-          {/* Streaming text preview — shown as Claude generates the response */}
-          {streamingText && (
-            <div className="flex flex-col items-start">
+        );
+      })}
+
+      {showSending && (
+        <div className="flex items-start gap-2">
+          <div className="mt-1 flex-shrink-0">
+            <AnimatedHelmLogo animating={true} size={28} />
+          </div>
+          <div className="flex flex-col items-start gap-2">
+            {!streamingText && statusText && (
+              <div className="rounded-xl bg-muted px-3 py-2 text-sm text-muted-foreground">
+                {statusText}
+              </div>
+            )}
+            {streamingText && (
               <div className="max-w-[85%] rounded-xl bg-muted px-3 py-2 text-sm text-foreground opacity-80">
-                <div className="markdown-content break-words leading-relaxed">
+                <div className="markdown-content break-words leading-relaxed [&>*:last-child]:inline">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
                     {streamingText.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, "")}
                   </ReactMarkdown>
+                  <span className="inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-foreground/50" />
                 </div>
-                {/* Blinking cursor to signal live generation */}
-                <span className="inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-foreground/50" />
               </div>
-            </div>
-          )}
-        </>
+            )}
+          </div>
+        </div>
       )}
+
       <div ref={bottomRef} />
     </div>
   );

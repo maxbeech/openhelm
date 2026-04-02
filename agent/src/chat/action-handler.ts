@@ -10,7 +10,6 @@ import {
 } from "../db/queries/conversations.js";
 import { executeWriteTool } from "./tool-executor.js";
 import { emit } from "../ipc/emitter.js";
-import { generateAndHandleSystemJobs } from "../autopilot/index.js";
 import type { ChatMessage, ChatToolCall } from "@openhelm/shared";
 
 export async function handleActionApproval(
@@ -52,11 +51,8 @@ export async function handleActionApproval(
       return a;
     });
 
-    // Trigger autopilot here — createdGoalId is the real DB ID from the execution
-    // result, which was never available in triggerAutopilotForCreatedGoals.
-    generateAndHandleSystemJobs(createdGoalId, projectId).catch((err) =>
-      console.error("[chat] autopilot generation failed:", err),
-    );
+    // Note: legacy system job generation removed — AutoCaptain handles
+    // proactive monitoring via its scanner tick.
   }
 
   const updatedMsg = updateMessagePendingActions(messageId, updated);

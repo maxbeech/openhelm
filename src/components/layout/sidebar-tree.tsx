@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { collapseVariants } from "@/lib/motion";
 import { ChevronsDown, ChevronsUp, Folder, FolderOpen, Plus, Search, X } from "lucide-react";
+import { OpenHelmIcon } from "@/components/shared/openhelm-icon";
 import {
   DndContext,
   closestCenter,
@@ -93,6 +94,17 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
   const [pendingSubGoalParentId, setPendingSubGoalParentId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const thumbRef = useRef<HTMLDivElement>(null);
+  const [showSystemItems, setShowSystemItems] = useState(false);
+
+  // Load system items visibility from settings
+  useEffect(() => {
+    api.getSetting("show_system_items" as any).then((s) => {
+      if (s?.value === "true") setShowSystemItems(true);
+    }).catch(() => {});
+  }, []);
   const [tokenStats, setTokenStats] = useState<JobTokenStat[]>([]);
 
   // ─── Drag state for reparenting ──────────────────────────────────────────
@@ -161,15 +173,47 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
     setSidebarSearch("");
   }, [setSidebarSearch]);
 
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    const thumb = thumbRef.current;
+    if (!el || !thumb) return;
+
+    // Position the custom thumb
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    if (scrollHeight <= clientHeight) {
+      thumb.style.opacity = "0";
+      return;
+    }
+    const thumbH = Math.max(24, (clientHeight / scrollHeight) * clientHeight);
+    const maxTop = clientHeight - thumbH;
+    const clampedScroll = Math.max(0, Math.min(scrollTop, scrollHeight - clientHeight));
+    const thumbTop = (clampedScroll / (scrollHeight - clientHeight)) * maxTop;
+    thumb.style.height = `${thumbH}px`;
+    thumb.style.transform = `translateY(${thumbTop}px)`;
+    thumb.style.opacity = "1";
+
+    // Hide after 1 s of inactivity
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    scrollTimerRef.current = setTimeout(() => {
+      if (thumbRef.current) thumbRef.current.style.opacity = "0";
+    }, 1000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    };
+  }, []);
+
   // ─── Core data derivations ────────────────────────────────────────────────
 
   const activeGoals = useMemo(
     () => applySortGoals(
-      goals.filter((g) => g.status !== "archived"),
+      goals.filter((g) => g.status !== "archived" && (showSystemItems || !g.isSystem)),
       goalSortMode,
       tokensByGoal,
     ),
-    [goals, goalSortMode, tokensByGoal],
+    [goals, goalSortMode, tokensByGoal, showSystemItems],
   );
 
   const goalTree = useMemo(() => buildGoalTree(activeGoals), [activeGoals]);
@@ -201,6 +245,8 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
     for (const job of jobs) {
       if (job.isArchived) continue;
       if (job.systemCategory === "health_monitoring") continue;
+      // Hide system jobs when toggle is off
+      if (!showSystemItems && job.source === "system") continue;
       const key = job.goalId;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(job);
@@ -209,7 +255,7 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
       map.set(key, applySortJobs(groupJobs, jobSortMode, tokensByJob));
     }
     return map;
-  }, [jobs, jobSortMode, tokensByJob]);
+  }, [jobs, jobSortMode, tokensByJob, showSystemItems]);
 
   const standaloneJobs = useMemo(
     () => jobsByGoal.get(null) ?? [],
@@ -361,7 +407,9 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
       // Hovering the root drop zone — signal with special "__root__" marker
       setDropTargetGoalId("__root__");
     } else if (overData?.type === "goal") {
-      setDropTargetGoalId(overData.goalId ?? null);
+      const targetGoal = activeGoals.find((g) => g.id === overData.goalId);
+      // Prevent dropping onto system goals
+      setDropTargetGoalId(targetGoal?.isSystem ? null : (overData.goalId ?? null));
     } else {
       setDropTargetGoalId(null);
     }
@@ -416,10 +464,14 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
       if (!canNestUnder(dragId, targetGoalId, goals)) return;
       const goal = goals.find((g) => g.id === dragId);
       if (goal?.parentId === targetGoalId) return;
+      const targetGoal = goals.find((g) => g.id === targetGoalId);
+      if (targetGoal?.isSystem) return; // cannot nest under system goal
       optimisticMoveGoal(dragId, targetGoalId);
     } else if (dragType === "job" && targetGoalId) {
       const job = jobs.find((j) => j.id === dragId);
       if (job?.goalId === targetGoalId) return;
+      const targetGoal = goals.find((g) => g.id === targetGoalId);
+      if (targetGoal?.isSystem) return; // cannot move jobs into system goal
       optimisticMoveJob(dragId, targetGoalId);
     }
   }, [goals, jobs, optimisticMoveGoal, optimisticMoveJob]);
@@ -433,9 +485,9 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex-1 overflow-auto">
-      {/* GOALS section header */}
-      <div className="sticky top-0 z-20 flex h-[30px] items-center gap-1 bg-sidebar px-3">
+    <div className="flex flex-1 flex-col">
+      {/* GOALS section header — fixed above scroll area */}
+      <div className="flex h-[30px] shrink-0 items-center gap-1 bg-sidebar px-3">
         <span className="flex-1 text-3xs font-semibold uppercase tracking-wider text-muted-foreground">
           Goals
         </span>
@@ -470,6 +522,20 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
         )}
         <SortDropdown value={goalSortMode} onChange={setGoalSortMode} label="goals" />
         <button
+          onClick={() => {
+            const next = !showSystemItems;
+            setShowSystemItems(next);
+            api.setSetting({ key: "show_system_items" as any, value: String(next) }).catch(() => {});
+          }}
+          className={cn(
+            "rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
+            showSystemItems && "text-primary",
+          )}
+          title={showSystemItems ? "Hide system items" : "Show system items"}
+        >
+          <OpenHelmIcon className="size-3.5" />
+        </button>
+        <button
           onClick={searchOpen ? closeSearch : openSearch}
           className={cn(
             "rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
@@ -503,6 +569,7 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
             initial="collapsed"
             animate="expanded"
             exit="collapsed"
+            className="shrink-0"
             style={{ overflow: "hidden" }}
           >
             <div className="flex items-center gap-1 px-3 pb-1">
@@ -536,6 +603,7 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
             initial="collapsed"
             animate="expanded"
             exit="collapsed"
+            className="shrink-0"
             style={{ overflow: "hidden" }}
           >
             <div className="flex items-center gap-1 px-3 pb-1">
@@ -569,6 +637,16 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Scrollable tree area */}
+      <div className="relative flex-1">
+      {/* Custom scrollbar thumb — outside the scroll container so it stays fixed */}
+      <div
+        ref={thumbRef}
+        className="pointer-events-none absolute right-0 top-0 z-50 w-[6px] rounded-full opacity-0 transition-opacity duration-300"
+        style={{ background: "var(--color-border)" }}
+      />
+      <div ref={scrollRef} onScroll={handleScroll} className="absolute inset-0 sidebar-scroll pr-[6px]">
 
       {/* ── GROUPED VIEW (All Projects + groupByProject=true) ── */}
       {isAllProjects && groupByProject ? (
@@ -757,6 +835,8 @@ export function SidebarTree({ projectId, onNewJobForGoal, onNewSubGoal, onArchiv
           onComplete={() => setPendingSubGoalParentId(null)}
         />
       )}
+    </div>
+    </div>
     </div>
   );
 }

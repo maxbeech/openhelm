@@ -91,6 +91,7 @@ export function createDataTable(params: CreateDataTableParams): DataTable {
       name: params.name,
       description: params.description ?? null,
       columns: JSON.stringify(params.columns),
+      isSystem: params.isSystem ?? false,
       createdBy: params.createdBy ?? "user",
       createdAt: now,
       updatedAt: now,

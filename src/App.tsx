@@ -276,21 +276,28 @@ export default function App() {
             return { messages: [...withoutOptimistic, data] };
           });
         } else {
-          const existing = useChatStore.getState().messages.find((m) => m.id === data.id);
-          if (existing) {
-            updateMessageInStore(data);
-          } else {
-            addMessageToStore(data);
-          }
+          // For assistant messages, atomically add message + clear transient
+          // state in one set() to prevent intermediate renders showing duplicates.
+          useChatStore.setState((s) => {
+            const existing = s.messages.some((m) => m.id === data.id);
+            const prev = s.conversationStates[eventConvId!] ?? { sending: false, statusText: null, streamingText: "" };
+            return {
+              messages: existing
+                ? s.messages.map((m) => (m.id === data.id ? data : m))
+                : [...s.messages, data],
+              conversationStates: {
+                ...s.conversationStates,
+                [eventConvId!]: { ...prev, sending: false, statusText: null, streamingText: "" },
+              },
+            };
+          });
+          const conv = useChatStore.getState().conversations.find((c) => c.id === eventConvId);
+          notifyChatResponse(conv?.title ?? null, data.content?.slice(0, 150));
         }
-      }
-      // Clear per-conversation transient state regardless of which thread is active
-      if (data.role === "assistant" && eventConvId) {
+      } else if (data.role === "assistant" && eventConvId) {
+        // Not viewing this conversation — just clear transient state
         clearConvStreaming(eventConvId);
         setConvSending(eventConvId, false);
-        // Send notification if window is not focused
-        const conv = useChatStore.getState().conversations.find((c) => c.id === eventConvId);
-        notifyChatResponse(conv?.title ?? null, data.content?.slice(0, 150));
       }
     },
     [addMessageToStore, updateMessageInStore, clearConvStreaming, setConvSending],
@@ -301,9 +308,16 @@ export default function App() {
       const convId = data.conversationId;
       if (!convId) return;
       if (data.status === "done") {
-        setConvStatus(convId, null);
-        setConvSending(convId, false);
-        clearConvStreaming(convId);
+        // Atomic clear to prevent intermediate renders
+        useChatStore.setState((s) => {
+          const prev = s.conversationStates[convId] ?? { sending: false, statusText: null, streamingText: "" };
+          return {
+            conversationStates: {
+              ...s.conversationStates,
+              [convId]: { ...prev, sending: false, statusText: null, streamingText: "" },
+            },
+          };
+        });
         return;
       }
       clearConvStreaming(convId);
@@ -327,7 +341,7 @@ export default function App() {
       } else if (data.status === "analyzing") {
         setConvStatus(convId, "Analyzing results...");
       } else {
-        setConvStatus(convId, "Thinking...");
+        setConvStatus(convId, null);
       }
     },
     [clearConvStreaming, setConvStatus, setConvSending],
