@@ -21,8 +21,6 @@ export function ChatMessageList({ messages, sending, projectId }: ChatMessageLis
   const streamingText = convState?.streamingText ?? "";
   const storeSending = convState?.sending ?? false;
   const bottomRef = useRef<HTMLDivElement>(null);
-  // Track previous render state for debug logging
-  const prevRef = useRef({ msgCount: 0, lastRole: "", streaming: 0, sending: false, storeSending: false });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -41,33 +39,6 @@ export function ChatMessageList({ messages, sending, projectId }: ChatMessageLis
 
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
   const lastIsAssistant = lastMsg?.role === "assistant";
-
-  // === DEBUG: Log state transitions to diagnose duplicate message bug ===
-  const cur = {
-    msgCount: messages.length,
-    lastRole: lastMsg?.role ?? "none",
-    streaming: streamingText.length,
-    sending,
-    storeSending,
-  };
-  const prev = prevRef.current;
-  // Log when the assistant message appears or streaming state changes significantly
-  if (
-    cur.lastRole !== prev.lastRole ||
-    cur.msgCount !== prev.msgCount ||
-    (prev.streaming > 0 && cur.streaming === 0) ||
-    (prev.streaming === 0 && cur.streaming > 0) ||
-    cur.sending !== prev.sending ||
-    cur.storeSending !== prev.storeSending
-  ) {
-    console.log(
-      `[chat-list] msgs=${cur.msgCount} last=${cur.lastRole}` +
-      ` stream=${cur.streaming} sendProp=${cur.sending} sendStore=${cur.storeSending}` +
-      ` lastIsAsst=${lastIsAssistant}`,
-    );
-  }
-  prevRef.current = cur;
-  // === END DEBUG ===
 
   // Inject virtual streaming message into the display list so streaming text
   // and the committed message share ONE DOM position (prevents duplicates).

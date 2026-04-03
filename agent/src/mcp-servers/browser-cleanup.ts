@@ -98,9 +98,10 @@ function findOrphanedNodriverPids(excludePids?: Set<number>): number[] {
 
 /**
  * Read a PID file, kill surviving Chrome processes, and delete the file.
- * Returns the number of processes that received SIGTERM.
+ * Returns the list of PIDs that received SIGTERM (used by callers to
+ * exclude these from a subsequent process-scan to avoid double-counting).
  */
-function killPidsFromFile(filePath: string): number {
+function killPidsFromFile(filePath: string): number[] {
   let pidsToKill: number[] = [];
 
   try {
@@ -138,7 +139,7 @@ function killPidsFromFile(filePath: string): number {
     // Already gone
   }
 
-  return pidsToKill.length;
+  return pidsToKill;
 }
 
 /** Kill a list of PIDs with SIGTERM + delayed SIGKILL. */
@@ -172,18 +173,15 @@ function killPids(pids: number[]): number {
  */
 export function cleanupBrowsersForRun(runId: string): void {
   try {
-    let killedFromFile = 0;
     const filePath = join(BROWSER_PIDS_DIR, `run-${runId}.json`);
-    if (existsSync(filePath)) {
-      killedFromFile = killPidsFromFile(filePath);
-    }
+    const filePids = existsSync(filePath) ? killPidsFromFile(filePath) : [];
 
-    // Scan for orphaned nodriver Chrome processes as a fallback.
-    // This catches instances whose PID was incorrectly recorded.
-    const orphans = findOrphanedNodriverPids();
+    // Scan for orphaned nodriver Chrome processes as a fallback, excluding
+    // PIDs already handled above to avoid double-counting and redundant signals.
+    const orphans = findOrphanedNodriverPids(new Set(filePids));
     const killedFromScan = killPids(orphans);
 
-    const total = killedFromFile + killedFromScan;
+    const total = filePids.length + killedFromScan;
     if (total > 0) {
       console.error(
         `[browser-cleanup] killed ${total} orphaned Chrome process(es) from run ${runId}` +
@@ -204,19 +202,21 @@ export function cleanupOrphanedBrowserPids(): void {
   try {
     let totalKilled = 0;
 
-    // 1. PID-file based cleanup
+    // 1. PID-file based cleanup — collect all killed PIDs across files
+    const allFilePids: number[] = [];
     if (existsSync(BROWSER_PIDS_DIR)) {
       const files = readdirSync(BROWSER_PIDS_DIR);
       for (const file of files) {
         if (file.startsWith("run-") && file.endsWith(".json")) {
-          totalKilled += killPidsFromFile(join(BROWSER_PIDS_DIR, file));
+          allFilePids.push(...killPidsFromFile(join(BROWSER_PIDS_DIR, file)));
         }
       }
     }
+    totalKilled += allFilePids.length;
 
     // 2. Process-scan fallback — catch any nodriver Chrome processes that
-    //    escaped PID-file tracking entirely.
-    const orphans = findOrphanedNodriverPids();
+    //    escaped PID-file tracking entirely, excluding PIDs already handled.
+    const orphans = findOrphanedNodriverPids(new Set(allFilePids));
     const scannedKilled = killPids(orphans);
     totalKilled += scannedKilled;
 
