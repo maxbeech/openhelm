@@ -31,17 +31,22 @@ export function buildInstructionPageUrl(loginUrl?: string): string {
 <head>
 <meta charset="utf-8">
 <title>OpenHelm - Browser Setup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  body{font-family:"DM Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
     background:#080d14;color:#F8FAFC;min-height:100vh;display:flex;
     align-items:center;justify-content:center;padding:2rem}
   .card{max-width:560px;width:100%;background:#0c1522;border:1px solid #1c3048;
     border-radius:16px;padding:2.5rem;box-shadow:0 25px 50px -12px rgba(0,0,0,.6)}
   .logo{display:flex;align-items:center;gap:.875rem;margin-bottom:1.75rem}
   .logo svg{width:40px;height:40px}
-  .logo span{font-size:1.125rem;font-weight:600;color:#F8FAFC;letter-spacing:-.01em}
-  h1{font-size:1.5rem;font-weight:700;color:#F8FAFC;margin-bottom:.5rem;letter-spacing:-.02em}
+  .logo span{font-family:"Playfair Display",Georgia,serif;
+    font-size:1.25rem;font-weight:600;color:#F8FAFC;letter-spacing:-.01em}
+  h1{font-family:"Playfair Display",Georgia,serif;
+    font-size:1.75rem;font-weight:700;color:#F8FAFC;margin-bottom:.5rem;letter-spacing:-.01em}
   .subtitle{color:#6B8EAE;font-size:.875rem;margin-bottom:2rem;line-height:1.5}
   .steps{display:flex;flex-direction:column;gap:1.25rem;margin-bottom:2rem}
   .step{display:flex;gap:1rem;align-items:flex-start}
@@ -50,7 +55,8 @@ export function buildInstructionPageUrl(loginUrl?: string): string {
     color:#F8FAFC;display:flex;align-items:center;justify-content:center;
     font-size:.8rem;font-weight:700;flex-shrink:0;margin-top:2px;
     box-shadow:0 2px 8px rgba(229,61,0,.3)}
-  .step-text h3{font-size:.9375rem;font-weight:600;color:#F8FAFC;margin-bottom:2px}
+  .step-text h3{font-family:"Playfair Display",Georgia,serif;
+    font-size:1.0625rem;font-weight:600;color:#F8FAFC;margin-bottom:2px;letter-spacing:-.005em}
   .step-text p{font-size:.8125rem;color:#6B8EAE;line-height:1.5}
   .step-text strong{color:#96AEC5}
   .nav-box{background:#080d14;border:1px solid #1c3048;border-radius:10px;

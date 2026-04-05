@@ -5,15 +5,21 @@ import type { InboxEvent } from "@openhelm/shared";
 interface Props {
   event: InboxEvent;
   timestamp: string;
+  isUnread?: boolean;
 }
 
-export function EventAiMessage({ event, timestamp }: Props) {
+export function EventAiMessage({ event, timestamp, isUnread: _isUnread }: Props) {
   const meta = event.metadata as Record<string, unknown>;
-  const hasActions = meta.hasActions as boolean;
-  const content = event.body || event.title;
+  const hasActions = (meta.hasActions as boolean) || event.category === "action";
+  // For alerts/actions, show title as a bold header followed by the body.
+  // For chat messages, the body IS the content (title is a truncated preview).
+  const isAlertLike = event.category === "alert" || event.category === "action";
+  const content = isAlertLike
+    ? (event.body ? `**${event.title}**\n\n${event.body}` : `**${event.title}**`)
+    : (event.body || event.title);
 
   return (
-    <div className="my-1 max-w-[85%]">
+    <div className="my-2 max-w-[85%]">
       <div className="rounded-xl bg-muted px-4 py-3 transition-colors hover:bg-muted/80">
         <div className="mb-1.5 flex items-center gap-1.5">
           <span className="text-3xs text-muted-foreground">{timestamp}</span>

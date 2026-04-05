@@ -405,6 +405,7 @@ export const visualizations = sqliteTable("visualizations", {
     .notNull()
     .references(() => dataTables.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  description: text("description"),
   chartType: text("chart_type", { enum: ["line", "bar", "area", "pie", "stat"] })
     .notNull()
     .default("line"),

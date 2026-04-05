@@ -19,6 +19,7 @@ function rowToVisualization(row: typeof visualizations.$inferSelect): Visualizat
     ...row,
     goalId: row.goalId ?? null,
     jobId: row.jobId ?? null,
+    description: row.description ?? null,
     chartType: row.chartType as ChartType,
     config: JSON.parse(row.config) as VisualizationConfig,
     status: row.status as VisualizationStatus,
@@ -42,6 +43,7 @@ export function createVisualization(params: CreateVisualizationParams): Visualiz
       jobId: params.jobId ?? null,
       dataTableId: params.dataTableId,
       name: params.name,
+      description: params.description ?? null,
       chartType: params.chartType,
       config: JSON.stringify(params.config),
       status: params.status ?? "active",
@@ -100,6 +102,7 @@ export function updateVisualization(params: UpdateVisualizationParams): Visualiz
     .update(visualizations)
     .set({
       ...(params.name !== undefined && { name: params.name }),
+      ...(params.description !== undefined && { description: params.description }),
       ...(params.chartType !== undefined && { chartType: params.chartType }),
       ...(params.config !== undefined && { config: JSON.stringify(params.config) }),
       ...(params.status !== undefined && { status: params.status }),

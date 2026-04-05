@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Pause } from "lucide-react";
 import { useDraggable } from "@dnd-kit/core";
+import { useLowTokenModeStore } from "@/stores/low-token-mode-store";
 import { NodeIcon } from "@/components/shared/node-icon";
 import { OpenHelmIcon } from "@/components/shared/openhelm-icon";
 import type {
@@ -25,20 +26,23 @@ interface SidebarJobNodeProps {
   disableDrag?: boolean;
 }
 
-function formatScheduleLabel(job: Job): string {
+function formatScheduleLabel(job: Job, lowTokenMode: boolean): string {
   switch (job.scheduleType) {
     case "once":
       return "One-time";
     case "interval": {
       const raw = job.scheduleConfig as ScheduleConfigInterval & { minutes?: number };
-      const amount = raw.amount ?? (raw.minutes != null ? (raw.minutes >= 1440 ? raw.minutes / 1440 : raw.minutes >= 60 ? raw.minutes / 60 : raw.minutes) : 1);
+      let amount = raw.amount ?? (raw.minutes != null ? (raw.minutes >= 1440 ? raw.minutes / 1440 : raw.minutes >= 60 ? raw.minutes / 60 : raw.minutes) : 1);
       const unit = raw.unit ?? (raw.minutes != null ? (raw.minutes >= 1440 ? "days" : raw.minutes >= 60 ? "hours" : "minutes") : "days");
+      if (lowTokenMode) amount = amount * 1.5;
+      const displayAmount = Number.isInteger(amount) ? amount : parseFloat(amount.toFixed(1));
       const u = unit === "minutes" ? "min" : unit === "hours" ? "hr" : "day";
-      return `Every ${amount} ${u}${amount > 1 ? "s" : ""}`;
+      return `Every ${displayAmount} ${u}${displayAmount > 1 ? "s" : ""}`;
     }
     case "cron": {
       const cfg = job.scheduleConfig as ScheduleConfigCron;
-      return describeCron(cfg.expression);
+      const base = describeCron(cfg.expression);
+      return lowTokenMode ? `${base} ↓⅓` : base;
     }
     case "calendar": {
       const cfg = job.scheduleConfig as ScheduleConfigCalendar;
@@ -49,15 +53,19 @@ function formatScheduleLabel(job: Job): string {
         m === 0
           ? `${h12}${ampm}`
           : `${h12}:${String(m).padStart(2, "0")}${ampm}`;
-      if (cfg.frequency === "daily") return `Daily · ${time}`;
-      if (cfg.frequency === "weekly") {
+      let label: string;
+      if (cfg.frequency === "daily") {
+        label = `Daily · ${time}`;
+      } else if (cfg.frequency === "weekly") {
         const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        const label = cfg.daysOfWeek && cfg.daysOfWeek.length > 0
+        const dayLabel = cfg.daysOfWeek && cfg.daysOfWeek.length > 0
           ? cfg.daysOfWeek.map((d) => days[d]).join(", ")
           : days[cfg.dayOfWeek ?? 1];
-        return `${label} · ${time}`;
+        label = `${dayLabel} · ${time}`;
+      } else {
+        label = `Monthly · ${time}`;
       }
-      return `Monthly · ${time}`;
+      return lowTokenMode ? `${label} ↓⅓` : label;
     }
     case "manual":
       return "Manual";
@@ -102,7 +110,8 @@ export function SidebarJobNode({
   indentLevel = 0,
   disableDrag = false,
 }: SidebarJobNodeProps) {
-  const scheduleLabel = useMemo(() => formatScheduleLabel(job), [job]);
+  const lowTokenMode = useLowTokenModeStore((s) => s.enabled);
+  const scheduleLabel = useMemo(() => formatScheduleLabel(job, lowTokenMode), [job, lowTokenMode]);
   const dots = recentRuns.slice(0, 5).reverse();
   const isDisabled = !job.isEnabled;
 

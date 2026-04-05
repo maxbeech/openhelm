@@ -10,9 +10,10 @@
  */
 
 import { jobQueue } from "./queue.js";
-import { computeNextFireAt } from "./schedule.js";
-import { listDueJobs, updateJobNextFireAt, disableJob } from "../db/queries/jobs.js";
+import { computeNextFireAt, applyLowTokenModeToNextFireAt, nextWeeklyOccurrence } from "./schedule.js";
+import { listDueJobs, listJobs, updateJobNextFireAt, disableJob } from "../db/queries/jobs.js";
 import { createRun, listDeferredDueRuns, listRuns, updateRun, getSystemTokenUsageForGoal, getUserTokenUsageForGoal } from "../db/queries/runs.js";
+import { getSetting, setSetting, deleteSetting } from "../db/queries/settings.js";
 import { emit } from "../ipc/emitter.js";
 import { createDashboardItem } from "../db/queries/dashboard-items.js";
 import { isPowerManagementEnabled, scheduleWake } from "../power/index.js";
@@ -70,6 +71,30 @@ export class Scheduler {
     try {
       let enqueued = 0;
 
+      // ── 0. Auto-disable low token mode at weekly reset time ──
+      const ltmSetting = getSetting("low_token_mode");
+      if (ltmSetting?.value === "true") {
+        const dowSetting = getSetting("claude_weekly_reset_dow");
+        const hourSetting = getSetting("claude_weekly_reset_hour");
+        if (dowSetting && hourSetting) {
+          const dow = parseInt(dowSetting.value, 10);
+          const hour = parseInt(hourSetting.value, 10);
+          if (!isNaN(dow) && !isNaN(hour)) {
+            // nextWeeklyOccurrence returns the next future occurrence;
+            // the most recent past occurrence is exactly 7 days before that.
+            const now = new Date();
+            const nextReset = nextWeeklyOccurrence(dow, hour, now);
+            const lastReset = new Date(nextReset.getTime() - 7 * 24 * 60 * 60 * 1000);
+            // Auto-disable if the last reset happened after low token mode was enabled
+            const ltmEnabledAt = new Date(ltmSetting.updatedAt);
+            if (lastReset > ltmEnabledAt) {
+              console.error("[scheduler] weekly reset passed — disabling low token mode");
+              disableLowTokenModeAndRecompute();
+            }
+          }
+        }
+      }
+
       // ── 1. Enqueue due jobs (scheduled runs) ──
       const dueJobs = listDueJobs();
       for (const job of dueJobs) {
@@ -108,11 +133,12 @@ export class Scheduler {
           enqueuedAt: Date.now(),
         });
 
-        const nextFireAt = computeNextFireAt(
-          job.scheduleType,
-          job.scheduleConfig,
-          new Date(),
-        );
+        const now = new Date();
+        const normalNext = computeNextFireAt(job.scheduleType, job.scheduleConfig, now);
+        const lowTokenActive = getSetting("low_token_mode")?.value === "true";
+        const nextFireAt = lowTokenActive
+          ? applyLowTokenModeToNextFireAt(normalNext, now)
+          : normalNext;
         updateJobNextFireAt(job.id, nextFireAt);
 
         // Schedule a wake event before the next occurrence
@@ -197,3 +223,37 @@ export class Scheduler {
 
 /** Singleton scheduler instance */
 export const scheduler = new Scheduler();
+
+/**
+ * Disable low token mode and recompute nextFireAt for all enabled recurring
+ * jobs using their normal (un-stretched) schedule.
+ * Used by the IPC handler and by the weekly auto-reset in the tick.
+ */
+export function disableLowTokenModeAndRecompute(): void {
+  deleteSetting("low_token_mode");
+  const now = new Date();
+  const allJobs = listJobs({ isEnabled: true });
+  for (const job of allJobs) {
+    if (job.scheduleType === "once" || job.scheduleType === "manual") continue;
+    const normalNext = computeNextFireAt(job.scheduleType, job.scheduleConfig, now);
+    updateJobNextFireAt(job.id, normalNext);
+  }
+  emit("scheduler.statusChanged", { lowTokenMode: false });
+}
+
+/**
+ * Enable low token mode and recompute nextFireAt for all enabled recurring
+ * jobs using the 1.5× stretched schedule.
+ */
+export function enableLowTokenModeAndRecompute(): void {
+  setSetting("low_token_mode", "true");
+  const now = new Date();
+  const allJobs = listJobs({ isEnabled: true });
+  for (const job of allJobs) {
+    if (job.scheduleType === "once" || job.scheduleType === "manual") continue;
+    const normalNext = computeNextFireAt(job.scheduleType, job.scheduleConfig, now);
+    const stretchedNext = applyLowTokenModeToNextFireAt(normalNext, now);
+    updateJobNextFireAt(job.id, stretchedNext);
+  }
+  emit("scheduler.statusChanged", { lowTokenMode: true });
+}

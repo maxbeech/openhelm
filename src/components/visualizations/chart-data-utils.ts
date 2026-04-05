@@ -126,15 +126,23 @@ export function getSeriesLabel(
 
 function formatXValue(val: unknown, colType: string): string {
   if (val === null || val === undefined) return "";
-  if (colType === "date" && typeof val === "string") {
+  const str = String(val);
+  // Format as readable date for date-typed columns or ISO 8601 strings stored as text
+  if (colType === "date" || (colType === "text" && isIsoDateString(str))) {
     try {
-      const d = new Date(val);
-      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      }
     } catch {
-      return String(val);
+      // fall through
     }
   }
-  return String(val);
+  return str;
+}
+
+function isIsoDateString(val: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(val);
 }
 
 function parseNumeric(val: unknown): number | null {

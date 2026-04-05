@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { useResizePanel } from "@/hooks/use-resize-panel";
-import { useDashboardStore } from "@/stores/dashboard-store";
 import { useInboxStore } from "@/stores/inbox-store";
 import { useMemoryStore } from "@/stores/memory-store";
 import { useCredentialStore } from "@/stores/credential-store";
@@ -34,7 +33,6 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
   const { contentView, setContentView, activeProjectId, setActiveProjectId } =
     useAppStore();
   const { projects } = useProjectStore();
-  const { openCount } = useDashboardStore();
   const { unreadCount: inboxUnreadCount } = useInboxStore();
   const { memoryCount } = useMemoryStore();
   const { credentialCount } = useCredentialStore();
@@ -133,7 +131,7 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
       <div className="border-b border-sidebar-border px-2 py-2 space-y-0.5">
         {([
           { view: "inbox" as const, icon: Inbox, label: "Inbox", badge: inboxUnreadCount > 0 ? (inboxUnreadCount > 99 ? "99+" : String(inboxUnreadCount)) : null, badgeType: "alert" as const },
-          { view: "dashboard" as const, icon: LayoutDashboard, label: "Dashboard", badge: openCount > 0 ? (openCount > 99 ? "99+" : String(openCount)) : null, badgeType: "alert" as const },
+          { view: "dashboard" as const, icon: LayoutDashboard, label: "Dashboard", badge: null, badgeType: "alert" as const },
           { view: "memory" as const, icon: Waypoints, label: "Memory", badge: memoryCount > 0 ? String(memoryCount) : null, badgeType: "count" as const },
           { view: "data-tables" as const, icon: Database, label: "Data", badge: tableCount > 0 ? String(tableCount) : null, badgeType: "count" as const },
           { view: "credentials" as const, icon: KeyRound, label: "Credentials", badge: credentialCount > 0 ? String(credentialCount) : null, badgeType: "count" as const },

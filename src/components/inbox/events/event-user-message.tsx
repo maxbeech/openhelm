@@ -3,13 +3,14 @@ import type { InboxEvent } from "@openhelm/shared";
 interface Props {
   event: InboxEvent;
   timestamp: string;
+  isUnread?: boolean;
 }
 
-export function EventUserMessage({ event, timestamp }: Props) {
+export function EventUserMessage({ event, timestamp, isUnread: _isUnread }: Props) {
   const content = event.body || event.title;
 
   return (
-    <div className="my-1 flex justify-end">
+    <div className="my-2 flex justify-end">
       <div className="max-w-[85%]">
         <div className="rounded-xl bg-primary px-4 py-3 text-primary-foreground">
           <div className="mb-1 flex items-center justify-end gap-1.5">

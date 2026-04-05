@@ -3,17 +3,23 @@
  *
  * Idempotent: safe to call on every scan tick.
  * Creates: Autopilot Maintenance goal, Autopilot Rules table,
- * Autopilot Metrics table, initial targets, and meta-analysis job.
+ * Autopilot Metrics table, initial targets, meta-analysis job,
+ * and system visualizations.
  */
 
 import { createGoal, listGoals, updateGoal } from "../db/queries/goals.js";
 import {
   createDataTable,
   listDataTables,
+  updateDataTable,
   insertDataTableRows,
 } from "../db/queries/data-tables.js";
 import { createTarget, listTargets } from "../db/queries/targets.js";
 import { createJob, listJobs } from "../db/queries/jobs.js";
+import {
+  createVisualization,
+  listVisualizations,
+} from "../db/queries/visualizations.js";
 import type {
   Goal,
   DataTable,
@@ -25,8 +31,11 @@ import type {
 
 const SYSTEM_GOAL_NAME = "Autopilot Maintenance";
 const SYSTEM_GOAL_NAME_LEGACY = "System Maintenance"; // renamed — migrate on next scan
-const RULES_TABLE_NAME = "Captain Rules";
-const METRICS_TABLE_NAME = "Captain Metrics";
+const RULES_TABLE_NAME = "Autopilot Rules";
+const METRICS_TABLE_NAME = "Autopilot Metrics";
+// Legacy names (renamed by migration 0037, kept here as fallback guard)
+const RULES_TABLE_NAME_LEGACY = "Captain Rules";
+const METRICS_TABLE_NAME_LEGACY = "Captain Metrics";
 const META_JOB_NAME = "Health Rules Review";
 const META_JOB_CATEGORY = "captain_meta"; // stored in DB — not renamed
 
@@ -36,6 +45,7 @@ export interface AutopilotRuleSeed {
   ruleName: string;
   description: string;
   metricColumn: string;
+  columnLabel: string; // pretty display name for the metric column
   threshold: number;
   direction: TargetDirection;
   cooldownHours: number;
@@ -46,6 +56,7 @@ export const INITIAL_RULES: AutopilotRuleSeed[] = [
     ruleName: "Goal Success Rate",
     description: "Overall run success rate across all goals",
     metricColumn: "goal_success_rate",
+    columnLabel: "Goal Success Rate",
     threshold: 0.7,
     direction: "gte",
     cooldownHours: 4,
@@ -54,6 +65,7 @@ export const INITIAL_RULES: AutopilotRuleSeed[] = [
     ruleName: "Permanent Failures",
     description: "Count of new permanent failures since last scan",
     metricColumn: "perm_failure_count",
+    columnLabel: "Permanent Failures",
     threshold: 0,
     direction: "lte",
     cooldownHours: 4,
@@ -62,6 +74,7 @@ export const INITIAL_RULES: AutopilotRuleSeed[] = [
     ruleName: "Stale Jobs",
     description: "Enabled jobs not run in more than 7 days",
     metricColumn: "stale_job_count",
+    columnLabel: "Stale Jobs",
     threshold: 0,
     direction: "lte",
     cooldownHours: 24,
@@ -70,6 +83,7 @@ export const INITIAL_RULES: AutopilotRuleSeed[] = [
     ruleName: "Off-Track Targets",
     description: "User targets that are not being met",
     metricColumn: "off_track_target_count",
+    columnLabel: "Off-Track Targets",
     threshold: 0,
     direction: "lte",
     cooldownHours: 4,
@@ -78,6 +92,7 @@ export const INITIAL_RULES: AutopilotRuleSeed[] = [
     ruleName: "Token Budget Usage",
     description: "System job tokens as percentage of budget ceiling",
     metricColumn: "token_usage_pct",
+    columnLabel: "Token Usage %",
     threshold: 80,
     direction: "lte",
     cooldownHours: 24,
@@ -88,22 +103,22 @@ export const INITIAL_RULES: AutopilotRuleSeed[] = [
 
 function buildRulesColumns(): DataTableColumn[] {
   return [
-    { id: "col_rule_name", name: "rule_name", type: "text", config: {} },
-    { id: "col_description", name: "description", type: "text", config: {} },
-    { id: "col_metric_column", name: "metric_column", type: "text", config: {} },
-    { id: "col_threshold", name: "threshold", type: "number", config: {} },
-    { id: "col_direction", name: "direction", type: "text", config: {} },
-    { id: "col_cooldown_hours", name: "cooldown_hours", type: "number", config: {} },
-    { id: "col_enabled", name: "enabled", type: "number", config: {} },
+    { id: "col_rule_name", name: "Rule Name", type: "text", config: {} },
+    { id: "col_description", name: "Description", type: "text", config: {} },
+    { id: "col_metric_column", name: "Metric Column", type: "text", config: {} },
+    { id: "col_threshold", name: "Threshold", type: "number", config: {} },
+    { id: "col_direction", name: "Direction", type: "text", config: {} },
+    { id: "col_cooldown_hours", name: "Cooldown (Hours)", type: "number", config: {} },
+    { id: "col_enabled", name: "Enabled", type: "number", config: {} },
   ];
 }
 
 function buildMetricsColumns(): DataTableColumn[] {
   return [
-    { id: "col_collected_at", name: "collected_at", type: "text", config: {} },
+    { id: "col_collected_at", name: "Collected At", type: "date", config: {} },
     ...INITIAL_RULES.map((r) => ({
       id: `col_${r.metricColumn}`,
-      name: r.metricColumn,
+      name: r.columnLabel,
       type: "number" as const,
       config: {},
     })),
@@ -129,6 +144,7 @@ export function ensureSystemEntities(projectId: string): SystemEntities {
   ensureInitialRuleRows(rulesTable);
   ensureInitialTargets(projectId, goal.id, metricsTable);
   ensureMetaJob(projectId, goal.id);
+  ensureSystemVisualizations(projectId, goal.id, rulesTable, metricsTable);
   return { systemGoal: goal, rulesTable, metricsTable };
 }
 
@@ -180,14 +196,25 @@ function ensureSystemGoal(projectId: string): Goal {
 }
 
 function ensureRulesTable(projectId: string): DataTable {
-  const existing = listDataTables({ projectId })
-    .find((t) => t.isSystem && t.name === RULES_TABLE_NAME);
+  const allTables = listDataTables({ projectId });
+
+  // Migrate legacy "Captain Rules" name (in case migration 0037 ran on a
+  // table that was already renamed by earlier code, or as an extra guard)
+  const legacy = allTables.find(
+    (t) => t.isSystem && t.name === RULES_TABLE_NAME_LEGACY,
+  );
+  if (legacy) {
+    return updateDataTable({ id: legacy.id, name: RULES_TABLE_NAME });
+  }
+
+  const existing = allTables.find((t) => t.isSystem && t.name === RULES_TABLE_NAME);
   if (existing) return existing;
 
   return createDataTable({
     projectId,
     name: RULES_TABLE_NAME,
-    description: "Monitoring rules for Autopilot health checks",
+    description:
+      "Autopilot monitoring rules. Each row defines a metric threshold that triggers an investigation when breached.",
     columns: buildRulesColumns(),
     isSystem: true,
     createdBy: "ai",
@@ -195,14 +222,24 @@ function ensureRulesTable(projectId: string): DataTable {
 }
 
 function ensureMetricsTable(projectId: string): DataTable {
-  const existing = listDataTables({ projectId })
-    .find((t) => t.isSystem && t.name === METRICS_TABLE_NAME);
+  const allTables = listDataTables({ projectId });
+
+  // Migrate legacy "Captain Metrics" name
+  const legacy = allTables.find(
+    (t) => t.isSystem && t.name === METRICS_TABLE_NAME_LEGACY,
+  );
+  if (legacy) {
+    return updateDataTable({ id: legacy.id, name: METRICS_TABLE_NAME });
+  }
+
+  const existing = allTables.find((t) => t.isSystem && t.name === METRICS_TABLE_NAME);
   if (existing) return existing;
 
   return createDataTable({
     projectId,
     name: METRICS_TABLE_NAME,
-    description: "Time-series health metrics collected by Autopilot",
+    description:
+      "Time-series health metrics collected by Autopilot on each scan. Each row is a snapshot of all monitored metric values at a point in time.",
     columns: buildMetricsColumns(),
     isSystem: true,
     createdBy: "ai",
@@ -278,14 +315,79 @@ function ensureMetaJob(projectId: string, goalId: string): void {
   });
 }
 
+/**
+ * Ensure system visualizations exist for the Autopilot tables:
+ * - Autopilot Metrics: line chart over time with pretty metric labels
+ * - Autopilot Rules: stat showing count of enabled rules
+ */
+function ensureSystemVisualizations(
+  projectId: string,
+  goalId: string,
+  rulesTable: DataTable,
+  metricsTable: DataTable,
+): void {
+  // Autopilot Metrics — line chart (only create once table has data)
+  if (metricsTable.rowCount >= 1) {
+    const metricsVizs = listVisualizations({ dataTableId: metricsTable.id });
+    if (metricsVizs.length === 0) {
+      createVisualization({
+        projectId,
+        goalId,
+        dataTableId: metricsTable.id,
+        name: "Autopilot Metrics",
+        description:
+          "Time-series view of system health metrics collected on each Autopilot scan. Each line tracks a monitoring metric over time — breach of a rule's threshold triggers an investigation.",
+        chartType: "line",
+        config: {
+          xColumnId: "col_collected_at",
+          series: INITIAL_RULES.map((r) => ({
+            columnId: `col_${r.metricColumn}`,
+            label: r.columnLabel,
+          })),
+          showLegend: true,
+          showGrid: true,
+        },
+        status: "active",
+        source: "system",
+      });
+    }
+  }
+
+  // Autopilot Rules — stat card showing enabled rule count
+  if (rulesTable.rowCount >= 1) {
+    const rulesVizs = listVisualizations({ dataTableId: rulesTable.id });
+    if (rulesVizs.length === 0) {
+      createVisualization({
+        projectId,
+        goalId,
+        dataTableId: rulesTable.id,
+        name: "Autopilot Rules",
+        description:
+          "Number of monitoring rules currently active. Each rule defines a metric, a threshold, and a cooldown — Autopilot checks these on every scan and triggers investigations when a threshold is breached.",
+        chartType: "stat",
+        config: {
+          series: [],
+          statColumnId: "col_enabled",
+          statAggregation: "sum",
+          statLabel: "Active Rules",
+          showLegend: false,
+          showGrid: false,
+        },
+        status: "active",
+        source: "system",
+      });
+    }
+  }
+}
+
 function buildMetaJobPrompt(): string {
   return `You are the OpenHelm Autopilot Health Rules Reviewer for this project.
 
-Your job is to review the monitoring rules in the "Captain Rules" data table and ensure they are accurate, relevant, and effective for the current state of this project.
+Your job is to review the monitoring rules in the "Autopilot Rules" data table and ensure they are accurate, relevant, and effective for the current state of this project.
 
 ## What to do
 
-1. List all current rules by reading the "Captain Rules" data table
+1. List all current rules by reading the "Autopilot Rules" data table
 2. Review each rule's threshold and direction against recent project activity
 3. Check if any new monitoring rules should be added (e.g., for new goals or jobs)
 4. Check if any existing rules are no longer relevant and should be disabled
@@ -293,9 +395,9 @@ Your job is to review the monitoring rules in the "Captain Rules" data table and
 
 ## Available actions
 
-- Use the data table MCP tools to read/update the Captain Rules table
-- Use the target MCP tools to update corresponding targets on the Captain Metrics table
-- When adding a new rule: add a row to Captain Rules, add a column to Captain Metrics, and create a target
+- Use the data table MCP tools to read/update the Autopilot Rules table
+- Use the target MCP tools to update corresponding targets on the Autopilot Metrics table
+- When adding a new rule: add a row to Autopilot Rules, add a column to Autopilot Metrics, and create a target
 
 ## Guidelines
 

@@ -38,6 +38,7 @@ import sql0033 from "./migrations/0033_add_inbox_events.sql";
 import sql0034 from "./migrations/0034_add_browser_profile_name.sql";
 import sql0035 from "./migrations/0035_dedup_system_goals.sql";
 import sql0036 from "./migrations/0036_archive_completed_investigations.sql";
+import sql0037 from "./migrations/0037_rename_captain_to_autopilot.sql";
 
 export interface MigrationEntry {
   idx: number;
@@ -83,4 +84,5 @@ export const MIGRATIONS: MigrationEntry[] = [
   { idx: 34, tag: "0034_add_browser_profile_name", sql: sql0034 },
   { idx: 35, tag: "0035_dedup_system_goals", sql: sql0035 },
   { idx: 36, tag: "0036_archive_completed_investigations", sql: sql0036 },
+  { idx: 37, tag: "0037_rename_captain_to_autopilot", sql: sql0037 },
 ];

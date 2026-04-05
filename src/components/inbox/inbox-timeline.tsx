@@ -1,9 +1,10 @@
-import { useRef, useMemo, useCallback, useLayoutEffect, useState, useEffect } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { useRef, useMemo, useCallback, useLayoutEffect, useState, useEffect, Fragment } from "react";
+import { motion } from "framer-motion";
 import { Loader2, ArrowDown, ArrowUp } from "lucide-react";
 import { useInboxStore } from "@/stores/inbox-store";
 import { usePinchZoom } from "@/hooks/use-pinch-zoom";
 import { InboxNowMarker } from "./inbox-now-marker";
+import { InboxUnreadMarker } from "./inbox-unread-marker";
 import { InboxTimeHeader } from "./inbox-time-header";
 import { InboxEvent } from "./inbox-event";
 import type { InboxEvent as InboxEventType, InboxCategory } from "@openhelm/shared";
@@ -29,10 +30,12 @@ function groupEventsByDate(events: InboxEventType[]): Map<string, InboxEventType
 export function InboxTimeline({ projectId, loading, searchQuery, filterCategory }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const nowMarkerRef = useRef<HTMLDivElement>(null);
+  const unreadMarkerRef = useRef<HTMLDivElement | null>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
   const [nowVisible, setNowVisible] = useState(true);
   const [nowAboveViewport, setNowAboveViewport] = useState(false);
   const prevScrollHeight = useRef(0);
+  const hasScrolledToUnread = useRef(false);
 
   const {
     events,
@@ -43,58 +46,114 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
     loadingPast,
     fetchOlderEvents,
     setTierThreshold,
+    lastReadAt,
+    topTierMinImportance,
+    markReadUpTo,
   } = useInboxStore();
 
+  // Reset initial scroll flag when project changes so we re-scroll on next load
+  useEffect(() => {
+    hasScrolledToUnread.current = false;
+  }, [projectId]);
+
   // Pinch-to-zoom: continuous smooth zoom between tier stops.
-  // Stops include all tier boundaries plus 0 (show everything), sorted descending.
   const stopsRef = useRef<number[]>([]);
   stopsRef.current = useMemo(() => {
     const s = [...tierBoundaries, 0].sort((a, b) => b - a);
     return [...new Set(s)];
   }, [tierBoundaries]);
 
-  // Accumulator for smooth sub-stop zoom. Resets when we snap to a stop.
   const zoomAccRef = useRef(0);
+  const zoomAnchorRef = useRef<{ anchorTimeMs: number; viewportOffset: number } | null>(null);
+
+  const captureZoomAnchor = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const containerRect = container.getBoundingClientRect();
+    const centerY = containerRect.top + containerRect.height / 2;
+    const eventEls = container.querySelectorAll<HTMLElement>("[data-event-at]");
+    let bestAt: string | null = null;
+    let bestOffset = 0;
+    let bestDist = Infinity;
+    eventEls.forEach((el) => {
+      const rect = el.getBoundingClientRect();
+      const elCenter = rect.top + rect.height / 2;
+      const dist = Math.abs(elCenter - centerY);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestAt = el.dataset.eventAt ?? null;
+        bestOffset = rect.top - containerRect.top;
+      }
+    });
+    if (bestAt) {
+      zoomAnchorRef.current = {
+        anchorTimeMs: new Date(bestAt).getTime(),
+        viewportOffset: bestOffset,
+      };
+    }
+  }, []);
 
   const handleZoom = useCallback(
     (deltaY: number) => {
       const stops = stopsRef.current;
-      // Even with 0–1 stops, allow zoom between max importance and 0
       const maxStop = stops[0] ?? 100;
       const minStop = 0;
 
-      // Accumulate delta — scale so a full trackpad pinch gesture traverses ~one tier
       zoomAccRef.current += deltaY * 0.5;
-      const SNAP_THRESHOLD = 12; // accumulated delta before we jump one tier stop
+      const SNAP_THRESHOLD = 12;
 
       if (Math.abs(zoomAccRef.current) < SNAP_THRESHOLD) return;
 
-      // Determine direction: positive deltaY = zoom out (raise threshold)
       const direction = zoomAccRef.current > 0 ? 1 : -1;
-      zoomAccRef.current = 0; // reset accumulator
+      zoomAccRef.current = 0;
+
+      captureZoomAnchor();
 
       if (stops.length > 1) {
-        // Find nearest stop
         let idx = 0;
         let bestDist = Infinity;
         for (let i = 0; i < stops.length; i++) {
           const d = Math.abs(tierThreshold - stops[i]);
           if (d < bestDist) { bestDist = d; idx = i; }
         }
-        // direction > 0 = zoom out = move towards higher threshold (lower index)
-        // direction < 0 = zoom in = move towards lower threshold (higher index)
         const nextIdx = direction > 0
           ? Math.max(0, idx - 1)
           : Math.min(stops.length - 1, idx + 1);
         setTierThreshold(stops[nextIdx]);
       } else {
-        // Single or no tiers — toggle between max and 0
         setTierThreshold(tierThreshold >= maxStop ? minStop : maxStop);
       }
     },
-    [tierThreshold, setTierThreshold],
+    [tierThreshold, setTierThreshold, captureZoomAnchor],
   );
   usePinchZoom(containerRef, handleZoom);
+
+  // After threshold changes, restore scroll anchor
+  useLayoutEffect(() => {
+    const anchor = zoomAnchorRef.current;
+    if (!anchor || !containerRef.current) return;
+    const container = containerRef.current;
+    const eventEls = container.querySelectorAll<HTMLElement>("[data-event-at]");
+    let bestEl: HTMLElement | null = null;
+    let bestDist = Infinity;
+    eventEls.forEach((el) => {
+      const at = el.dataset.eventAt;
+      if (!at) return;
+      const diff = Math.abs(new Date(at).getTime() - anchor.anchorTimeMs);
+      if (diff < bestDist) {
+        bestDist = diff;
+        bestEl = el;
+      }
+    });
+    if (bestEl) {
+      const containerRect = container.getBoundingClientRect();
+      const elRect = (bestEl as HTMLElement).getBoundingClientRect();
+      const currentOffset = elRect.top - containerRect.top;
+      const delta = currentOffset - anchor.viewportOffset;
+      container.scrollTop += delta;
+    }
+    zoomAnchorRef.current = null;
+  }, [tierThreshold]);
 
   // Filter events by tier threshold + search + category
   const filterEvent = useCallback(
@@ -124,18 +183,30 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
     [futureEvents, filterEvent],
   );
 
+  // ID of the first unread event in the visible list (for placing the unread marker)
+  const firstUnreadEventId = useMemo(() => {
+    if (!lastReadAt) return null;
+    const first = visibleEvents.find(
+      (e) => e.importance >= topTierMinImportance && e.eventAt > lastReadAt,
+    );
+    return first?.id ?? null;
+  }, [visibleEvents, lastReadAt, topTierMinImportance]);
+
   // Group visible events by date
   const dateGroups = useMemo(() => groupEventsByDate(visibleEvents), [visibleEvents]);
   const futureDateGroups = useMemo(() => groupEventsByDate(visibleFutureEvents), [visibleFutureEvents]);
 
-  // Scroll to now on initial load
+  // On initial load, scroll to the unread marker (if any) otherwise to Now
   useEffect(() => {
-    if (!loading && nowMarkerRef.current) {
-      // Small delay to ensure DOM is painted
-      requestAnimationFrame(() => {
+    if (loading || hasScrolledToUnread.current) return;
+    hasScrolledToUnread.current = true;
+    requestAnimationFrame(() => {
+      if (unreadMarkerRef.current) {
+        unreadMarkerRef.current.scrollIntoView({ block: "start" });
+      } else {
         nowMarkerRef.current?.scrollIntoView({ block: "center" });
-      });
-    }
+      }
+    });
   }, [loading]);
 
   // Observe now marker visibility and direction
@@ -145,7 +216,6 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
     const obs = new IntersectionObserver(([entry]) => {
       setNowVisible(entry.isIntersecting);
       if (!entry.isIntersecting) {
-        // Track whether Now marker is above viewport (user scrolled past into future)
         setNowAboveViewport(entry.boundingClientRect.top < 0);
       }
     }, { threshold: 0.1 });
@@ -182,30 +252,35 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
     }
   }, [events]);
 
+  // Mark events as read as they scroll into the viewport
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const onScroll = () => {
+      const containerRect = container.getBoundingClientRect();
+      let maxReadAt: string | null = null;
+
+      container.querySelectorAll<HTMLElement>("[data-unread='true']").forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        // Consider visible when top edge is above the container's bottom edge
+        if (rect.top < containerRect.bottom) {
+          const at = el.dataset.eventAt;
+          if (at && (!maxReadAt || at > maxReadAt)) maxReadAt = at;
+        }
+      });
+
+      if (maxReadAt) markReadUpTo(maxReadAt);
+    };
+
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
+  }, [markReadUpTo]);
+
   const scrollToNow = useCallback(() => {
-    setNowVisible(true); // Immediately hide button during scroll
+    setNowVisible(true);
     nowMarkerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
-
-  // Determine tier level for visual scaling (0 = top tier, 1 = second, 2+ = lower)
-  const getTierLevel = useCallback(
-    (importance: number): number => {
-      if (tierBoundaries.length === 0) return 0;
-      for (let i = 0; i < tierBoundaries.length; i++) {
-        if (importance >= tierBoundaries[i]) return i;
-      }
-      return tierBoundaries.length;
-    },
-    [tierBoundaries],
-  );
-
-  // Visual properties per tier level — creates the "zoom" effect
-  const tierStyles = useMemo(() => [
-    { scale: 1, opacity: 1, fontSize: "1rem", py: "my-1.5" },       // top tier: full size
-    { scale: 0.97, opacity: 0.88, fontSize: "0.95rem", py: "my-1" }, // 2nd tier: slightly smaller
-    { scale: 0.94, opacity: 0.72, fontSize: "0.875rem", py: "my-0.5" }, // 3rd+ tier: compact
-    { scale: 0.91, opacity: 0.58, fontSize: "0.8125rem", py: "my-0.5" }, // 4th tier: very compact
-  ], []);
 
   if (loading) {
     return (
@@ -234,49 +309,36 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
       )}
 
       {/* Past events grouped by date */}
-      <AnimatePresence initial={false}>
-        {Array.from(dateGroups.entries()).map(([date, dateEvents]) => (
-          <div key={date}>
-            <InboxTimeHeader date={date} />
-            {dateEvents.map((event) => {
-              const tier = getTierLevel(event.importance);
-              const style = tierStyles[Math.min(tier, tierStyles.length - 1)];
-              return (
+      {Array.from(dateGroups.entries()).map(([date, dateEvents]) => (
+        <div key={date}>
+          <InboxTimeHeader date={date} />
+          {dateEvents.map((event) => {
+            const isFirstUnread = event.id === firstUnreadEventId;
+            const isUnread =
+              !!lastReadAt &&
+              event.importance >= topTierMinImportance &&
+              event.eventAt > lastReadAt;
+            return (
+              <Fragment key={event.id}>
+                {isFirstUnread && (
+                  <div ref={(el) => { if (el) unreadMarkerRef.current = el; }}>
+                    <InboxUnreadMarker />
+                  </div>
+                )}
                 <motion.div
-                  key={event.id}
-                  layout
-                  initial={{ opacity: 0, scale: 0.9, height: 0 }}
-                  animate={{
-                    opacity: style.opacity,
-                    scale: style.scale,
-                    height: "auto",
-                    transition: {
-                      layout: { type: "spring", stiffness: 300, damping: 28 },
-                      opacity: { type: "spring", stiffness: 200, damping: 25 },
-                      scale: { type: "spring", stiffness: 250, damping: 26 },
-                      height: { type: "spring", stiffness: 300, damping: 30 },
-                    },
-                  }}
-                  exit={{
-                    opacity: 0,
-                    scale: 0.88,
-                    height: 0,
-                    transition: {
-                      opacity: { duration: 0.15 },
-                      scale: { duration: 0.18 },
-                      height: { duration: 0.2, delay: 0.08 },
-                    },
-                  }}
-                  style={{ transformOrigin: "left center" }}
-                  className={style.py}
+                  data-event-id={event.id}
+                  data-event-at={event.eventAt}
+                  data-unread={isUnread ? "true" : undefined}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1, transition: { duration: 0.15 } }}
                 >
-                  <InboxEvent event={event} />
+                  <InboxEvent event={event} isUnread={isUnread} />
                 </motion.div>
-              );
-            })}
-          </div>
-        ))}
-      </AnimatePresence>
+              </Fragment>
+            );
+          })}
+        </div>
+      ))}
 
       {/* Now marker */}
       <div ref={nowMarkerRef}>
@@ -284,41 +346,22 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
       </div>
 
       {/* Future events */}
-      <AnimatePresence initial={false}>
-        {Array.from(futureDateGroups.entries()).map(([date, dateEvents]) => (
-          <div key={`future-${date}`}>
-            <InboxTimeHeader date={date} />
-            {dateEvents.map((event) => {
-              const tier = getTierLevel(event.importance);
-              const style = tierStyles[Math.min(tier, tierStyles.length - 1)];
-              return (
-                <motion.div
-                  key={event.id}
-                  layout
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{
-                    opacity: style.opacity,
-                    scale: style.scale,
-                    transition: {
-                      opacity: { type: "spring", stiffness: 200, damping: 25 },
-                      scale: { type: "spring", stiffness: 250, damping: 26 },
-                    },
-                  }}
-                  exit={{
-                    opacity: 0,
-                    scale: 0.88,
-                    transition: { duration: 0.15 },
-                  }}
-                  style={{ transformOrigin: "left center" }}
-                  className={style.py}
-                >
-                  <InboxEvent event={event} />
-                </motion.div>
-              );
-            })}
-          </div>
-        ))}
-      </AnimatePresence>
+      {Array.from(futureDateGroups.entries()).map(([date, dateEvents]) => (
+        <div key={`future-${date}`}>
+          <InboxTimeHeader date={date} />
+          {dateEvents.map((event) => (
+            <motion.div
+              key={event.id}
+              data-event-id={event.id}
+              data-event-at={event.eventAt}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1, transition: { duration: 0.15 } }}
+            >
+              <InboxEvent event={event} />
+            </motion.div>
+          ))}
+        </div>
+      ))}
 
       {/* Scroll to now button — arrow flips based on scroll direction */}
       {!nowVisible && (

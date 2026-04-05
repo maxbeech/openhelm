@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pause, Play, Square } from "lucide-react";
+import { Pause, Play, Square, Zap, ZapOff } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,10 +18,17 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useSchedulerStatus } from "@/hooks/use-scheduler-status";
+import { useLowTokenModeStore } from "@/stores/low-token-mode-store";
+import { useAgentEvent } from "@/hooks/use-agent-event";
 
 export function SchedulerControl() {
   const { status, pause, resume, stopAll, loading } = useSchedulerStatus();
+  const { enabled: lowTokenMode, setEnabled: setLowTokenMode, loading: ltmLoading, load: loadLtm } = useLowTokenModeStore();
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  // Refresh low token mode state when the agent emits scheduler.statusChanged
+  // (e.g. after the weekly auto-reset fires in the agent's tick)
+  useAgentEvent("scheduler.statusChanged", () => { void loadLtm(); });
 
   if (loading || !status) return null;
 
@@ -42,6 +49,7 @@ export function SchedulerControl() {
               }`}
             />
             {isPaused ? "Paused" : "Running"}
+            {lowTokenMode && <Zap className="size-3 text-amber-500" />}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
           {isPaused ? (
@@ -66,6 +74,27 @@ export function SchedulerControl() {
                 Stop all tasks
               </DropdownMenuItem>
             </>
+          )}
+          <DropdownMenuSeparator />
+          {!ltmLoading && (
+            <DropdownMenuItem onClick={() => void setLowTokenMode(!lowTokenMode)}>
+              {lowTokenMode ? (
+                <>
+                  <ZapOff className="mr-2 size-3.5" />
+                  Disable low token mode
+                </>
+              ) : (
+                <>
+                  <Zap className="mr-2 size-3.5" />
+                  Enable low token mode
+                </>
+              )}
+            </DropdownMenuItem>
+          )}
+          {lowTokenMode && (
+            <div className="px-2 py-1 text-2xs text-amber-600 dark:text-amber-400">
+              Using Haiku · ⅓ less frequent
+            </div>
           )}
           <DropdownMenuSeparator />
           <div className="px-2 py-1.5 text-xs text-muted-foreground">

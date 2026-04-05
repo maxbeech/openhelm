@@ -16,6 +16,13 @@ export function fixSplitNegatives(text: string): string {
   return text.replace(/^(-)\n(\d)/gm, "$1$2");
 }
 
+/** Detect content that has no markdown syntax needing rendering — render as plain
+ *  text to avoid Markdown parsing artifacts (like "-" being parsed as a list). */
+export function isPlainText(text: string): boolean {
+  // No markdown block/inline syntax characters that need rendering
+  return !/[*_`#>[\]|]|^\s*[-+*]\s|\n\n|```/m.test(text);
+}
+
 interface ChatMessageBubbleProps {
   message: ChatMessage;
   projectId: string;
@@ -28,7 +35,7 @@ export function ChatMessageBubble({ message, projectId }: ChatMessageBubbleProps
     <>
       <div
         className={cn(
-          "max-w-[85%] rounded-xl px-3 py-2 text-sm",
+          "max-w-[85%] min-w-[10rem] rounded-xl px-3 py-2 text-sm",
           isUser
             ? "bg-primary text-primary-foreground"
             : "bg-muted text-foreground",
@@ -39,20 +46,33 @@ export function ChatMessageBubble({ message, projectId }: ChatMessageBubbleProps
             <p className="whitespace-pre-wrap break-words leading-relaxed">
               {message.content}
             </p>
-          ) : (
-            <div className="markdown-content break-words leading-relaxed">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  table: ({ children }) => (
-                    <div className="overflow-x-auto">
-                      <table>{children}</table>
-                    </div>
-                  ),
-                }}
-              >{fixSplitNegatives(stripToolCallXml(message.content))}</ReactMarkdown>
-            </div>
-          )
+          ) : (() => {
+            const cleaned = fixSplitNegatives(stripToolCallXml(message.content));
+            const plain = isPlainText(cleaned);
+            // For plain text (no markdown syntax), render as a simple paragraph
+            // to avoid ReactMarkdown treating "-" prefixes as list items.
+            if (plain) {
+              return (
+                <p className="whitespace-pre-wrap break-words leading-relaxed">
+                  {cleaned}
+                </p>
+              );
+            }
+            return (
+              <div className="markdown-content break-words leading-relaxed">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    table: ({ children }) => (
+                      <div className="overflow-x-auto">
+                        <table>{children}</table>
+                      </div>
+                    ),
+                  }}
+                >{cleaned}</ReactMarkdown>
+              </div>
+            );
+          })()
         ) : !isUser && message.pendingActions?.length ? (
           <p className="text-xs text-muted-foreground">Suggested actions:</p>
         ) : null}

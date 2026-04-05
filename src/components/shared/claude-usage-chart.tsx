@@ -18,6 +18,7 @@ interface Props {
   series: UsageDayPoint[];
   dailyBudget?: number | null;
   weeklyBudget?: number | null;
+  weekOnly?: boolean;
   className?: string;
 }
 
@@ -26,14 +27,31 @@ const BLUE_LIGHT = "#93c5fd";
 const RED = "#ef4444";
 const AMBER = "#f59e0b";
 
-export function ClaudeUsageChart({ series, dailyBudget, weeklyBudget, className }: Props) {
+/** Returns the ISO date string (YYYY-MM-DD) for the most recent Monday in local time */
+function currentWeekStart(): string {
+  const now = new Date();
+  const day = now.getDay(); // 0=Sun
+  const diff = day === 0 ? -6 : 1 - day;
+  now.setDate(now.getDate() + diff);
+  return now.toISOString().slice(0, 10);
+}
+
+export function ClaudeUsageChart({ series, dailyBudget, weeklyBudget, weekOnly = false, className }: Props) {
   const { data, periodLimit } = useMemo(() => {
+    const filteredSeries = weekOnly
+      ? series.filter((p) => p.date >= currentWeekStart())
+      : series;
+
     const dailyLimit = dailyBudget ?? (weeklyBudget ? weeklyBudget / 7 : null);
-    const periodLimit = dailyLimit && series.length > 0 ? Math.round(dailyLimit * series.length) : null;
+    const periodLimit = dailyLimit && filteredSeries.length > 0
+      ? weekOnly && weeklyBudget
+        ? weeklyBudget
+        : Math.round(dailyLimit * filteredSeries.length)
+      : null;
 
     let cumTotal = 0;
     let cumOH = 0;
-    const data = series.map((p, i) => {
+    const data = filteredSeries.map((p, i) => {
       cumTotal += p.totalTokens;
       cumOH += p.openHelmTokens;
       return {
@@ -45,7 +63,7 @@ export function ClaudeUsageChart({ series, dailyBudget, weeklyBudget, className 
     });
 
     return { data, periodLimit };
-  }, [series, dailyBudget, weeklyBudget]);
+  }, [series, dailyBudget, weeklyBudget, weekOnly]);
 
   if (series.length === 0) {
     return (
@@ -78,7 +96,7 @@ export function ClaudeUsageChart({ series, dailyBudget, weeklyBudget, className 
       <ResponsiveContainer width="100%" height={120}>
         <ComposedChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#1c3048" vertical={false} />
-          <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#6B8EAE" }} tickLine={false} axisLine={false} interval={6} />
+          <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#6B8EAE" }} tickLine={false} axisLine={false} interval={weekOnly ? 0 : 6} />
           <YAxis tick={{ fontSize: 10, fill: "#6B8EAE" }} tickLine={false} axisLine={false}
             tickFormatter={(v: number) => formatTokenCount(v)} width={48} />
           <Tooltip

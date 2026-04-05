@@ -3,7 +3,8 @@ import { createRun } from "../../db/queries/runs.js";
 import { getJob } from "../../db/queries/jobs.js";
 import { getSetting, setSetting, deleteSetting } from "../../db/queries/settings.js";
 import { jobQueue } from "../../scheduler/queue.js";
-import { scheduler } from "../../scheduler/index.js";
+import { scheduler, enableLowTokenModeAndRecompute, disableLowTokenModeAndRecompute } from "../../scheduler/index.js";
+import { nextWeeklyOccurrence } from "../../scheduler/schedule.js";
 import { executor } from "../../executor/index.js";
 import { emit } from "../emitter.js";
 import type {
@@ -11,6 +12,8 @@ import type {
   CancelRunParams,
   SchedulerStatus,
   PrepareForUpdateResult,
+  SetLowTokenModeParams,
+  SetLowTokenModeResult,
 } from "@openhelm/shared";
 
 export function registerSchedulerHandlers() {
@@ -103,6 +106,7 @@ export function registerSchedulerHandlers() {
       activeRuns: executor.activeRunCount,
       queuedRuns: jobQueue.size(),
       maxConcurrency: executor.maxConcurrency,
+      lowTokenMode: getSetting("low_token_mode")?.value === "true",
     };
     return status;
   });
@@ -128,6 +132,39 @@ export function registerSchedulerHandlers() {
     console.error("[scheduler] resumed by user");
     emit("scheduler.statusChanged", { paused: false });
     return { paused: false };
+  });
+
+  /**
+   * Enable or disable low token mode.
+   * When enabled: all jobs run on Haiku, high-effort jobs run at medium effort,
+   * and recurring job nextFireAt values are stretched by 1.5× (reducing frequency by ⅓).
+   * Recomputes nextFireAt for all enabled recurring jobs immediately.
+   */
+  registerHandler("scheduler.setLowTokenMode", (params) => {
+    const p = params as SetLowTokenModeParams;
+
+    if (p.enabled) {
+      enableLowTokenModeAndRecompute();
+    } else {
+      disableLowTokenModeAndRecompute();
+    }
+
+    // Compute next auto-reset time if weekly reset is configured
+    let nextResetAt: string | null = null;
+    if (p.enabled) {
+      const dowSetting = getSetting("claude_weekly_reset_dow");
+      const hourSetting = getSetting("claude_weekly_reset_hour");
+      if (dowSetting && hourSetting) {
+        const dow = parseInt(dowSetting.value, 10);
+        const hour = parseInt(hourSetting.value, 10);
+        if (!isNaN(dow) && !isNaN(hour)) {
+          nextResetAt = nextWeeklyOccurrence(dow, hour, new Date()).toISOString();
+        }
+      }
+    }
+
+    const result: SetLowTokenModeResult = { enabled: p.enabled, nextResetAt };
+    return result;
   });
 
   /**

@@ -160,6 +160,39 @@ function computeCalendar(config: ScheduleConfigCalendar, from: Date): string {
 }
 
 /**
+ * Stretch a computed next-fire-at by 1.5× for low token mode.
+ *
+ * "Reduce frequency by a third" means new_frequency = (2/3) × original,
+ * so the interval becomes (3/2) = 1.5× longer.
+ *
+ * Applies only to recurring schedules (once and manual return null → unchanged).
+ */
+export function applyLowTokenModeToNextFireAt(
+  normalNext: string | null,
+  from: Date,
+): string | null {
+  if (!normalNext) return null;
+  const normalMs = new Date(normalNext).getTime() - from.getTime();
+  if (normalMs <= 0) return normalNext;
+  const stretchedMs = Math.round(normalMs * 1.5);
+  return new Date(from.getTime() + stretchedMs).toISOString();
+}
+
+/**
+ * Compute the next weekly occurrence of a given day-of-week and hour (local time).
+ * Used for the low-token-mode auto-reset.
+ */
+export function nextWeeklyOccurrence(dow: number, hour: number, from: Date): Date {
+  const candidate = new Date(from);
+  candidate.setHours(hour, 0, 0, 0);
+  const currentDow = candidate.getDay();
+  let daysToAdd = (dow - currentDow + 7) % 7;
+  if (daysToAdd === 0 && candidate <= from) daysToAdd = 7;
+  candidate.setDate(candidate.getDate() + daysToAdd);
+  return candidate;
+}
+
+/**
  * Validate a schedule config. Throws with a descriptive message on failure.
  */
 export function validateScheduleConfig(

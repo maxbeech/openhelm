@@ -5,6 +5,7 @@ import { useDataTableStore } from "@/stores/data-table-store";
 import { useProjectStore } from "@/stores/project-store";
 import { PageHeader } from "@/components/shared/page-header";
 import { FilterBar } from "@/components/shared/filter-bar";
+import { Switch } from "@/components/ui/switch";
 import { DataTableCard } from "./data-table-card";
 import { DataTableCreateDialog } from "./data-table-create-dialog";
 
@@ -15,6 +16,7 @@ export function DataTableListView() {
   const [showCreate, setShowCreate] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterProjectId, setFilterProjectId] = useState<string | null>(null);
+  const [showSystemTables, setShowSystemTables] = useState(true);
 
   useEffect(() => {
     fetchTables(activeProjectId);
@@ -25,6 +27,7 @@ export function DataTableListView() {
   useEffect(() => {
     setSearchQuery("");
     setFilterProjectId(null);
+    setShowSystemTables(true);
   }, [activeProjectId]);
 
   const getProjectName = useCallback(
@@ -34,6 +37,9 @@ export function DataTableListView() {
 
   const filtered = useMemo(() => {
     let result = tables;
+    if (!showSystemTables) {
+      result = result.filter((t) => !t.isSystem);
+    }
     if (filterProjectId) {
       result = result.filter((t) => t.projectId === filterProjectId);
     }
@@ -46,7 +52,7 @@ export function DataTableListView() {
       );
     }
     return result;
-  }, [tables, filterProjectId, searchQuery]);
+  }, [tables, showSystemTables, filterProjectId, searchQuery]);
 
   const handleDelete = async (id: string) => {
     await deleteTable(id);
@@ -101,6 +107,14 @@ export function DataTableListView() {
                 <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
               </div>
             )}
+            <label className="flex h-8 cursor-pointer items-center gap-2 rounded-md border border-input px-3 text-sm text-muted-foreground hover:bg-accent/30">
+              <Switch
+                size="sm"
+                checked={showSystemTables}
+                onCheckedChange={setShowSystemTables}
+              />
+              System tables
+            </label>
           </FilterBar>
         }
       />
@@ -115,10 +129,12 @@ export function DataTableListView() {
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <Database className="size-10 text-muted-foreground/40 mb-3" />
             <p className="text-sm font-medium text-muted-foreground">
-              {searchQuery || filterProjectId ? "No tables match your filters" : "No data tables yet"}
+              {searchQuery || filterProjectId || !showSystemTables
+                ? "No tables match your filters"
+                : "No data tables yet"}
             </p>
             <p className="text-xs text-muted-foreground/70 mt-1 max-w-xs">
-              {searchQuery || filterProjectId
+              {searchQuery || filterProjectId || !showSystemTables
                 ? "Try adjusting your search or filters."
                 : "Create a table manually or let your AI jobs create them as they work."}
             </p>

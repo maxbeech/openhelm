@@ -2,6 +2,24 @@ import { create } from "zustand";
 import * as api from "@/lib/api";
 import type { InboxEvent } from "@openhelm/shared";
 
+const LAST_READ_KEY = "inbox-last-read-at";
+
+function getStoredLastReadAt(): string | null {
+  try {
+    return typeof localStorage !== "undefined"
+      ? localStorage.getItem(LAST_READ_KEY)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLastReadAt(at: string): void {
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(LAST_READ_KEY, at);
+  } catch { /* non-fatal */ }
+}
+
 interface InboxState {
   // Event data
   events: InboxEvent[];
@@ -22,8 +40,10 @@ interface InboxState {
   replyContext: { eventId: string; preview: string } | null;
   sending: boolean;
 
-  // Unread
+  // Unread tracking (frontend-only, persisted to localStorage)
   unreadCount: number;
+  lastReadAt: string | null;
+  topTierMinImportance: number;
 
   // Actions
   fetchInitial: (projectId: string | null) => Promise<void>;
@@ -34,7 +54,7 @@ interface InboxState {
   sendMessage: (projectId: string | null, content: string) => Promise<void>;
   addEventToStore: (event: InboxEvent) => void;
   updateEventInStore: (event: InboxEvent) => void;
-  fetchUnreadCount: (projectId: string | null) => Promise<void>;
+  markReadUpTo: (at: string) => void;
   fetchTierBoundaries: (projectId: string | null) => Promise<void>;
 }
 
@@ -53,6 +73,17 @@ function insertSorted(events: InboxEvent[], ev: InboxEvent): InboxEvent[] {
   return newEvents;
 }
 
+function computeUnreadCount(
+  events: InboxEvent[],
+  lastReadAt: string | null,
+  topTierMinImportance: number,
+): number {
+  if (!lastReadAt) return 0;
+  return events.filter(
+    (e) => e.importance >= topTierMinImportance && e.eventAt > lastReadAt,
+  ).length;
+}
+
 export const useInboxStore = create<InboxState>((set, get) => ({
   events: [],
   futureEvents: [],
@@ -66,6 +97,8 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   replyContext: null,
   sending: false,
   unreadCount: 0,
+  lastReadAt: getStoredLastReadAt(),
+  topTierMinImportance: 0,
 
   fetchInitial: async (projectId) => {
     set({ loading: true, error: null });
@@ -73,28 +106,31 @@ export const useInboxStore = create<InboxState>((set, get) => ({
       const now = new Date().toISOString();
 
       const [events, futureEvents] = await Promise.all([
-        // No lower bound — fetch the 100 most recent events before now.
-        // Infinite scroll loads older events on demand.
         api.listInboxEvents({
           projectId: projectId ?? undefined,
           before: now,
           limit: 100,
         }),
-        // Always fetch future runs across all projects — future scheduled runs
-        // are cross-project system-level events, so ignore the project filter here.
         api.listFutureInboxEvents({ limit: 20 }),
       ]);
+
+      // On first ever visit, seed lastReadAt so existing events aren't shown as unread
+      let { lastReadAt, topTierMinImportance } = get();
+      if (!lastReadAt) {
+        lastReadAt = now;
+        saveLastReadAt(now);
+      }
 
       set({
         events,
         futureEvents,
         loading: false,
         hasMorePast: events.length >= 100,
+        lastReadAt,
+        unreadCount: computeUnreadCount(events, lastReadAt, topTierMinImportance),
       });
 
-      // Fetch tier boundaries for the loaded range
       get().fetchTierBoundaries(projectId);
-      get().fetchUnreadCount(projectId);
     } catch (err) {
       set({ loading: false, error: String(err) });
     }
@@ -124,7 +160,6 @@ export const useInboxStore = create<InboxState>((set, get) => ({
 
   fetchFutureEvents: async (_projectId) => {
     try {
-      // Always cross-project — future scheduled runs are system-level
       const futureEvents = await api.listFutureInboxEvents({ limit: 20 });
       set({ futureEvents });
     } catch { /* non-fatal */ }
@@ -150,7 +185,13 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   },
 
   addEventToStore: (event) => {
-    set((s) => ({ events: insertSorted(s.events, event) }));
+    set((s) => {
+      const events = insertSorted(s.events, event);
+      return {
+        events,
+        unreadCount: computeUnreadCount(events, s.lastReadAt, s.topTierMinImportance),
+      };
+    });
   },
 
   updateEventInStore: (event) => {
@@ -159,21 +200,20 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     }));
   },
 
-  fetchUnreadCount: async (projectId) => {
-    try {
-      const { count } = await api.countInboxEvents({
-        projectId: projectId ?? undefined,
-        status: "active",
-      });
-      set({ unreadCount: count });
-    } catch { /* non-fatal */ }
+  markReadUpTo: (at: string) => {
+    const { lastReadAt, events, topTierMinImportance } = get();
+    if (lastReadAt && at <= lastReadAt) return;
+    saveLastReadAt(at);
+    set({
+      lastReadAt: at,
+      unreadCount: computeUnreadCount(events, at, topTierMinImportance),
+    });
   },
 
   fetchTierBoundaries: async (projectId) => {
     try {
       const { events } = get();
       const now = new Date().toISOString();
-      // Use the oldest loaded event as the lower bound, or fall back to 30 days
       const from = events[0]?.eventAt
         ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
       const result = await api.getInboxTierBoundaries({
@@ -181,10 +221,14 @@ export const useInboxStore = create<InboxState>((set, get) => ({
         from,
         to: now,
       });
+      const topTierMinImportance = result.boundaries.length > 0 ? result.boundaries[0] : 0;
+      const { lastReadAt } = get();
       set({
         tierBoundaries: result.boundaries,
         tierLabels: result.labels,
-        tierThreshold: result.boundaries[0] ?? 0,
+        tierThreshold: 0,
+        topTierMinImportance,
+        unreadCount: computeUnreadCount(events, lastReadAt, topTierMinImportance),
       });
     } catch { /* non-fatal — show all events */ }
   },

@@ -13,7 +13,7 @@ export function StatCardViz({ config, rows, columns, compact }: Props) {
   const value = computeStatValue(config, rows);
   const colId = config.statColumnId;
   const col = colId ? columns.find((c) => c.id === colId) : null;
-  const label = col?.name ?? "Value";
+  const label = config.statLabel ?? col?.name ?? "Value";
   const agg = config.statAggregation ?? "latest";
 
   // Compute trend from last 2 values

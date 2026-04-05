@@ -242,7 +242,10 @@ export type SettingKey =
   | "captain_last_snapshot"
   | "captain_investigation_cooldowns"
   | "inbox_backfill_complete"
-  | "inbox_backfill_v2";
+  | "inbox_backfill_v2"
+  | "low_token_mode"
+  | "claude_weekly_reset_dow"
+  | "claude_weekly_reset_hour";
 
 export interface Setting {
   key: SettingKey;
@@ -414,6 +417,16 @@ export interface CreateRunLogParams {
 export interface SetSettingParams {
   key: SettingKey;
   value: string;
+}
+
+export interface SetLowTokenModeParams {
+  enabled: boolean;
+}
+
+export interface SetLowTokenModeResult {
+  enabled: boolean;
+  /** ISO timestamp of next auto-reset, if weekly reset is configured */
+  nextResetAt: string | null;
 }
 
 // List params
@@ -680,6 +693,7 @@ export interface SchedulerStatus {
   activeRuns: number;
   queuedRuns: number;
   maxConcurrency: number;
+  lowTokenMode: boolean;
 }
 
 /** Result of executor.prepareForUpdate — tells the frontend how many runs are active */
@@ -1473,6 +1487,8 @@ export interface VisualizationConfig {
   statColumnId?: string;
   /** For stat cards: aggregation method */
   statAggregation?: TargetAggregation;
+  /** For stat cards: override label (defaults to column name) */
+  statLabel?: string;
   /** Max rows to fetch (default: 500) */
   rowLimit?: number;
   /** Sort direction for x-axis */
@@ -1490,6 +1506,7 @@ export interface Visualization {
   jobId: string | null;
   dataTableId: string;
   name: string;
+  description: string | null;
   chartType: ChartType;
   config: VisualizationConfig;
   status: VisualizationStatus;
@@ -1505,6 +1522,7 @@ export interface CreateVisualizationParams {
   jobId?: string;
   dataTableId: string;
   name: string;
+  description?: string;
   chartType: ChartType;
   config: VisualizationConfig;
   status?: VisualizationStatus;
@@ -1514,6 +1532,7 @@ export interface CreateVisualizationParams {
 export interface UpdateVisualizationParams {
   id: string;
   name?: string;
+  description?: string | null;
   chartType?: ChartType;
   config?: VisualizationConfig;
   status?: VisualizationStatus;

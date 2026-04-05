@@ -175,9 +175,9 @@ function GoalTargetGroup({ goal, allGoals, targetsByGoal, getEval, depth = 0 }: 
   if (!hasContent) return null;
 
   return (
-    <div className="mb-3" style={{ paddingLeft: depth * 12 }}>
-      <p className="text-xs font-medium mb-1.5">{goal.name}</p>
-      <div className="space-y-1.5 pl-1">
+    <div className="mb-4" style={{ paddingLeft: depth * 12 }}>
+      <p className="text-xs font-medium mb-2">{goal.name}</p>
+      <div className="space-y-3 pl-1">
         {goalTargets.map((t) => {
           const evaluation = getEval(t.id);
           return evaluation ? (

@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useShallow } from "zustand/react/shallow";
-import { ChatMessageBubble, fixSplitNegatives } from "./chat-message-bubble";
+import { ChatMessageBubble, fixSplitNegatives, isPlainText } from "./chat-message-bubble";
 import { AnimatedHelmLogo } from "./animated-helm-logo";
 import { useChatStore } from "@/stores/chat-store";
 import type { ChatMessage } from "@openhelm/shared";
@@ -111,12 +111,19 @@ export function ChatMessageList({ sending, projectId }: ChatMessageListProps) {
             {isStreaming ? (
               <div className="flex flex-col items-start">
                 <div className="max-w-[85%] rounded-xl bg-muted px-3 py-2 text-sm text-foreground opacity-80">
-                  <div className="markdown-content break-words leading-relaxed [&>*:last-child]:inline">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {isPlainText(msg.content ?? "") ? (
+                    <p className="whitespace-pre-wrap break-words leading-relaxed">
                       {msg.content ?? ""}
-                    </ReactMarkdown>
-                    <span className="inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-foreground/50" />
-                  </div>
+                      <span className="inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-foreground/50" />
+                    </p>
+                  ) : (
+                    <div className="markdown-content break-words leading-relaxed [&>*:last-child]:inline">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {msg.content ?? ""}
+                      </ReactMarkdown>
+                      <span className="inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-foreground/50" />
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (

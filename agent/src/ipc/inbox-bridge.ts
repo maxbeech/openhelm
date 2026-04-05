@@ -5,6 +5,7 @@
 
 import { eq as drizzleEq, gte as drizzleGte, and as drizzleAnd, inArray as drizzleInArray } from "drizzle-orm";
 import { createInboxEvent, resolveInboxEventBySource, upsertConversationThreadEvent, hasInboxEventForSource } from "../db/queries/inbox-events.js";
+import { getJob } from "../db/queries/jobs.js";
 import { getConversation } from "../db/queries/conversations.js";
 import { getSetting, setSetting } from "../db/queries/settings.js";
 import { getDb } from "../db/init.js";
@@ -44,10 +45,13 @@ const EVENT_HANDLERS: Record<string, HandlerFn> = {
     const status = data.status as string;
     const runId = data.runId as string;
     const jobId = data.jobId as string;
-    const jobName = (data.jobName as string) || "Job";
-    const projectId = data.projectId as string;
+    // Look up job from DB when name/project aren't in the event payload.
+    // Most emitters only send {runId, status, jobId}, so we fetch the rest here.
+    const job = jobId ? getJob(jobId) : null;
+    const jobName = (data.jobName as string) || job?.name || "Job";
+    const projectId = (data.projectId as string) || job?.projectId || "";
     const triggerSource = data.triggerSource as string | undefined;
-    const jobSource = data.source as string | undefined;
+    const jobSource = (data.source as string | undefined) ?? job?.source;
 
     if (status === "running") {
       const base = getBaseImportance("run.started");

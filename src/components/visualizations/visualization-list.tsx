@@ -94,20 +94,27 @@ export function VisualizationList({ projectId, goalId, jobId, compact }: Props) 
       <div className="space-y-3">
         {active.map((viz) => (
           <div key={viz.id} className="rounded-lg border bg-card">
-            <div className="flex items-center justify-between px-3 py-2 border-b">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium">{viz.name}</span>
-                <Badge variant="outline" className="text-3xs px-1.5 py-0">
-                  {viz.chartType}
-                </Badge>
-                {viz.source === "system" && (
-                  <Badge variant="secondary" className="text-3xs px-1.5 py-0">auto</Badge>
+            <div className="flex items-start justify-between px-3 py-2 border-b">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium">{viz.name}</span>
+                  <Badge variant="outline" className="text-3xs px-1.5 py-0 shrink-0">
+                    {viz.chartType}
+                  </Badge>
+                  {viz.source === "system" && (
+                    <Badge variant="secondary" className="text-3xs px-1.5 py-0 shrink-0">auto</Badge>
+                  )}
+                </div>
+                {viz.description && (
+                  <p className="text-3xs text-muted-foreground mt-0.5 leading-relaxed">
+                    {viz.description}
+                  </p>
                 )}
               </div>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
+                className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive shrink-0 ml-2"
                 onClick={() => handleDelete(viz.id)}
                 disabled={deletingId === viz.id}
               >
@@ -145,15 +152,22 @@ function SuggestedCard({
 }) {
   return (
     <div className="rounded-lg border border-dashed border-blue-500/40 bg-blue-500/5">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-blue-500/20">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-3 w-3 text-blue-500" />
-          <span className="text-xs font-medium">{viz.name}</span>
-          <Badge variant="outline" className="text-3xs px-1.5 py-0 border-blue-500/40 text-blue-500">
-            suggested
-          </Badge>
+      <div className="flex items-start justify-between px-3 py-2 border-b border-blue-500/20">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-3 w-3 text-blue-500 shrink-0" />
+            <span className="text-xs font-medium">{viz.name}</span>
+            <Badge variant="outline" className="text-3xs px-1.5 py-0 border-blue-500/40 text-blue-500 shrink-0">
+              suggested
+            </Badge>
+          </div>
+          {viz.description && (
+            <p className="text-3xs text-muted-foreground mt-0.5 leading-relaxed">
+              {viz.description}
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0 ml-2">
           <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-emerald-500" onClick={onAccept}>
             <Check className="h-3 w-3" />
           </Button>

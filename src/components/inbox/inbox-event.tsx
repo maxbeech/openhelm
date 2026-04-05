@@ -1,9 +1,9 @@
 import { useCallback } from "react";
 import { Reply } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
 import { useInboxStore } from "@/stores/inbox-store";
 import { useChatStore } from "@/stores/chat-store";
-import { EventAlert } from "./events/event-alert";
 import { EventJobRun } from "./events/event-job-run";
 import { EventAiMessage } from "./events/event-ai-message";
 import { EventUserMessage } from "./events/event-user-message";
@@ -14,9 +14,10 @@ import type { InboxEvent as InboxEventType } from "@openhelm/shared";
 
 interface Props {
   event: InboxEventType;
+  isUnread?: boolean;
 }
 
-export function InboxEvent({ event }: Props) {
+export function InboxEvent({ event, isUnread }: Props) {
   const { selectRun, selectDataTable, selectJob, setContentView } = useAppStore();
   const { setReplyContext } = useInboxStore();
   const { setActiveConversation, panelOpen, togglePanel } = useChatStore();
@@ -64,7 +65,12 @@ export function InboxEvent({ event }: Props) {
   });
 
   return (
-    <div className="group relative my-1">
+    <div
+      className={cn(
+        "group relative my-2 rounded-md transition-colors",
+        isUnread && "bg-accent/20",
+      )}
+    >
       {/* Reply button — appears on hover, right side */}
       <button
         onClick={handleReply}
@@ -75,26 +81,28 @@ export function InboxEvent({ event }: Props) {
       </button>
 
       <div onClick={handleClick} className="cursor-pointer pr-4">
-        {event.category === "alert" && <EventAlert event={event} timestamp={timestamp} />}
-        {event.category === "run" && <EventJobRun event={event} timestamp={timestamp} />}
+        {/* Alerts and actions render as AI messages (treat agent feedback uniformly) */}
+        {(event.category === "alert" || event.category === "action") && (
+          <EventAiMessage event={event} timestamp={timestamp} isUnread={isUnread} />
+        )}
+        {event.category === "run" && <EventJobRun event={event} timestamp={timestamp} isUnread={isUnread} />}
         {event.category === "chat" && event.eventType === "chat.conversation_thread" && (
-          <EventConversationThread event={event} timestamp={timestamp} />
+          <EventConversationThread event={event} timestamp={timestamp} isUnread={isUnread} />
         )}
         {event.category === "chat" && event.eventType === "chat.assistant_message" && (
-          <EventAiMessage event={event} timestamp={timestamp} />
+          <EventAiMessage event={event} timestamp={timestamp} isUnread={isUnread} />
         )}
         {event.category === "chat" && event.eventType === "chat.user_message" && (
-          <EventUserMessage event={event} timestamp={timestamp} />
+          <EventUserMessage event={event} timestamp={timestamp} isUnread={isUnread} />
         )}
         {event.category === "system" && event.eventType === "system.scheduled_run" && (
-          <EventScheduledRun event={event} timestamp={timestamp} />
+          <EventScheduledRun event={event} timestamp={timestamp} isUnread={isUnread} />
         )}
         {(event.category === "memory" ||
           event.category === "data" ||
           event.category === "credential" ||
-          event.category === "action" ||
           event.category === "insight") && (
-          <EventCrud event={event} timestamp={timestamp} />
+          <EventCrud event={event} timestamp={timestamp} isUnread={isUnread} />
         )}
       </div>
     </div>

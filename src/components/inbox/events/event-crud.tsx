@@ -1,29 +1,31 @@
-import { Waypoints, Database, KeyRound, Compass, Zap } from "lucide-react";
+import { Waypoints, Database, KeyRound, Compass } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { InboxEvent } from "@openhelm/shared";
+import { EventRow } from "./event-row";
 
 interface Props {
   event: InboxEvent;
   timestamp: string;
+  isUnread?: boolean;
 }
 
-const CATEGORY_ICONS: Record<string, typeof Database> = {
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
   memory: Waypoints,
   data: Database,
   credential: KeyRound,
   insight: Compass,
-  action: Zap,
 };
 
-export function EventCrud({ event, timestamp }: Props) {
-  const Icon = CATEGORY_ICONS[event.category] ?? Database;
+export function EventCrud({ event, timestamp, isUnread }: Props) {
+  const icon = CATEGORY_ICONS[event.category] ?? Database;
 
   return (
-    <div className="flex items-center gap-2 rounded-md px-3 py-1 transition-colors hover:bg-accent/30">
-      <Icon className="size-3 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-        {event.title}
-      </span>
-      <span className="shrink-0 text-3xs text-muted-foreground">{timestamp}</span>
-    </div>
+    <EventRow
+      icon={icon}
+      title={event.title}
+      description={event.body}
+      timestamp={timestamp}
+      isUnread={isUnread}
+    />
   );
 }

@@ -106,6 +106,8 @@ import type {
   ListFutureInboxEventsParams,
   SetupBrowserProfileParams,
   SetupBrowserProfileResult,
+  SetLowTokenModeParams,
+  SetLowTokenModeResult,
 } from "@openhelm/shared";
 
 // ─── Projects ───
@@ -332,6 +334,10 @@ export function resumeScheduler(): Promise<{ paused: boolean }> {
 
 export function stopAllRuns(): Promise<{ stoppedActive: number; clearedQueued: number }> {
   return agentClient.request<{ stoppedActive: number; clearedQueued: number }>("executor.stopAll");
+}
+
+export function setLowTokenMode(params: SetLowTokenModeParams): Promise<SetLowTokenModeResult> {
+  return agentClient.request<SetLowTokenModeResult>("scheduler.setLowTokenMode", params);
 }
 
 // ─── Browser MCP ───

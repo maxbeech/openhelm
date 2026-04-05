@@ -607,8 +607,13 @@ export class Executor {
         silenceTimeoutMs: job.silenceTimeoutMinutes
           ? job.silenceTimeoutMinutes * 60_000
           : undefined,
-        model: job.model ?? undefined,
-        modelEffort: (job.modelEffort as "low" | "medium" | "high") ?? undefined,
+        model: getSetting("low_token_mode")?.value === "true"
+          ? "claude-haiku-4-5-20251001"
+          : (job.model ?? undefined),
+        modelEffort: (() => {
+          const raw = (job.modelEffort as "low" | "medium" | "high") ?? "medium";
+          return getSetting("low_token_mode")?.value === "true" && raw === "high" ? "medium" : raw;
+        })(),
         permissionMode: (job.permissionMode as "default" | "acceptEdits" | "dontAsk" | "bypassPermissions") ?? undefined,
         resumeSessionId,
         additionalEnv: Object.keys(additionalEnv).length > 0 ? additionalEnv : undefined,

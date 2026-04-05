@@ -57,6 +57,7 @@ export function DashboardSystemSection({
                 series={usageSummary.series}
                 dailyBudget={usageSummary.dailyBudget}
                 weeklyBudget={usageSummary.weeklyBudget}
+                weekOnly
                 className="mt-3"
               />
             </div>

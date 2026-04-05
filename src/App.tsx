@@ -24,6 +24,7 @@ import { useCredentialStore } from "./stores/credential-store";
 import { useDataTableStore } from "./stores/data-table-store";
 import { useVisualizationStore } from "./stores/visualization-store";
 import { useInboxStore } from "./stores/inbox-store";
+import { useLowTokenModeStore } from "./stores/low-token-mode-store";
 import { useAgentEvent } from "./hooks/use-agent-event";
 import type { RunStatus, ChatMessage, DashboardItem, InboxEvent, Memory, Credential, DataTable, Visualization } from "@openhelm/shared";
 import {
@@ -437,21 +438,19 @@ export default function App() {
   useAgentEvent("dashboard.created", handleDashboardCreated);
   useAgentEvent("dashboard.resolved", handleDashboardResolved);
 
-  // Inbox event handlers
-  const { addEventToStore: addInboxEvent, updateEventInStore: updateInboxEvent, fetchUnreadCount: fetchInboxCount } = useInboxStore();
+  // Inbox event handlers — unreadCount is computed reactively in the store
+  const { addEventToStore: addInboxEvent, updateEventInStore: updateInboxEvent } = useInboxStore();
   const handleInboxEventCreated = useCallback(
     (event: InboxEvent) => {
       addInboxEvent(event);
-      fetchInboxCount(activeProjectId);
     },
-    [addInboxEvent, fetchInboxCount, activeProjectId],
+    [addInboxEvent],
   );
   const handleInboxEventResolved = useCallback(
     (event: InboxEvent) => {
       updateInboxEvent(event);
-      fetchInboxCount(activeProjectId);
     },
-    [updateInboxEvent, fetchInboxCount, activeProjectId],
+    [updateInboxEvent],
   );
   useAgentEvent("inbox.eventCreated", handleInboxEventCreated);
   useAgentEvent("inbox.eventResolved", handleInboxEventResolved);
@@ -622,6 +621,8 @@ export default function App() {
         // Fetch cross-project dashboard right away
         fetchDashboardItems();
         fetchDashboardCount();
+        // Load low token mode state
+        void useLowTokenModeStore.getState().load();
         // Configure Sentry opt-out and PostHog session recording (read after projects load)
         try {
           const s = await api.getSetting("analytics_enabled");
