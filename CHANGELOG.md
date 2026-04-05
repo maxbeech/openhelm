@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.8.0] - 2026-04-05
 
 ### Added
 - **Unified page headers with search & filter**: New shared `PageHeader` and `FilterBar` components provide consistent search/filter UI across Data Tables, Memory, Credentials, and Inbox pages
