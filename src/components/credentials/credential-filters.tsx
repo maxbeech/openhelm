@@ -1,4 +1,5 @@
 import { useCredentialStore } from "@/stores/credential-store";
+import { FilterBar } from "@/components/shared/filter-bar";
 import { Button } from "@/components/ui/button";
 import type { CredentialType, CredentialScope } from "@openhelm/shared";
 
@@ -15,17 +16,22 @@ const scopeOptions: { value: CredentialScope; label: string }[] = [
 ];
 
 export function CredentialFilters() {
-  const { filterType, filterScope, setFilterType, setFilterScope } = useCredentialStore();
+  const { filterType, filterScope, searchQuery, setFilterType, setFilterScope, setSearchQuery } =
+    useCredentialStore();
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <FilterBar
+      searchValue={searchQuery}
+      onSearchChange={setSearchQuery}
+      searchPlaceholder="Search credentials..."
+    >
       {/* Type filters */}
       {typeOptions.map((opt) => (
         <Button
           key={opt.value}
           size="sm"
           variant={filterType === opt.value ? "secondary" : "ghost"}
-          className="h-7 text-2xs"
+          className="h-8 text-2xs"
           onClick={() => setFilterType(filterType === opt.value ? null : opt.value)}
         >
           {opt.label}
@@ -40,12 +46,12 @@ export function CredentialFilters() {
           key={opt.value}
           size="sm"
           variant={filterScope === opt.value ? "secondary" : "ghost"}
-          className="h-7 text-2xs"
+          className="h-8 text-2xs"
           onClick={() => setFilterScope(filterScope === opt.value ? null : opt.value)}
         >
           {opt.label}
         </Button>
       ))}
-    </div>
+    </FilterBar>
   );
 }

@@ -13,6 +13,8 @@ export default [
       'agent/node_modules/**',
       'agent/mcp-servers/**',
       'shared/dist/**',
+      // Browser session profiles created at runtime — contain third-party extension JS
+      '~/.openhelm/**',
     ],
   },
   {

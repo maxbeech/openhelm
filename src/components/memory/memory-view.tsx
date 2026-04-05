@@ -3,6 +3,7 @@ import { Plus, Trash2, Waypoints, CheckSquare } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useMemoryStore } from "@/stores/memory-store";
 import { useProjectStore } from "@/stores/project-store";
+import { PageHeader } from "@/components/shared/page-header";
 import { MemoryFilters } from "./memory-filters";
 import { MemoryCard } from "./memory-card";
 import { MemoryCreateDialog } from "./memory-create-dialog";
@@ -153,97 +154,90 @@ export function MemoryView() {
   const someSelected = selectedIds.size > 0;
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      <div className="space-y-6 px-6 pt-14 pb-8">
-        {/* Header */}
-        <section>
-          <div className="mb-3 flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-muted-foreground">Filters</h3>
-            <div className="ml-auto flex items-center gap-2">
-              {activeProjectId && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-2xs text-muted-foreground hover:text-foreground"
-                  disabled={pruning}
-                  onClick={handlePrune}
-                  title="Auto-archive stale, low-importance memories and enforce the 200-memory cap"
-                >
-                  <Trash2 className="mr-1 size-3" />
-                  {pruning
-                    ? "Pruning..."
-                    : pruneResult !== null
-                      ? pruneResult === 0
-                        ? "Nothing to prune"
-                        : `Archived ${pruneResult}`
-                      : "Auto-prune"}
-                </Button>
-              )}
+    <div className="flex h-full flex-col overflow-hidden">
+      <PageHeader
+        title="Memories"
+        subtitle="Automatically extracted from runs, or created manually."
+        count={memories.length}
+        actions={
+          <div className="flex items-center gap-2">
+            {activeProjectId && (
               <Button
                 size="sm"
-                variant="secondary"
-                className="text-2xs"
-                onClick={() => setShowCreate(true)}
+                variant="ghost"
+                className="text-2xs text-muted-foreground hover:text-foreground"
+                disabled={pruning}
+                onClick={handlePrune}
+                title="Auto-archive stale, low-importance memories and enforce the 200-memory cap"
               >
-                <Plus className="mr-1 size-3" />
-                New Memory
+                <Trash2 className="mr-1 size-3" />
+                {pruning
+                  ? "Pruning..."
+                  : pruneResult !== null
+                    ? pruneResult === 0
+                      ? "Nothing to prune"
+                      : `Archived ${pruneResult}`
+                    : "Auto-prune"}
               </Button>
-            </div>
-          </div>
-          <MemoryFilters tags={allTags} />
-        </section>
-
-        {/* Memory list */}
-        <section>
-          <div className="mb-3 flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-muted-foreground">
-              Memories{memories.length > 0 && ` (${memories.length})`}
-            </h3>
-
-            {/* Bulk action bar — only when items are selected */}
-            {someSelected && (
-              <div className="ml-auto flex items-center gap-2">
-                <span className="text-2xs text-muted-foreground">
-                  {selectedIds.size} selected
-                </span>
-                {!allSelected && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 gap-1 text-2xs text-muted-foreground hover:text-foreground"
-                    onClick={handleSelectAll}
-                  >
-                    <CheckSquare className="size-3" />
-                    Select all
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 text-2xs text-muted-foreground hover:text-foreground"
-                  onClick={handleClearSelection}
-                >
-                  Clear
-                </Button>
-                <Button
-                  size="sm"
-                  variant={confirmBulkDelete ? "destructive" : "outline"}
-                  className="h-7 gap-1 text-2xs"
-                  disabled={bulkDeleting}
-                  onClick={handleBulkDelete}
-                >
-                  <Trash2 className="size-3" />
-                  {bulkDeleting
-                    ? "Deleting..."
-                    : confirmBulkDelete
-                      ? `Confirm delete ${selectedIds.size}`
-                      : `Delete ${selectedIds.size}`}
-                </Button>
-              </div>
             )}
+            <Button
+              size="sm"
+              variant="secondary"
+              className="text-2xs"
+              onClick={() => setShowCreate(true)}
+            >
+              <Plus className="mr-1 size-3" />
+              New Memory
+            </Button>
           </div>
+        }
+        filters={<MemoryFilters tags={allTags} />}
+      />
 
-          {loading ? (
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        {/* Bulk action bar */}
+        {someSelected && (
+          <div className="mb-3 flex items-center gap-2">
+            <span className="text-2xs text-muted-foreground">
+              {selectedIds.size} selected
+            </span>
+            {!allSelected && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1 text-2xs text-muted-foreground hover:text-foreground"
+                onClick={handleSelectAll}
+              >
+                <CheckSquare className="size-3" />
+                Select all
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-2xs text-muted-foreground hover:text-foreground"
+              onClick={handleClearSelection}
+            >
+              Clear
+            </Button>
+            <Button
+              size="sm"
+              variant={confirmBulkDelete ? "destructive" : "outline"}
+              className="h-7 gap-1 text-2xs"
+              disabled={bulkDeleting}
+              onClick={handleBulkDelete}
+            >
+              <Trash2 className="size-3" />
+              {bulkDeleting
+                ? "Deleting..."
+                : confirmBulkDelete
+                  ? `Confirm delete ${selectedIds.size}`
+                  : `Delete ${selectedIds.size}`}
+            </Button>
+          </div>
+        )}
+
+        {loading ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
               Loading memories...
             </p>
@@ -279,7 +273,6 @@ export function MemoryView() {
               ))}
             </div>
           )}
-        </section>
       </div>
 
       {/* Dialogs */}

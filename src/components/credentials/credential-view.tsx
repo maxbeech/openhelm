@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Plus, KeyRound } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useCredentialStore } from "@/stores/credential-store";
+import { PageHeader } from "@/components/shared/page-header";
 import { CredentialFilters } from "./credential-filters";
 import { CredentialCard } from "./credential-card";
 import { CredentialCreateDialog } from "./credential-create-dialog";
@@ -16,6 +17,7 @@ export function CredentialView() {
     loading,
     filterType,
     filterScope,
+    searchQuery,
     fetchCredentials,
     createCredential,
     updateCredential,
@@ -30,10 +32,14 @@ export function CredentialView() {
     fetchCredentials(activeProjectId);
   }, [activeProjectId, filterType, filterScope, fetchCredentials]);
 
-  // Apply client-side filters (since the backend filters are simpler)
+  // Apply client-side filters
   const filtered = credentials.filter((c) => {
     if (filterType && c.type !== filterType) return false;
     if (filterScope && c.scopeType !== filterScope) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      if (!c.name.toLowerCase().includes(q)) return false;
+    }
     return true;
   });
 
@@ -48,10 +54,12 @@ export function CredentialView() {
     }) => {
       setCrudError(null);
       try {
-        await createCredential(data);
+        const result = await createCredential(data);
         fetchCredentials(activeProjectId);
+        return result;
       } catch (err) {
         setCrudError(err instanceof Error ? err.message : "Failed to create credential");
+        throw err;
       }
     },
     [activeProjectId, createCredential, fetchCredentials],
@@ -94,48 +102,44 @@ export function CredentialView() {
   );
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      {crudError && (
-        <div className="mx-6 mt-4 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          {crudError}
-        </div>
-      )}
-      <div className="space-y-6 px-6 pt-14 pb-8">
-        {/* Filters */}
-        <section>
-          <div className="mb-3 flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-muted-foreground">Filters</h3>
-            <div className="ml-auto">
-              <Button
-                size="sm"
-                variant="secondary"
-                className="text-2xs"
-                onClick={() => setShowCreate(true)}
-              >
-                <Plus className="mr-1 size-3" />
-                New Credential
-              </Button>
-            </div>
-          </div>
-          <CredentialFilters />
-        </section>
+    <div className="flex h-full flex-col overflow-hidden">
+      <PageHeader
+        title="Credentials"
+        subtitle="Store API keys, passwords, and secrets securely in macOS Keychain."
+        count={filtered.length}
+        actions={
+          <Button
+            size="sm"
+            variant="secondary"
+            className="text-2xs"
+            onClick={() => setShowCreate(true)}
+          >
+            <Plus className="mr-1 size-3" />
+            New Credential
+          </Button>
+        }
+        filters={<CredentialFilters />}
+      />
 
-        {/* Credential list */}
-        <section>
-          <h3 className="mb-3 text-sm font-semibold text-muted-foreground">
-            Credentials{filtered.length > 0 && ` (${filtered.length})`}
-          </h3>
-          {loading ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              Loading credentials...
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        {crudError && (
+          <div className="mb-3 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {crudError}
+          </div>
+        )}
+        {loading ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Loading credentials...
+          </p>
+        ) : filtered.length === 0 ? (
+          <div className="py-8 text-center">
+            <KeyRound className="mx-auto mb-3 size-10 text-muted-foreground/30" />
+            <p className="mb-3 text-sm text-muted-foreground">
+              {filterType || filterScope
+                ? "No credentials match your filters."
+                : "No credentials yet. Inject them into your jobs."}
             </p>
-          ) : filtered.length === 0 ? (
-            <div className="py-8 text-center">
-              <KeyRound className="mx-auto mb-3 size-10 text-muted-foreground/30" />
-              <p className="mb-3 text-sm text-muted-foreground">
-                No credentials yet. Store API keys, passwords, and secrets securely
-                in macOS Keychain and inject them into your jobs.
-              </p>
+            {!filterType && !filterScope && (
               <Button
                 size="sm"
                 variant="outline"
@@ -144,20 +148,20 @@ export function CredentialView() {
                 <Plus className="mr-1.5 size-3.5" />
                 Add Credential
               </Button>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {filtered.map((cred) => (
-                <CredentialCard
-                  key={cred.id}
-                  credential={cred}
-                  onEdit={setEditingCredential}
-                  onDelete={handleDelete}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {filtered.map((cred) => (
+              <CredentialCard
+                key={cred.id}
+                credential={cred}
+                onEdit={setEditingCredential}
+                onDelete={handleDelete}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Dialogs */}

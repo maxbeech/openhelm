@@ -8,6 +8,7 @@ from typing import List, Optional, Dict, Any
 from nodriver import Tab, Element
 from models import ElementInfo, ElementAction
 from debug_logger import debug_logger
+from behavior import humanized_click, humanized_type, humanized_sleep
 
 
 
@@ -157,7 +158,8 @@ class DOMHandler:
         tab: Tab,
         selector: str,
         text_match: Optional[str] = None,
-        timeout: int = 10000
+        timeout: int = 10000,
+        humanize: bool = True,
     ) -> bool:
         """
         Click an element with smart retry logic.
@@ -167,6 +169,7 @@ class DOMHandler:
             selector (str): CSS selector for the element.
             text_match (Optional[str]): Match element by text content.
             timeout (int): Timeout in milliseconds.
+            humanize (bool): Use human-like mouse movement and timing (default True).
 
         Returns:
             bool: True if click succeeded, False otherwise.
@@ -182,13 +185,15 @@ class DOMHandler:
             if not element:
                 raise Exception(f"Element not found: {selector}")
 
-            await element.scroll_into_view()
-            await asyncio.sleep(0.5)
-
-            try:
-                await element.click()
-            except Exception:
-                await element.mouse_click()
+            if humanize:
+                await humanized_click(tab, element)
+            else:
+                await element.scroll_into_view()
+                await asyncio.sleep(0.5)
+                try:
+                    await element.click()
+                except Exception:
+                    await element.mouse_click()
 
             return True
 
@@ -203,7 +208,8 @@ class DOMHandler:
         clear_first: bool = True,
         delay_ms: int = 50,
         parse_newlines: bool = False,
-        shift_enter: bool = False
+        shift_enter: bool = False,
+        humanize: bool = True,
     ) -> bool:
         """
         Type text with human-like delays and optional newline parsing.
@@ -216,6 +222,7 @@ class DOMHandler:
             delay_ms (int): Delay between keystrokes in milliseconds.
             parse_newlines (bool): If True, parse \n as Enter key presses.
             shift_enter (bool): If True, use Shift+Enter instead of Enter (for chat apps).
+            humanize (bool): Use human-like keystroke variance (default True).
 
         Returns:
             bool: True if typing succeeded, False otherwise.
@@ -226,7 +233,7 @@ class DOMHandler:
                 raise Exception(f"Element not found: {selector}")
 
             await element.focus()
-            await asyncio.sleep(0.1)
+            await humanized_sleep(80, 150) if humanize else await asyncio.sleep(0.1)
 
             if clear_first:
                 try:
@@ -234,16 +241,19 @@ class DOMHandler:
                 except:
                     await element.send_keys('\ue009' + 'a')
                     await element.send_keys('\ue017')
-                await asyncio.sleep(0.1)
+                await humanized_sleep(80, 150) if humanize else await asyncio.sleep(0.1)
 
             if parse_newlines:
                 from nodriver import cdp
                 lines = text.split('\n')
                 for i, line in enumerate(lines):
-                    for char in line:
-                        await element.send_keys(char)
-                        await asyncio.sleep(delay_ms / 1000)
-                    
+                    if humanize:
+                        await humanized_type(tab, element, line, base_delay_ms=delay_ms)
+                    else:
+                        for char in line:
+                            await element.send_keys(char)
+                            await asyncio.sleep(delay_ms / 1000)
+
                     if i < len(lines) - 1:
                         if shift_enter:
                             await element.apply('''(elem) => {
@@ -252,7 +262,7 @@ class DOMHandler:
                                 const value = elem.value;
                                 elem.value = value.substring(0, start) + '\\n' + value.substring(end);
                                 elem.selectionStart = elem.selectionEnd = start + 1;
-                                
+
                                 elem.dispatchEvent(new KeyboardEvent('keydown', {
                                     key: 'Enter',
                                     code: 'Enter',
@@ -268,7 +278,7 @@ class DOMHandler:
                                 const value = elem.value;
                                 elem.value = value.substring(0, start) + '\\n' + value.substring(end);
                                 elem.selectionStart = elem.selectionEnd = start + 1;
-                                
+
                                 elem.dispatchEvent(new KeyboardEvent('keydown', {
                                     key: 'Enter',
                                     code: 'Enter',
@@ -278,9 +288,12 @@ class DOMHandler:
                             }''')
                         await asyncio.sleep(delay_ms / 1000)
             else:
-                for char in text:
-                    await element.send_keys(char)
-                    await asyncio.sleep(delay_ms / 1000)
+                if humanize:
+                    await humanized_type(tab, element, text, base_delay_ms=delay_ms)
+                else:
+                    for char in text:
+                        await element.send_keys(char)
+                        await asyncio.sleep(delay_ms / 1000)
 
             return True
 

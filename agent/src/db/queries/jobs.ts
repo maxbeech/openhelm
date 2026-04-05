@@ -1,4 +1,4 @@
-import { eq, and, lte, isNotNull, isNull, max } from "drizzle-orm";
+import { eq, and, lte, gt, isNotNull, isNull, max, asc } from "drizzle-orm";
 import { getDb } from "../init.js";
 import { jobs } from "../schema.js";
 import {
@@ -260,6 +260,7 @@ export function listDueJobs(): Job[] {
     .where(
       and(
         eq(jobs.isEnabled, true),
+        eq(jobs.isArchived, false), // guard against stale nextFireAt on archived jobs
         isNotNull(jobs.nextFireAt),
         lte(jobs.nextFireAt, now),
       ),
@@ -388,10 +389,38 @@ export function deleteJob(id: string): boolean {
 export function reorderJobs(params: BulkReorderParams): void {
   const db = getDb();
   const now = new Date().toISOString();
-  for (const item of params.items) {
-    db.update(jobs)
-      .set({ sortOrder: item.sortOrder, updatedAt: now })
-      .where(eq(jobs.id, item.id))
-      .run();
+  // Wrapped in a transaction so a partial failure doesn't leave inconsistent sort order.
+  db.transaction((tx) => {
+    for (const item of params.items) {
+      tx.update(jobs)
+        .set({ sortOrder: item.sortOrder, updatedAt: now })
+        .where(eq(jobs.id, item.id))
+        .run();
+    }
+  });
+}
+
+/** List enabled jobs with a future nextFireAt, sorted by fire time. Used by inbox future events. */
+export function listDueJobsForInbox(
+  projectId: string | null,
+  limit = 20,
+): Job[] {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const conditions = [
+    eq(jobs.isEnabled, true),
+    isNotNull(jobs.nextFireAt),
+    gt(jobs.nextFireAt, now),
+  ];
+  if (projectId) {
+    conditions.push(eq(jobs.projectId, projectId));
   }
+  return db
+    .select()
+    .from(jobs)
+    .where(and(...conditions))
+    .orderBy(asc(jobs.nextFireAt))
+    .limit(limit)
+    .all()
+    .map(rowToJob);
 }

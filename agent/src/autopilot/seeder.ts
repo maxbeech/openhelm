@@ -157,13 +157,26 @@ function ensureSystemGoal(projectId: string): Goal {
     return existing;
   }
 
-  return createGoal({
-    projectId,
-    name: SYSTEM_GOAL_NAME,
-    description: "Autopilot system health monitoring and maintenance",
-    isSystem: true,
-    icon: "shield",
-  });
+  // The unique partial index on goals(project_id, name) WHERE is_system = 1
+  // prevents duplicates at the DB level. If a race condition causes a conflict,
+  // catch and re-fetch the winner.
+  try {
+    return createGoal({
+      projectId,
+      name: SYSTEM_GOAL_NAME,
+      description: "Autopilot system health monitoring and maintenance",
+      isSystem: true,
+      icon: "shield",
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("UNIQUE constraint failed") || msg.includes("SQLITE_CONSTRAINT")) {
+      const fallback = listGoals({ projectId })
+        .find((g) => g.isSystem && g.name === SYSTEM_GOAL_NAME);
+      if (fallback) return fallback;
+    }
+    throw err;
+  }
 }
 
 function ensureRulesTable(projectId: string): DataTable {
@@ -197,7 +210,11 @@ function ensureMetricsTable(projectId: string): DataTable {
 }
 
 function ensureInitialRuleRows(rulesTable: DataTable): void {
-  // Skip if rules already exist (check via rowCount)
+  // Use the denormalized rowCount from the DataTable record as a fast guard.
+  // This is safe because ensureSystemEntities is always called single-threaded
+  // (one project at a time from the scanner). If rowCount were ever stale,
+  // the duplicate inserts would be benign duplicates — there is no unique
+  // constraint on row content in dataTableRows.
   if (rulesTable.rowCount > 0) return;
 
   const rows = INITIAL_RULES.map((r) => ({

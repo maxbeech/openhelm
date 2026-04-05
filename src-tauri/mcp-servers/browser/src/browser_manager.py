@@ -1,6 +1,7 @@
 """Browser instance management with nodriver."""
 
 import asyncio
+import json
 import uuid
 from typing import Dict, Optional, List
 from datetime import datetime, timedelta
@@ -401,17 +402,73 @@ class BrowserManager:
     async def get_tab(self, instance_id: str) -> Optional[Tab]:
         """
         Get the main tab for a browser instance.
+        Validates the CDP connection is still alive before returning.
+
+        Uses a retry with backoff to handle transient states (e.g. page
+        navigation in progress after form submission where the old page
+        context is torn down but the new one hasn't loaded yet).
 
         Args:
             instance_id (str): The ID of the browser instance.
 
         Returns:
-            Optional[Tab]: The main tab if found, else None.
+            Optional[Tab]: The main tab if found and connected, else None.
+
+        Raises:
+            Exception: If the CDP connection has dropped after retries.
         """
         data = await self.get_instance(instance_id)
-        if data:
-            return data['tab']
-        return None
+        if not data:
+            return None
+
+        tab = data['tab']
+
+        # Validate that the CDP connection is still alive by sending a
+        # lightweight probe. If the connection has dropped (e.g. after
+        # macOS sleep/wake or browser crash), this will raise an OSError
+        # with a clear message instead of failing deep inside a tool.
+        #
+        # We retry up to 3 times with increasing delays to handle the
+        # common case where auto_login just submitted a form and the
+        # page is mid-navigation (old context torn down, new one loading).
+        last_error = None
+        for attempt in range(3):
+            try:
+                timeout = 5.0 + attempt * 3.0  # 5s, 8s, 11s
+                await asyncio.wait_for(
+                    tab.evaluate("1"),
+                    timeout=timeout,
+                )
+                return tab  # Connection is alive
+            except (OSError, ConnectionError) as e:
+                # Hard connection errors (socket refused, pipe broken) —
+                # browser process likely crashed, no point retrying
+                last_error = e
+                break
+            except asyncio.TimeoutError as e:
+                # Timeout could mean active navigation — retry after a pause
+                last_error = e
+                if attempt < 2:
+                    await asyncio.sleep(2.0)
+                    continue
+            except Exception:
+                # Non-connection errors (e.g. page context issues) are fine —
+                # the connection itself is still alive.
+                return tab
+
+        debug_logger.log_warning(
+            "browser_manager", "get_tab",
+            f"CDP connection lost for instance {instance_id}: {last_error}"
+        )
+        # Mark instance as errored so the caller knows to respawn
+        instance = data.get('instance')
+        if instance:
+            instance.state = BrowserState.ERROR
+        raise Exception(
+            f"Browser CDP connection lost for instance {instance_id}. "
+            f"The browser process may have crashed or the connection timed out. "
+            f"Please close this instance and spawn a new one."
+        )
 
     async def get_browser(self, instance_id: str) -> Optional[Browser]:
         """
@@ -579,12 +636,14 @@ class BrowserManager:
             try:
                 local_storage_keys = await tab.evaluate("Object.keys(localStorage)")
                 for key in local_storage_keys:
-                    value = await tab.evaluate(f"localStorage.getItem('{key}')")
+                    # json.dumps ensures the key is safely quoted, preventing JS injection
+                    # via storage keys that contain quotes or other special characters.
+                    value = await tab.evaluate(f"localStorage.getItem({json.dumps(key)})")
                     local_storage[key] = value
 
                 session_storage_keys = await tab.evaluate("Object.keys(sessionStorage)")
                 for key in session_storage_keys:
-                    value = await tab.evaluate(f"sessionStorage.getItem('{key}')")
+                    value = await tab.evaluate(f"sessionStorage.getItem({json.dumps(key)})")
                     session_storage[key] = value
             except Exception:
                 pass

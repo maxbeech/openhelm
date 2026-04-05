@@ -123,14 +123,17 @@ function collectStaleJobCount(projectId: string): number {
   const allJobs = listJobs({ projectId, isEnabled: true });
   const staleDays = 7;
   const cutoff = new Date(Date.now() - staleDays * 86_400_000).toISOString();
+  const now = new Date().toISOString();
   let staleCount = 0;
 
   for (const job of allJobs) {
     // Skip system jobs from counting as stale
     if (job.source === "system") continue;
+    // Skip jobs scheduled for the future (not yet due)
+    if (job.nextFireAt && job.nextFireAt > now) continue;
     const jobRuns = listRuns({ jobId: job.id, limit: 1 });
     if (jobRuns.length === 0) {
-      staleCount++; // Never run
+      staleCount++; // Never run and not scheduled for future
     } else if (jobRuns[0].createdAt < cutoff) {
       staleCount++; // Last run is old
     }

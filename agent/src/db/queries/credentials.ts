@@ -34,6 +34,7 @@ function rowToCredential(row: typeof credentials.$inferSelect): Credential {
     envVarName: row.envVarName,
     allowPromptInjection: !!row.allowPromptInjection,
     allowBrowserInjection: !!row.allowBrowserInjection,
+    browserProfileName: row.browserProfileName ?? null,
     scopeType: row.scopeType as Credential["scopeType"],
     scopeId: row.scopeId ?? null,
     scopes: loadBindings(row.id),
@@ -246,6 +247,7 @@ export function updateCredential(params: UpdateCredentialParams): Credential {
       ...(envVarName !== undefined && { envVarName }),
       ...(params.allowPromptInjection !== undefined && { allowPromptInjection: params.allowPromptInjection }),
       ...(params.allowBrowserInjection !== undefined && { allowBrowserInjection: params.allowBrowserInjection }),
+      ...(params.browserProfileName !== undefined && { browserProfileName: params.browserProfileName }),
       ...(newScopeType !== undefined && { scopeType: newScopeType }),
       ...(newScopeId !== undefined && { scopeId: newScopeId }),
       ...(params.isEnabled !== undefined && { isEnabled: params.isEnabled }),
@@ -406,24 +408,27 @@ export function setScopeBindingsForEntity(params: {
   const toAdd = credentialIds.filter((id) => !currentSet.has(id));
   const toRemove = current.filter((id) => !newSet.has(id));
 
-  for (const credentialId of toAdd) {
-    db.insert(credentialScopeBindings)
-      .values({ credentialId, scopeType, scopeId })
-      .onConflictDoNothing()
-      .run();
-  }
+  // Wrapped in a transaction so adds and removes are applied atomically.
+  db.transaction((tx) => {
+    for (const credentialId of toAdd) {
+      tx.insert(credentialScopeBindings)
+        .values({ credentialId, scopeType, scopeId })
+        .onConflictDoNothing()
+        .run();
+    }
 
-  for (const credentialId of toRemove) {
-    db.delete(credentialScopeBindings)
-      .where(
-        and(
-          eq(credentialScopeBindings.credentialId, credentialId),
-          eq(credentialScopeBindings.scopeType, scopeType),
-          eq(credentialScopeBindings.scopeId, scopeId),
-        ),
-      )
-      .run();
-  }
+    for (const credentialId of toRemove) {
+      tx.delete(credentialScopeBindings)
+        .where(
+          and(
+            eq(credentialScopeBindings.credentialId, credentialId),
+            eq(credentialScopeBindings.scopeType, scopeType),
+            eq(credentialScopeBindings.scopeId, scopeId),
+          ),
+        )
+        .run();
+    }
+  });
 
   return { added: toAdd.length, removed: toRemove.length };
 }
@@ -438,10 +443,13 @@ export interface RunCredentialEntry {
 export function saveRunCredentials(runId: string, entries: RunCredentialEntry[]): void {
   if (entries.length === 0) return;
   const db = getDb();
-  for (const entry of entries) {
-    db.insert(runCredentials)
-      .values({ runId, credentialId: entry.credentialId, injectionMethod: entry.injectionMethod })
-      .onConflictDoNothing()
-      .run();
-  }
+  // Wrapped in a transaction so the audit trail is complete or absent, never partial.
+  db.transaction((tx) => {
+    for (const entry of entries) {
+      tx.insert(runCredentials)
+        .values({ runId, credentialId: entry.credentialId, injectionMethod: entry.injectionMethod })
+        .onConflictDoNothing()
+        .run();
+    }
+  });
 }

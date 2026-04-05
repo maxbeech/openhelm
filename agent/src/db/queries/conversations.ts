@@ -1,4 +1,4 @@
-import { eq, desc, lt, and, isNull, or, asc } from "drizzle-orm";
+import { eq, ne, desc, lt, and, isNull, or, asc } from "drizzle-orm";
 import { getDb } from "../init.js";
 import { conversations, messages } from "../schema.js";
 import type {
@@ -58,7 +58,7 @@ export function getOrCreateConversation(
   const existing = db
     .select()
     .from(conversations)
-    .where(projectIdCondition(projectId))
+    .where(and(projectIdCondition(projectId), ne(conversations.channel, "inbox")))
     .orderBy(asc(conversations.sortOrder), asc(conversations.createdAt))
     .get();
   if (existing) return rowToConversation(existing);
@@ -72,13 +72,14 @@ export function getOrCreateConversation(
   return rowToConversation(row);
 }
 
-/** List all conversation threads for a project, ordered by sortOrder. */
+/** List all conversation threads for a project, ordered by sortOrder.
+ *  Excludes inbox-channel conversations (they have their own UI surface). */
 export function listConversationsForProject(projectId: string | null): Conversation[] {
   const db = getDb();
   return db
     .select()
     .from(conversations)
-    .where(projectIdCondition(projectId))
+    .where(and(projectIdCondition(projectId), ne(conversations.channel, "inbox")))
     .orderBy(asc(conversations.sortOrder), asc(conversations.createdAt))
     .all()
     .map(rowToConversation);

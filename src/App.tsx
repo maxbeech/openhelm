@@ -23,8 +23,9 @@ import { useUpdaterStore } from "./stores/updater-store";
 import { useCredentialStore } from "./stores/credential-store";
 import { useDataTableStore } from "./stores/data-table-store";
 import { useVisualizationStore } from "./stores/visualization-store";
+import { useInboxStore } from "./stores/inbox-store";
 import { useAgentEvent } from "./hooks/use-agent-event";
-import type { RunStatus, ChatMessage, DashboardItem, Memory, Credential, DataTable, Visualization } from "@openhelm/shared";
+import type { RunStatus, ChatMessage, DashboardItem, InboxEvent, Memory, Credential, DataTable, Visualization } from "@openhelm/shared";
 import {
   notifyDashboardItem,
   notifyRunCompleted,
@@ -41,6 +42,7 @@ import { JobDetailView } from "./components/content/job-detail-view";
 import { RunDetailView } from "./components/content/run-detail-view";
 import { SettingsScreen } from "./components/settings/settings-screen";
 import { DashboardView } from "./components/content/dashboard-view";
+import { InboxView } from "./components/inbox/inbox-view";
 import { MemoryView } from "./components/memory/memory-view";
 import { CredentialView } from "./components/credentials/credential-view";
 import { DataTableView } from "./components/data-tables/data-table-view";
@@ -106,6 +108,7 @@ export default function App() {
     setConvSending,
     setConvStatus,
     appendConvStreaming,
+    setConvStreamingText,
     clearConvStreaming,
   } = useChatStore();
   // Must be at top level — cannot be called after early returns
@@ -351,12 +354,18 @@ export default function App() {
   );
 
   const handleChatStreaming = useCallback(
-    (data: { text: string; projectId?: string | null; conversationId?: string }) => {
-      if (data.conversationId) {
+    (data: { text?: string; fullText?: string; projectId?: string | null; conversationId?: string }) => {
+      if (!data.conversationId) return;
+      if (data.fullText != null) {
+        // New path: agent sends the full cumulative text — SET instead of
+        // append so duplication is impossible regardless of event timing.
+        setConvStreamingText(data.conversationId, data.fullText);
+      } else if (data.text) {
+        // Legacy delta path (kept for backward compat)
         appendConvStreaming(data.conversationId, data.text);
       }
     },
-    [appendConvStreaming],
+    [appendConvStreaming, setConvStreamingText],
   );
 
   const handleChatActionResolved = useCallback(
@@ -427,6 +436,25 @@ export default function App() {
 
   useAgentEvent("dashboard.created", handleDashboardCreated);
   useAgentEvent("dashboard.resolved", handleDashboardResolved);
+
+  // Inbox event handlers
+  const { addEventToStore: addInboxEvent, updateEventInStore: updateInboxEvent, fetchUnreadCount: fetchInboxCount } = useInboxStore();
+  const handleInboxEventCreated = useCallback(
+    (event: InboxEvent) => {
+      addInboxEvent(event);
+      fetchInboxCount(activeProjectId);
+    },
+    [addInboxEvent, fetchInboxCount, activeProjectId],
+  );
+  const handleInboxEventResolved = useCallback(
+    (event: InboxEvent) => {
+      updateInboxEvent(event);
+      fetchInboxCount(activeProjectId);
+    },
+    [updateInboxEvent, fetchInboxCount, activeProjectId],
+  );
+  useAgentEvent("inbox.eventCreated", handleInboxEventCreated);
+  useAgentEvent("inbox.eventResolved", handleInboxEventResolved);
 
   // Autopilot failure handler
   const handleAutopilotFailed = useCallback(
@@ -808,6 +836,19 @@ export default function App() {
         }
       >
         <AnimatePresence mode="wait">
+          {contentView === "inbox" && (
+            <motion.div
+              key="inbox"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={pageTransition}
+              className="h-full"
+            >
+              <InboxView />
+            </motion.div>
+          )}
           {contentView === "dashboard" && (
             <motion.div
               key={showWelcome ? "welcome" : "dashboard"}

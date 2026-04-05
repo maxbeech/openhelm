@@ -42,6 +42,17 @@ export const BROWSER_CAPTCHA_PREAMBLE =
   "If unsolvable, call request_user_help and poll screenshots every 30s for up to 5 minutes.\n\n";
 
 /**
+ * Prepended to job prompts to instruct Claude on persistent profile usage
+ * and authenticated session handling.
+ */
+export const BROWSER_PROFILE_PREAMBLE =
+  "PERSISTENT BROWSER PROFILES: For sites requiring login (X.com, Reddit, etc.), " +
+  "use spawn_browser(profile=\"default\") to reuse saved sessions. " +
+  "After navigating, call check_session(instance_id, domain) to verify login status. " +
+  "If the session is expired, call request_user_help to prompt the user to log in " +
+  "manually in the visible browser window — their session will persist for future runs.\n\n";
+
+/**
  * Prepended to job prompts when the data tables MCP is available.
  */
 export const DATA_TABLES_MCP_PREAMBLE =

@@ -10,6 +10,12 @@ function stripToolCallXml(text: string): string {
   return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
 }
 
+/** Fix LLM output where negative numbers are split across lines (e.g. "-\n2" → "-2").
+ *  A lone dash/plus at end of line followed by a digit is a split negative number. */
+export function fixSplitNegatives(text: string): string {
+  return text.replace(/^(-)\n(\d)/gm, "$1$2");
+}
+
 interface ChatMessageBubbleProps {
   message: ChatMessage;
   projectId: string;
@@ -44,7 +50,7 @@ export function ChatMessageBubble({ message, projectId }: ChatMessageBubbleProps
                     </div>
                   ),
                 }}
-              >{stripToolCallXml(message.content)}</ReactMarkdown>
+              >{fixSplitNegatives(stripToolCallXml(message.content))}</ReactMarkdown>
             </div>
           )
         ) : !isUser && message.pendingActions?.length ? (

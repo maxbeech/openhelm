@@ -17,17 +17,19 @@ interface CredentialState {
   error: string | null;
   filterType: CredentialType | null;
   filterScope: CredentialScope | null;
+  searchQuery: string;
 
   fetchCredentials: (projectId: string | null) => Promise<void>;
   fetchForScope: (params: ListCredentialsByScopeParams) => Promise<Credential[]>;
   fetchCount: (projectId: string | null) => Promise<void>;
-  createCredential: (params: CreateCredentialParams) => Promise<void>;
+  createCredential: (params: CreateCredentialParams) => Promise<Credential>;
   updateCredential: (params: UpdateCredentialParams) => Promise<void>;
   deleteCredential: (id: string) => Promise<void>;
   revealValue: (id: string) => Promise<CredentialWithValue | null>;
 
   setFilterType: (type: CredentialType | null) => void;
   setFilterScope: (scope: CredentialScope | null) => void;
+  setSearchQuery: (query: string) => void;
 
   addCredentialToStore: (credential: Credential) => void;
   updateCredentialInStore: (credential: Credential) => void;
@@ -41,6 +43,7 @@ export const useCredentialStore = create<CredentialState>((set) => ({
   error: null,
   filterType: null,
   filterScope: null,
+  searchQuery: "",
 
   fetchCredentials: async (projectId: string | null) => {
     set({ loading: true, error: null });
@@ -75,7 +78,7 @@ export const useCredentialStore = create<CredentialState>((set) => ({
 
   createCredential: async (params: CreateCredentialParams) => {
     try {
-      await api.createCredential(params);
+      return await api.createCredential(params);
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
       throw err;
@@ -111,6 +114,7 @@ export const useCredentialStore = create<CredentialState>((set) => ({
 
   setFilterType: (type) => set({ filterType: type }),
   setFilterScope: (scope) => set({ filterScope: scope }),
+  setSearchQuery: (query) => set({ searchQuery: query }),
 
   addCredentialToStore: (credential) => {
     set((s) => ({

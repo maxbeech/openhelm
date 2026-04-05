@@ -1,14 +1,15 @@
-import { Trash2, Bot, User } from "lucide-react";
+import { Trash2, Bot, User, FolderOpen } from "lucide-react";
 import type { DataTable } from "@openhelm/shared";
 import { ColumnTypeIcon } from "./column-type-icon";
 
 interface DataTableCardProps {
   table: DataTable;
+  projectName?: string;
   onClick: () => void;
   onDelete: () => void;
 }
 
-export function DataTableCard({ table, onClick, onDelete }: DataTableCardProps) {
+export function DataTableCard({ table, projectName, onClick, onDelete }: DataTableCardProps) {
   const timeAgo = getTimeAgo(table.updatedAt);
 
   return (
@@ -60,6 +61,12 @@ export function DataTableCard({ table, onClick, onDelete }: DataTableCardProps) 
 
       {/* Footer */}
       <div className="mt-3 flex items-center gap-3 text-3xs text-muted-foreground/70">
+        {projectName && (
+          <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-primary">
+            <FolderOpen className="size-2.5" />
+            {projectName}
+          </span>
+        )}
         <span>{table.rowCount} rows</span>
         <span>{table.columns.length} columns</span>
         <span className="ml-auto flex items-center gap-1">

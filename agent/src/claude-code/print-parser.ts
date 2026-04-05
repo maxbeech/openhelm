@@ -70,8 +70,11 @@ export function extractResultFromStreamJson(lines: string[], preferAssistantText
       }
     }
   }
-  // Fallback: concatenate all text blocks from assistant events
-  const parts: string[] = [];
+  // Fallback: use text blocks from the LAST assistant event.
+  // The CLI emits cumulative assistant events (each contains the full
+  // message so far), so concatenating all events would duplicate content.
+  // Taking only the last event gives us the final, complete text.
+  let lastAssistantParts: string[] = [];
   for (const line of lines) {
     let event: Record<string, unknown>;
     try { event = JSON.parse(line); } catch { continue; }
@@ -79,13 +82,15 @@ export function extractResultFromStreamJson(lines: string[], preferAssistantText
     const message = event.message as Record<string, unknown> | undefined;
     const content = message?.content;
     if (!Array.isArray(content)) continue;
+    const parts: string[] = [];
     for (const block of content as Array<Record<string, unknown>>) {
       if (block.type === "text" && typeof block.text === "string") {
         parts.push(block.text);
       }
     }
+    if (parts.length > 0) lastAssistantParts = parts;
   }
-  return parts.join("");
+  return lastAssistantParts.join("");
 }
 
 /**

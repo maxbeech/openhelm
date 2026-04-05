@@ -1,10 +1,13 @@
 import { create } from "zustand";
 import type { SortMode } from "@openhelm/shared";
 import * as api from "@/lib/api";
+import { useNavStore, type NavEntry } from "./nav-store";
+import { useInboxStore } from "./inbox-store";
 
 // Navigation model — run detail is a side panel, not a content view
 export type ContentView =
   | "home"
+  | "inbox"
   | "goal-detail"
   | "job-detail"
   | "dashboard"
@@ -60,14 +63,61 @@ interface AppState {
   setProjectGroupOrder: (ids: string[]) => void;
   setCollapsedGoalIds: (ids: string[]) => void;
 
+  // Navigation history
+  navigateBack: () => void;
+  navigateForward: () => void;
+
   // Existing
   setActiveProjectId: (id: string | null) => void;
   setOnboardingComplete: (complete: boolean) => void;
   setAgentReady: (ready: boolean) => void;
 }
 
-export const useAppStore = create<AppState>((set) => ({
-  contentView: "dashboard",
+/** Find the active scrollable element — inbox has its own scroll container. */
+function getScrollElement(): HTMLElement | null {
+  // Inbox timeline uses its own overflow-y-auto div inside <main>
+  return document.querySelector("main [class*='overflow-y-auto']")
+    ?? document.querySelector("main");
+}
+
+/** Capture current navigation state as a NavEntry (for back/forward history). */
+function captureNavEntry(s: AppState): NavEntry {
+  const scrollEl = getScrollElement();
+  const scrollTop = scrollEl?.scrollTop ?? 0;
+  const tierThreshold = useInboxStore.getState().tierThreshold;
+  return {
+    contentView: s.contentView,
+    selectedGoalId: s.selectedGoalId,
+    selectedJobId: s.selectedJobId,
+    selectedRunId: s.selectedRunId,
+    selectedDataTableId: s.selectedDataTableId,
+    scrollTop,
+    tierThreshold,
+  };
+}
+
+/** Restore a NavEntry: set app state and schedule scroll/tier restoration. */
+function restoreNavEntry(entry: NavEntry, set: (partial: Partial<AppState>) => void) {
+  set({
+    contentView: entry.contentView,
+    selectedGoalId: entry.selectedGoalId,
+    selectedJobId: entry.selectedJobId,
+    selectedRunId: entry.selectedRunId,
+    selectedDataTableId: entry.selectedDataTableId,
+  });
+  // Restore inbox tier threshold
+  useInboxStore.getState().setTierThreshold(entry.tierThreshold);
+  // Restore scroll position after the view re-renders (double rAF to wait for layout)
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const scrollEl = getScrollElement();
+      if (scrollEl) scrollEl.scrollTop = entry.scrollTop;
+    });
+  });
+}
+
+export const useAppStore = create<AppState>((set, get) => ({
+  contentView: "inbox",
   selectedGoalId: null,
   selectedJobId: null,
   selectedRunId: null,
@@ -86,36 +136,44 @@ export const useAppStore = create<AppState>((set) => ({
   onboardingComplete: false,
   agentReady: false,
 
-  selectGoal: (goalId) =>
+  selectGoal: (goalId) => {
+    useNavStore.getState().push(captureNavEntry(get()));
     set({
       contentView: "goal-detail",
       selectedGoalId: goalId,
       selectedJobId: null,
       selectedRunId: null,
-    }),
+    });
+  },
 
-  selectJob: (jobId) =>
+  selectJob: (jobId) => {
+    useNavStore.getState().push(captureNavEntry(get()));
     set({
       contentView: "job-detail",
       selectedJobId: jobId,
       selectedRunId: null,
-    }),
+    });
+  },
 
   // Run detail is a side panel — don't change contentView
-  selectRun: (runId, jobId) =>
+  selectRun: (runId, jobId) => {
+    useNavStore.getState().push(captureNavEntry(get()));
     set((s) => ({
       selectedRunId: runId,
       selectedJobId: jobId ?? s.selectedJobId,
       contentView: (jobId ?? s.selectedJobId) ? "job-detail" : s.contentView,
-    })),
+    }));
+  },
 
   // Select a run without switching away from the current view (e.g. from Dashboard)
   selectRunPreserveView: (runId) => set({ selectedRunId: runId }),
 
   clearSelectedRun: () => set({ selectedRunId: null }),
 
-  selectDataTable: (tableId) =>
-    set({ contentView: "data-table-detail", selectedDataTableId: tableId }),
+  selectDataTable: (tableId) => {
+    useNavStore.getState().push(captureNavEntry(get()));
+    set({ contentView: "data-table-detail", selectedDataTableId: tableId });
+  },
 
   toggleGoalCollapsed: (goalId) =>
     set((s) => ({
@@ -132,7 +190,8 @@ export const useAppStore = create<AppState>((set) => ({
     })),
 
   setContentView: (view) => {
-    const clearSelections = view === "home" || view === "settings" || view === "dashboard" || view === "memory" || view === "data-tables";
+    useNavStore.getState().push(captureNavEntry(get()));
+    const clearSelections = view === "home" || view === "settings" || view === "inbox" || view === "dashboard" || view === "memory" || view === "data-tables";
     set({
       contentView: view,
       ...(clearSelections && { selectedGoalId: null, selectedJobId: null, selectedRunId: null, selectedDataTableId: null }),
@@ -148,6 +207,16 @@ export const useAppStore = create<AppState>((set) => ({
   setProjectGroupOrder: (ids) => {
     set({ projectGroupOrder: ids });
     api.setSetting({ key: "sidebar_project_group_order", value: JSON.stringify(ids) }).catch(() => {});
+  },
+
+  navigateBack: () => {
+    const entry = useNavStore.getState().goBack(captureNavEntry(get()));
+    if (entry) restoreNavEntry(entry, set);
+  },
+
+  navigateForward: () => {
+    const entry = useNavStore.getState().goForward(captureNavEntry(get()));
+    if (entry) restoreNavEntry(entry, set);
   },
 
   // When switching project filter, don't change contentView — stay on dashboard

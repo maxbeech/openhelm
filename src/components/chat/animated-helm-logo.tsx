@@ -6,12 +6,17 @@ interface AnimatedHelmLogoProps {
   className?: string;
 }
 
+function centroid(pts: [number, number][]): [number, number] {
+  let cx = 0, cy = 0;
+  for (const [x, y] of pts) { cx += x; cy += y; }
+  return [cx / pts.length, cy / pts.length];
+}
+
 /**
- * Animate a sail polygon with a 2D traveling wave through its body,
- * like a canvas flag flapping in the wind. Points near the mast stay
- * anchored; the wave amplitude increases with distance from the mast.
- * The wave phase varies across both x and y, creating undulation through
- * the entire sail surface.
+ * Animate a sail with ALL edges fluttering like a flag in the wind.
+ * Combines two displacement methods:
+ *  1. Per-edge outward normal (ensures every edge waves, including mast-side)
+ *  2. Distance-from-mast scaling (far edges wave more than mast edges)
  */
 function billowSail(
   points: [number, number][],
@@ -23,52 +28,62 @@ function billowSail(
   phase: number,
   samples = 22,
 ): string {
-  let maxDist = 0, minY = Infinity, maxY = -Infinity;
-  for (const [x, y] of points) {
+  const [cx, cy] = centroid(points);
+  let maxDist = 0;
+  for (const [x] of points) {
     const d = Math.abs(x - mastX);
     if (d > maxDist) maxDist = d;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
   }
-  const yRange = maxY - minY || 1;
   if (maxDist === 0) maxDist = 1;
 
   const out: [number, number][] = [];
   for (let e = 0; e < points.length; e++) {
     const [x0, y0] = points[e];
     const [x1, y1] = points[(e + 1) % points.length];
+    const edx = x1 - x0;
+    const edy = y1 - y0;
+    const len = Math.sqrt(edx * edx + edy * edy);
+    if (len < 0.1) continue;
+
+    // Outward normal for this edge
+    let nx = -edy / len;
+    let ny = edx / len;
+    const midX = (x0 + x1) / 2;
+    const midY = (y0 + y1) / 2;
+    if (nx * (midX - cx) + ny * (midY - cy) < 0) {
+      nx = -nx;
+      ny = -ny;
+    }
+
+    const edgePhase = phase + e * 0.6;
+
     for (let s = 0; s < samples; s++) {
       const t = s / samples;
-      let x = x0 + (x1 - x0) * t;
-      let y = y0 + (y1 - y0) * t;
+      let x = x0 + edx * t;
+      let y = y0 + edy * t;
 
-      // Distance from mast: 0 = anchored at mast, 1 = farthest point
+      // Distance from mast: 0 = on mast, 1 = farthest
       const distRatio = Math.abs(x - mastX) / maxDist;
-      // Vertical position normalized: 0 = top, 1 = bottom
-      const yNorm = (y - minY) / yRange;
 
-      // Amplitude grows with distance from mast (anchored near mast)
-      const amp = amplitude * distRatio * Math.sqrt(distRatio);
+      // Amplitude: minimum 0.25 for mast edges, up to 1.0 for far edges
+      const distScale = 0.25 + 0.75 * distRatio;
+      // Edge-length scaling (shorter edges flutter less)
+      const edgeScale = Math.min(len / 180, 1.0);
+      const amp = amplitude * distScale * edgeScale;
 
-      // Primary traveling wave: phase varies with both position dimensions,
-      // creating a 2D undulation like a flag
-      const wave1 = Math.sin(
-        yNorm * Math.PI * 2.5 + distRatio * Math.PI * 1.5 + time * freq + phase,
-      );
-      // Secondary slower wave for organic, non-repeating motion
-      const wave2 = Math.sin(
-        yNorm * Math.PI * 1.2 + distRatio * Math.PI * 0.8 + time * freq * 0.6 + phase + 1.5,
-      ) * 0.35;
+      // Endpoint anchoring: vertices stay fixed
+      const anchor = Math.sin(t * Math.PI);
 
-      // Horizontal displacement: outward from mast
-      const dx = direction * amp * (wave1 + wave2);
-      // Subtle vertical ripple
-      const dy = amp * 0.12 * Math.sin(
-        yNorm * Math.PI * 3 + time * freq * 0.7 + phase + 0.8,
-      );
+      // Smooth flag-like wave rolling along the edge
+      const wave = Math.sin(t * Math.PI * 2 + time * freq + edgePhase);
+      // Gentle secondary wave for organic motion
+      const wave2 = Math.sin(t * Math.PI + time * freq * 0.5 + edgePhase + 1.3) * 0.3;
 
-      x += dx;
-      y += dy;
+      const disp = amp * anchor * (wave + wave2);
+
+      // Displace perpendicular to edge (outward from sail)
+      x += nx * disp;
+      y += ny * disp;
       out.push([x, y]);
     }
   }
@@ -99,9 +114,9 @@ const REST = {
 
 function computePaths(t: number, a: number) {
   return {
-    right: billowSail(SAIL_RIGHT, 290, t, a * 45, +1, 5.0, 0),
-    top:   billowSail(SAIL_TOP,   290, t, a * 30, +1, 5.8, 0.9),
-    left:  billowSail(SAIL_LEFT,  272, t, a * 42, -1, 4.5, 1.6),
+    right: billowSail(SAIL_RIGHT, 290, t, a * 22, +1, 3.2, 0),
+    top:   billowSail(SAIL_TOP,   290, t, a * 16, +1, 3.8, 0.9),
+    left:  billowSail(SAIL_LEFT,  272, t, a * 20, -1, 2.8, 1.6),
   };
 }
 

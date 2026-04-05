@@ -1,7 +1,13 @@
+import { execFile } from "child_process";
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
 import { registerHandler } from "../handler.js";
 import { emit } from "../emitter.js";
 import * as credQueries from "../../db/queries/credentials.js";
 import { setKeychainItem, getKeychainItem, deleteKeychainItem } from "../../keychain/index.js";
+import { buildInstructionPageUrl } from "../../credentials/browser-setup-page.js";
+import { BrowserSessionMonitor } from "../../credentials/browser-session-monitor.js";
 import type {
   CreateCredentialParams,
   UpdateCredentialParams,
@@ -9,7 +15,12 @@ import type {
   ListCredentialsByScopeParams,
   CredentialValue,
   CredentialWithValue,
+  SetupBrowserProfileParams,
+  SetupBrowserProfileResult,
 } from "@openhelm/shared";
+
+/** Active browser session monitors, keyed by credentialId. */
+const activeMonitors = new Map<string, BrowserSessionMonitor>();
 
 export function registerCredentialHandlers() {
   registerHandler("credentials.list", (params) => {
@@ -143,5 +154,121 @@ export function registerCredentialHandlers() {
 
   registerHandler("credentials.countAll", () => {
     return { count: credQueries.countCredentials() };
+  });
+
+  /**
+   * Launch Chrome with a persistent profile for one-time manual login.
+   *
+   * Creates a named profile under ~/.openhelm/profiles/ and opens Chrome
+   * with that user-data-dir so the user can log in once. Sessions persist
+   * for future automation runs.
+   */
+  registerHandler("credential.setupBrowserProfile", async (params) => {
+    const { credentialId, loginUrl } = params as SetupBrowserProfileParams;
+    if (!credentialId) throw new Error("credentialId is required");
+
+    // Stop any existing monitor for this credential
+    const existing = activeMonitors.get(credentialId);
+    if (existing) existing.stop();
+    activeMonitors.delete(credentialId);
+
+    const cred = credQueries.getCredential(credentialId);
+    if (!cred) throw new Error(`Credential not found: ${credentialId}`);
+
+    const profileName = `cred-${credentialId}`;
+    const profilesRoot = join(
+      process.env.OPENHELM_DATA_DIR ?? join(homedir(), ".openhelm"),
+      "profiles",
+    );
+    const profileDir = join(profilesRoot, profileName);
+    const metaPath = join(profilesRoot, "profiles.json");
+
+    // Ensure profile directory and metadata exist
+    mkdirSync(profileDir, { recursive: true });
+
+    // Pre-create "First Run" sentinel to suppress Chrome's first-run wizard
+    const firstRunPath = join(profileDir, "First Run");
+    if (!existsSync(firstRunPath)) writeFileSync(firstRunPath, "");
+
+    let meta: Record<string, unknown> = {};
+    try {
+      if (existsSync(metaPath)) {
+        meta = JSON.parse(readFileSync(metaPath, "utf-8"));
+      }
+    } catch { /* fresh metadata */ }
+
+    if (!meta[profileName]) {
+      meta[profileName] = {
+        created_at: new Date().toISOString(),
+        last_used: new Date().toISOString(),
+        notes: `Browser profile for credential "${cred.name}"`,
+      };
+      writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+    }
+
+    if (cred.browserProfileName !== profileName) {
+      credQueries.updateCredential({ id: credentialId, browserProfileName: profileName });
+    }
+
+    // Build instruction page instead of about:blank
+    const url = buildInstructionPageUrl(loginUrl);
+
+    const chromeArgs = [
+      `--user-data-dir=${profileDir}`,
+      // Stealth
+      "--disable-blink-features=AutomationControlled",
+      "--disable-infobars",
+      // Suppress first-run / welcome dialogs
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-search-engine-choice-screen",
+      "--disable-session-crashed-bubble",
+      "--disable-features=ChromeWhatsNewUI",
+      // Use in-profile password store (not macOS Keychain)
+      "--password-store=basic",
+      url,
+    ];
+
+    return new Promise<SetupBrowserProfileResult>((resolve) => {
+      execFile(
+        "open",
+        ["-n", "-a", "Google Chrome", "--args", ...chromeArgs],
+        { timeout: 10_000 },
+        (err) => {
+          if (err) {
+            resolve({
+              profileName,
+              launched: false,
+              message: `Failed to launch Chrome: ${err.message}`,
+            });
+            return;
+          }
+
+          // Start SingletonLock-based monitor (watches Chrome's profile lock file)
+          const monitor = new BrowserSessionMonitor(credentialId, profileDir);
+          activeMonitors.set(credentialId, monitor);
+          monitor.start();
+          emit("credential.browserLaunched", { credentialId });
+
+          resolve({
+            profileName,
+            launched: true,
+            message: "Chrome opened. Log in to your site, then quit Chrome (⌘Q) when done.",
+          });
+        },
+      );
+    });
+  });
+
+  /** Stop monitoring a browser setup (e.g. when user dismisses the dialog). */
+  registerHandler("credential.cancelBrowserSetup", (params) => {
+    const { credentialId } = params as { credentialId: string };
+    if (!credentialId) throw new Error("credentialId is required");
+    const monitor = activeMonitors.get(credentialId);
+    if (monitor) {
+      monitor.stop();
+      activeMonitors.delete(credentialId);
+    }
+    return { cancelled: true };
   });
 }

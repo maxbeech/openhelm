@@ -50,6 +50,7 @@ function isExpectedIpcError(err: unknown): boolean {
 
 const HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds between pings
 const HEARTBEAT_TIMEOUT_MS = 10_000; // 10 seconds to respond before declaring agent hung
+const HEARTBEAT_MISS_THRESHOLD = 3; // require N consecutive failures before declaring hung
 
 class AgentClient {
   private pending = new Map<string, PendingRequest>();
@@ -59,6 +60,8 @@ class AgentClient {
   private connected = false;
   private unlisten: (() => void) | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private consecutiveHeartbeatMisses = 0;
+  private recoveryTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.readyPromise = new Promise((resolve) => {
@@ -133,6 +136,7 @@ class AgentClient {
   private handleSidecarDeath() {
     console.error("[agent-client] sidecar process terminated");
     this.stopHeartbeat();
+    this.stopRecoveryProbe();
     this.connected = false;
     this.ready = false;
 
@@ -151,6 +155,11 @@ class AgentClient {
     }
     // Notify the UI so it can show an error / restart prompt
     window.dispatchEvent(new CustomEvent("agent:agent.terminated"));
+
+    // Start a recovery probe — the agent process may still be alive (e.g.
+    // after macOS sleep/wake) but just slow. Periodically ping it and
+    // auto-recover if it responds.
+    this.startRecoveryProbe();
   }
 
   private async sendViaTauri(req: IpcRequest): Promise<void> {
@@ -199,17 +208,21 @@ class AgentClient {
 
   private startHeartbeat() {
     this.stopHeartbeat();
+    this.consecutiveHeartbeatMisses = 0;
     this.heartbeatTimer = setInterval(async () => {
       if (!this.ready) return;
       try {
         await this.sendRaw("ping", undefined, HEARTBEAT_TIMEOUT_MS);
+        this.consecutiveHeartbeatMisses = 0;
       } catch {
-        // Agent is hung (alive but not responding) — treat as if it terminated.
-        // handleSidecarDeath rejects all pending requests immediately so callers
-        // don't have to wait for the full 240 s REQUEST_TIMEOUT_MS.
-        if (this.ready) {
-          console.error("[agent-client] heartbeat timed out — agent appears hung");
+        this.consecutiveHeartbeatMisses++;
+        // Require multiple consecutive failures before declaring hung.
+        // A single miss is common after macOS sleep/wake or momentary CPU spikes.
+        if (this.ready && this.consecutiveHeartbeatMisses >= HEARTBEAT_MISS_THRESHOLD) {
+          console.error(`[agent-client] ${this.consecutiveHeartbeatMisses} consecutive heartbeat failures — agent appears hung`);
           this.handleSidecarDeath();
+        } else if (this.ready) {
+          console.warn(`[agent-client] heartbeat miss ${this.consecutiveHeartbeatMisses}/${HEARTBEAT_MISS_THRESHOLD}`);
         }
       }
     }, HEARTBEAT_INTERVAL_MS);
@@ -219,6 +232,30 @@ class AgentClient {
     if (this.heartbeatTimer !== null) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
+    }
+  }
+
+  /** Periodically try to ping an agent that was declared hung.
+   *  If it responds, auto-recover without requiring an app restart. */
+  private startRecoveryProbe() {
+    this.stopRecoveryProbe();
+    this.recoveryTimer = setInterval(async () => {
+      try {
+        await this.sendRaw("ping", undefined, HEARTBEAT_TIMEOUT_MS);
+        // Agent is alive again — recover transparently
+        console.info("[agent-client] recovery probe succeeded — agent is responsive again");
+        this.stopRecoveryProbe();
+        this.markReady();
+      } catch {
+        // Still unresponsive — keep probing
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopRecoveryProbe() {
+    if (this.recoveryTimer !== null) {
+      clearInterval(this.recoveryTimer);
+      this.recoveryTimer = null;
     }
   }
 
@@ -263,6 +300,7 @@ class AgentClient {
     if (this.ready) return;
     this.ready = true;
     this.connected = true; // Restore connected state (handles auto-restart reconnection)
+    this.stopRecoveryProbe(); // Stop probing — agent is confirmed alive
     if (this.readyResolve) {
       this.readyResolve();
       this.readyResolve = null;

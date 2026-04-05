@@ -6,7 +6,7 @@
  * - In full_auto mode: can take corrective actions
  */
 
-import { getJob } from "../db/queries/jobs.js";
+import { getJob, archiveJob } from "../db/queries/jobs.js";
 import { createDashboardItem } from "../db/queries/dashboard-items.js";
 import { getAutopilotMode } from "./index.js";
 import type { Run, DashboardItemType } from "@openhelm/shared";
@@ -48,6 +48,26 @@ export function handleAutopilotRunCompleted(run: Run): boolean {
   if (mode === "full_auto" && run.status === "succeeded") {
     // Future: parse structured output and execute automated fixes
     // For v1, the investigation job handles corrections via MCP tools
+  }
+
+  // Archive the one-shot investigation job now that it has produced its
+  // output (dashboard item or error log). Leaving it as a disabled job
+  // clutters the Autopilot Maintenance goal. Future breaches of the same
+  // metric spawn new investigation jobs via the scanner.
+  if (
+    run.status === "succeeded" ||
+    run.status === "failed" ||
+    run.status === "permanent_failure" ||
+    run.status === "cancelled"
+  ) {
+    try {
+      archiveJob(run.jobId);
+    } catch (err) {
+      console.error(
+        `[autopilot] failed to archive investigation job ${run.jobId}:`,
+        err,
+      );
+    }
   }
 
   return true;

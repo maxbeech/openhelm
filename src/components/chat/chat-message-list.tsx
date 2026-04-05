@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChatMessageBubble } from "./chat-message-bubble";
+import { useShallow } from "zustand/react/shallow";
+import { ChatMessageBubble, fixSplitNegatives } from "./chat-message-bubble";
 import { AnimatedHelmLogo } from "./animated-helm-logo";
 import { useChatStore } from "@/stores/chat-store";
 import type { ChatMessage } from "@openhelm/shared";
@@ -13,17 +14,43 @@ interface ChatMessageListProps {
 }
 
 const STREAMING_ID = "__streaming__";
+/** Stable key for the latest assistant response slot. Using a fixed key
+ *  makes React UPDATE the existing DOM node in-place when streaming text
+ *  transitions to the committed message, instead of unmounting one node
+ *  and mounting a different one (which can flash in the Tauri WebView). */
+const LATEST_RESPONSE_KEY = "__latest_response__";
 
-export function ChatMessageList({ messages, sending, projectId }: ChatMessageListProps) {
-  const activeConvId = useChatStore((s) => s.activeConversationId);
-  const convState = useChatStore((s) => activeConvId ? s.conversationStates[activeConvId] : null);
-  const statusText = convState?.statusText ?? null;
-  const streamingText = convState?.streamingText ?? "";
-  const storeSending = convState?.sending ?? false;
+/**
+ * Single selector that reads messages + conversation transient state from
+ * the SAME Zustand snapshot. Using separate selectors for messages and
+ * convState could cause tearing (one selector sees the committed message
+ * while the other still has stale streamingText), which briefly shows the
+ * response text doubled during the streaming→committed transition.
+ */
+function useChatSnapshot() {
+  return useChatStore(
+    useShallow((s) => {
+      const convId = s.activeConversationId;
+      const cs = convId ? s.conversationStates[convId] : null;
+      return {
+        messages: s.messages,
+        activeConvId: convId,
+        statusText: cs?.statusText ?? null,
+        streamingText: cs?.streamingText ?? "",
+        storeSending: cs?.sending ?? false,
+      };
+    }),
+  );
+}
+
+export function ChatMessageList({ sending, projectId }: ChatMessageListProps) {
+  const { messages, activeConvId, statusText, streamingText, storeSending } = useChatSnapshot();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Use instant scroll to avoid smooth-scroll animation amplifying
+    // the visual flash during streaming→committed transition.
+    bottomRef.current?.scrollIntoView({ behavior: "instant" });
   }, [messages.length, sending, streamingText]);
 
   if (messages.length === 0 && !sending) {
@@ -40,8 +67,7 @@ export function ChatMessageList({ messages, sending, projectId }: ChatMessageLis
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
   const lastIsAssistant = lastMsg?.role === "assistant";
 
-  // Inject virtual streaming message into the display list so streaming text
-  // and the committed message share ONE DOM position (prevents duplicates).
+  // Inject virtual streaming message into the display list
   const hasStreamingContent = streamingText.length > 0 && !lastIsAssistant;
   const displayMessages: (ChatMessage & { _streaming?: boolean })[] = [...messages];
   if (hasStreamingContent) {
@@ -49,7 +75,9 @@ export function ChatMessageList({ messages, sending, projectId }: ChatMessageLis
       id: STREAMING_ID,
       conversationId: activeConvId ?? "",
       role: "assistant",
-      content: streamingText.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, ""),
+      content: fixSplitNegatives(
+        streamingText.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, ""),
+      ),
       toolCalls: null,
       toolResults: null,
       pendingActions: null,
@@ -58,21 +86,25 @@ export function ChatMessageList({ messages, sending, projectId }: ChatMessageLis
     } as ChatMessage & { _streaming?: boolean });
   }
 
-  // Show the animated logo + optional status during pre-streaming phase
-  // (when sending but no streaming text has arrived yet)
   const showLoader = (sending || storeSending) && !lastIsAssistant && !streamingText;
 
   return (
     <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
-      {displayMessages.map((msg) => {
+      {displayMessages.map((msg, idx) => {
+        // Use a stable key for the last assistant message position so React
+        // updates the DOM node in-place during streaming→committed swap.
+        const isLastEntry = idx === displayMessages.length - 1;
+        const isAssistant = msg.role === "assistant";
+        const key = isLastEntry && isAssistant ? LATEST_RESPONSE_KEY : msg.id;
+
         if (msg.role === "user") {
-          return <ChatMessageBubble key={msg.id} message={msg} projectId={projectId} />;
+          return <ChatMessageBubble key={key} message={msg} projectId={projectId} />;
         }
 
         const isStreaming = (msg as ChatMessage & { _streaming?: boolean })._streaming === true;
 
         return (
-          <div key={msg.id} className="flex items-start gap-2">
+          <div key={key} className="flex items-start gap-2">
             <div className="mt-1 flex-shrink-0">
               <AnimatedHelmLogo animating={isStreaming} size={28} />
             </div>

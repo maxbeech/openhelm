@@ -2,6 +2,72 @@
 
 ## [Unreleased]
 
+### Added
+- **Unified page headers with search & filter**: New shared `PageHeader` and `FilterBar` components provide consistent search/filter UI across Data Tables, Memory, Credentials, and Inbox pages
+- **Data Tables project labels**: Each table card now shows which project it belongs to when viewing "All Projects"
+- **Data Tables search & project filter**: Search tables by name/description and filter by project
+- **Inbox search & category filter**: Search events by title/body and filter by category (Runs, Alerts, Actions, etc.)
+- **Credentials search**: Text search across credential names
+
+### Fixed
+- **Completed investigation jobs cluttering Autopilot Maintenance goal**: One-shot `Investigate: X` jobs were disabled by the scheduler after firing but never archived, piling up as "paused" clutter (90+ per project over a few days). Post-run handler now archives them immediately after creating the dashboard insight. Migration 0036 cleans up existing ones by archiving any `captain_investigation` job that has a terminal run; unfired jobs are left alone so the scheduler can still fire them.
+- **Duplicate Autopilot Maintenance goals**: A bug in the autopilot scanner caused a new "Autopilot Maintenance" system goal (with a "Health Rules Review" job) to be created every 30 minutes per project, resulting in hundreds of duplicate goals and jobs. Added migration 0035 that automatically deduplicates on upgrade (keeps the oldest goal per project, deletes duplicates and their orphaned jobs/targets/runs). Added a unique partial index to prevent recurrence at the database level. Also fixed `CreateGoalParams` missing `icon` field.
+- **CDP connection lost after auto_login**: Form submission triggers page navigation, but `auto_login()` returned immediately without waiting for the page to load. The next tool call would hit a stale CDP tab mid-navigation and incorrectly report "Browser CDP connection lost". Now waits for `LoadEventFired` (up to 15s) plus 1s settle time after form submit.
+- **get_tab CDP validation too aggressive during navigation**: The 5-second `tab.evaluate("1")` probe would timeout during active page navigation (e.g. after login redirect) and permanently mark the browser as errored. Now retries up to 3 times with increasing timeouts (5s/8s/11s) to handle transient navigation states. Hard connection errors (socket refused) still fail immediately.
+- **auto_login selectors miss common sites**: Default username selectors now include `input[name="acct"]` (Hacker News), `input[name="user"]`, and password selector includes `input[name="pw"]` (HN).
+- **check_session hangs on unresponsive browser**: `check_session_cookies()` CDP calls now have a 10-second timeout. Returns a clear error message instead of hanging until the 60s tool timeout.
+- **Inbox zoom slider UX**: Replaced inline zoom label with a centered mini-toast that appears on zoom changes. Slider now snaps to discrete tier stops only, preventing empty zoom levels with no events. Slider is hidden when only one tier exists.
+- **Historic events not appearing in Inbox**: Fixed backfill guard that skipped historic run/alert backfill when any inbox events already existed. Backfill now runs with deduplication (versioned key `inbox_backfill_v2`).
+- **Chat thread messages shown verbatim in Inbox**: Side-panel chat conversations now display as a summary card (thread name + last updated time) instead of raw message content.
+- **Now button stuck visible / wrong arrow direction**: Now button immediately hides when clicked, and arrow flips to point up when user has scrolled past Now into the future.
+- **Reply arrow on wrong side**: Moved the reply-on-hover button from left to right side of inbox events.
+
+### Changed
+- **Nautical-themed input placeholders**: Both inbox and chat panel input fields now show random nautical/ship-themed placeholder text instead of generic "Message your AI assistant...".
+
+### Fixed
+- **Credentials not injected for corrective (retry) runs**: When a run failed and triggered a corrective retry, the entire credential injection block was skipped because the resume path assumed the parent session still had credentials. Since MCP servers are respawned fresh, browser credentials were never written, causing all credential-dependent corrective runs to fail with "credentials not available". Credentials are now always resolved regardless of resume path.
+- **Agent appears hung after macOS sleep/wake**: The heartbeat mechanism declared the agent dead after a single missed ping (10s timeout). After macOS sleep/wake or CPU spikes, the agent can be transiently slow. Now requires 3 consecutive heartbeat failures before declaring the agent unresponsive. Additionally, a recovery probe now periodically pings the agent after it is declared hung — if the agent becomes responsive again, the UI auto-recovers without requiring an app restart.
+- **Browser MCP CDP connection validation**: The browser MCP's `get_tab()` now validates the CDP connection is alive before returning the tab reference. When the connection has dropped (e.g. browser crash, macOS sleep), it raises a clear error message telling the agent to spawn a new browser instead of failing deep inside a tool operation.
+
+### Added
+- **Persistent browser profiles**: Named Chrome profiles (`~/.openhelm/profiles/`) for session reuse across automation runs
+  - New `profile_manager.py` module with CRUD, locking, and session cookie checking
+  - `spawn_browser(profile="name")` parameter auto-creates and locks profiles
+  - `check_session(instance_id, domain)` verifies login status via known auth cookies
+  - Profile locks prevent Chrome conflicts when concurrent tasks share profiles
+  - `list_profiles` and `create_profile` MCP tools for profile management
+- **Behavioral variance injection**: Human-like interaction patterns to avoid bot detection
+  - New `behavior.py` module with Bezier mouse paths, humanized click/type delays, scroll jitter
+  - `humanize` parameter on `click_element` and `type_text` (default True)
+  - Truncated normal distribution for delays (not uniform — humans cluster around the mean)
+  - Deterministic mode via `OPENHELM_DETERMINISTIC=1` for test stability
+- **Browser session setup flow**: Post-save credential UX for one-time manual login
+  - "Browser only" credentials now offer to open Chrome for manual login after saving
+  - Sessions persist in named profiles, reused automatically in future automation runs
+  - Credentials remain saved for scope switching (env var, prompt modes)
+- **Profile-aware task queuing**: Executor skips queue items whose browser profiles are locked
+  - Tasks wait in queue until the required profile is freed, then run automatically
+  - `browserProfileName` column on credentials table links profiles to credentials
+  - Profile locks released on run completion, failure, or agent restart
+- **MCP system prompt**: Claude now uses persistent profiles and checks session validity automatically
+- **Intervention section**: Renamed MCP `captcha` section to `intervention` (covers CAPTCHAs + re-auth prompts)
+  - `request_user_help` docstring updated to include session re-authentication use case
+  - `--disable-captcha` flag kept as backwards-compatible alias for `--disable-intervention`
+- **Inbox page**: New unified event timeline replacing Dashboard Alerts & Actions section
+  - Vertical scrolling timeline of all OpenHelm events (runs, alerts, AI messages, data/memory/credential changes, scheduled jobs)
+  - Importance-based tiering (0-100 scale) with dynamic tier grouping via natural-break algorithm
+  - Zoom between detail levels via tier slider or pinch-to-zoom gesture (ctrl+scroll)
+  - Master chat input for messaging the AI directly from the Inbox timeline
+  - Inline reply to any event in the timeline
+  - Future events section showing scheduled job runs
+  - Smooth Framer Motion animations for tier zoom transitions
+- Inbox is now the default landing page (Dashboard retains System + Insights sections)
+- New `inbox_events` database table (migration 0033) for event storage
+- Centralized inbox event bridge converts IPC events to timeline events automatically
+- Programmatic importance scoring with contextual modifiers (no LLM required)
+- Dedicated inbox conversation channel (separate from sidebar chat threads)
+
 ## [0.7.1] - 2026-04-03
 
 ### Fixed

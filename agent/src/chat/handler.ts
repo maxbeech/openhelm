@@ -41,7 +41,7 @@ function autoRenameThread(convId: string, userContent: string, projectId: string
       const updated = renameConversation(convId, title);
       emit("chat.threadRenamed", { conversationId: convId, title: updated.title, projectId });
     }
-  }).catch(() => { /* non-blocking — silently ignore failures */ });
+  }).catch(() => { /* non-blocking — silently ignore all failures including DB errors */ });
 }
 
 /** Retry callLlmViaCli on transient failures (exit code 1, network errors). */
@@ -155,6 +155,8 @@ export async function handleChatMessage(
 
   // Stateful streaming sanitizer — buffers text while inside a <tool_call> block
   // so that blocks spanning multiple chunks never leak to the UI.
+  // State (streamBuffer, insideToolCall) persists across chunk calls because the
+  // LLM may split an opening or closing tag across two consecutive chunks.
   let streamBuffer = "";
   let insideToolCall = false;
 
@@ -183,20 +185,22 @@ export async function handleChatMessage(
   // Session ID captured from first CLI call, reused in subsequent tool loop iterations
   // to avoid CLI cold-start overhead.
   let sessionId: string | null = null;
-  // Track total emitted streaming text to deduplicate — the CLI may emit
-  // cumulative assistant events rather than pure deltas.
-  let totalStreamedText = "";
+  // Tracks the full cumulative streaming text across all tool-loop iterations.
+  // Emitted as a whole to the frontend on every chunk so the UI can SET
+  // (not append) — eliminating any possibility of duplicate text.
+  let fullStreamedText = "";
+  let iterStreamedText = "";
 
   for (let iter = 0; iter < MAX_TOOL_LOOP_ITERATIONS; iter++) {
     emit("chat.status", { status: iter === 0 ? "thinking" : "analyzing", projectId, conversationId: convId });
-    // Emit a separator between tool-loop iterations so streaming text doesn't run together
+    // Add separator between tool-loop iterations
     if (iter > 0) {
-      emit("chat.streaming", { text: "\n\n", projectId, conversationId: convId });
+      fullStreamedText += "\n\n";
     }
     // Reset stream buffer state for each LLM iteration
     streamBuffer = "";
     insideToolCall = false;
-    totalStreamedText = "";
+    iterStreamedText = "";
     const userMessage = buildLlmUserMessage(history, content, toolExchange || undefined);
     if (abortSignal?.aborted) throw new Error("Chat cancelled by user");
 
@@ -218,23 +222,18 @@ export async function handleChatMessage(
       onTextChunk: (text) => {
         const stripped = sanitizeStreamChunk(text);
         if (!stripped) return;
-        // Deduplicate: if the CLI sends cumulative text, extract only the new portion.
-        // Three cases:
-        //   1. Cumulative: new chunk is a superset of what we've already sent
-        //   2. Subset/equal: already emitted all of this — skip
-        //   3. Pure delta: normal incremental chunk, emit as-is
-        if (stripped.length > totalStreamedText.length && stripped.startsWith(totalStreamedText)) {
-          // Case 1: cumulative mode
-          const delta = stripped.slice(totalStreamedText.length);
-          totalStreamedText = stripped;
-          emit("chat.streaming", { text: delta, projectId, conversationId: convId });
-        } else if (totalStreamedText.startsWith(stripped)) {
-          // Case 2: subset or duplicate — skip (also handles empty totalStreamedText when stripped is "")
-        } else {
-          // Case 3: pure delta
-          totalStreamedText += stripped;
-          emit("chat.streaming", { text: stripped, projectId, conversationId: convId });
+        // The CLI may emit cumulative or delta text. Either way, compute
+        // the new cumulative text for this iteration and emit the full
+        // streaming text to the frontend. The frontend replaces (not
+        // appends) so duplication is impossible.
+        if (stripped.length > iterStreamedText.length && stripped.startsWith(iterStreamedText)) {
+          iterStreamedText = stripped;
+        } else if (!iterStreamedText.startsWith(stripped)) {
+          iterStreamedText += stripped;
         }
+        // else: subset/duplicate — iterStreamedText unchanged
+        const newFull = fullStreamedText + iterStreamedText;
+        emit("chat.streaming", { fullText: newFull, projectId, conversationId: convId });
       },
       onToolUse: (toolName) => {
         emit("chat.status", { status: "reading", tools: [toolName], projectId, conversationId: convId });
@@ -362,6 +361,7 @@ export async function handleChatMessage(
     pendingActions: pendingActions.length > 0 ? pendingActions : undefined,
   });
 
+  console.error(`[chat] assistant content (${displayContent.length} chars): ${JSON.stringify(displayContent)}`);
   emit("chat.messageCreated", { ...assistantMsg, projectId, conversationId: convId });
   if (pendingActions.length > 0) {
     emit("chat.actionPending", { messageId: assistantMsg.id, actions: pendingActions, projectId, conversationId: convId });

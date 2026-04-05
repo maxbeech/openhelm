@@ -34,6 +34,10 @@ import sql0029 from "./migrations/0029_add_visualizations.sql";
 import sql0030 from "./migrations/0030_add_conversation_sort_order.sql";
 import sql0031 from "./migrations/0031_add_goal_hierarchy.sql";
 import sql0032 from "./migrations/0032_add_captain_system_entities.sql";
+import sql0033 from "./migrations/0033_add_inbox_events.sql";
+import sql0034 from "./migrations/0034_add_browser_profile_name.sql";
+import sql0035 from "./migrations/0035_dedup_system_goals.sql";
+import sql0036 from "./migrations/0036_archive_completed_investigations.sql";
 
 export interface MigrationEntry {
   idx: number;
@@ -75,4 +79,8 @@ export const MIGRATIONS: MigrationEntry[] = [
   { idx: 30, tag: "0030_add_conversation_sort_order", sql: sql0030 },
   { idx: 31, tag: "0031_add_goal_hierarchy", sql: sql0031 },
   { idx: 32, tag: "0032_add_captain_system_entities", sql: sql0032 },
+  { idx: 33, tag: "0033_add_inbox_events", sql: sql0033 },
+  { idx: 34, tag: "0034_add_browser_profile_name", sql: sql0034 },
+  { idx: 35, tag: "0035_dedup_system_goals", sql: sql0035 },
+  { idx: 36, tag: "0036_archive_completed_investigations", sql: sql0036 },
 ];

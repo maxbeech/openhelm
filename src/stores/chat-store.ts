@@ -64,6 +64,7 @@ interface ChatState {
   setConvSending: (convId: string, sending: boolean) => void;
   setConvStatus: (convId: string, status: string | null) => void;
   appendConvStreaming: (convId: string, text: string) => void;
+  setConvStreamingText: (convId: string, fullText: string) => void;
   clearConvStreaming: (convId: string) => void;
 
   // Thread management
@@ -123,11 +124,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
   })),
   appendConvStreaming: (convId, text) => set((s) => {
     const prev = s.conversationStates[convId] ?? DEFAULT_CONV_STATE;
-    // Guard: don't append streaming text if sending was already cleared
-    // (message committed). Prevents stale streaming events from causing
-    // duplicate text during the streaming→message transition.
     if (!prev.sending) return s;
     return { conversationStates: { ...s.conversationStates, [convId]: { ...prev, streamingText: prev.streamingText + text } } };
+  }),
+  setConvStreamingText: (convId, fullText) => set((s) => {
+    const prev = s.conversationStates[convId] ?? DEFAULT_CONV_STATE;
+    if (!prev.sending) return s;
+    return { conversationStates: { ...s.conversationStates, [convId]: { ...prev, streamingText: fullText } } };
   }),
   clearConvStreaming: (convId) => set((s) => ({
     conversationStates: { ...s.conversationStates, [convId]: { ...(s.conversationStates[convId] ?? DEFAULT_CONV_STATE), streamingText: "" } },

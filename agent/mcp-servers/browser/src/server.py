@@ -42,12 +42,16 @@ from process_cleanup import process_cleanup
 from tool_timeout import with_timeout
 from captcha_detector import CaptchaDetector
 from intervention import write_intervention_request
+import profile_manager as _pm
 
 DISABLED_SECTIONS = set()
 
 # Browser-injectable credentials loaded from --credentials-file (never logged, held in memory only)
 _browser_credentials: Dict[str, dict] = {}  # keyed by credential name
 _credentials_file_path: Optional[str] = None  # set by --credentials-file arg
+
+# Track which profile name is associated with each browser instance (for lock cleanup)
+_instance_profiles: Dict[str, str] = {}  # instance_id → profile_name
 _run_id: Optional[str] = None  # set by --run-id arg (OpenHelm run context)
 # Default resource types to block on every spawn_browser call (set by --block-resources-default)
 _default_block_resources: List[str] = []
@@ -185,6 +189,7 @@ async def spawn_browser(
     block_resources: List[str] = None,
     extra_headers: Dict[str, str] = None,
     user_data_dir: Optional[str] = None,
+    profile: Optional[str] = None,
     sandbox: Optional[Any] = None,
     background: bool = True,
 ) -> Dict[str, Any]:
@@ -200,14 +205,25 @@ async def spawn_browser(
         block_resources (List[str]): List of resource types to block (e.g., ['image', 'font', 'stylesheet']).
         extra_headers (Dict[str, str]): Additional HTTP headers.
         user_data_dir (Optional[str]): Path to user data directory for persistent sessions.
+        profile (Optional[str]): Named profile for persistent sessions (e.g. "default", "xcom"). Overrides user_data_dir. Sessions and cookies persist across runs.
         sandbox (Optional[Any]): Enable browser sandbox. Accepts bool, string ('true'/'false'), int (1/0), or None for auto-detect.
         background (bool): Launch in background without stealing focus (macOS only, default True).
 
     Returns:
         Dict[str, Any]: Instance information including instance_id.
     """
+    profile_name = None
     try:
         from platform_utils import is_running_as_root, is_running_in_container
+
+        # Resolve named profile to user_data_dir
+        if profile:
+            profile_name = profile
+            if not _pm.profile_exists(profile):
+                _pm.create_profile(profile, notes="Auto-created on first use")
+            _pm.acquire_lock(profile)
+            user_data_dir = _pm.get_profile_path(profile)
+            _pm.touch_last_used(profile)
 
         if sandbox is None:
             sandbox = not (is_running_as_root() or is_running_in_container())
@@ -233,6 +249,11 @@ async def spawn_browser(
             background=background,
         )
         instance = await browser_manager.spawn_browser(options)
+
+        # Track profile association for lock cleanup on close
+        if profile_name:
+            _instance_profiles[instance.instance_id] = profile_name
+
         tab = await browser_manager.get_tab(instance.instance_id)
         if tab:
             await network_interceptor.setup_interception(
@@ -245,6 +266,9 @@ async def spawn_browser(
             "viewport": instance.viewport
         }
     except Exception as e:
+        # Release lock if spawn failed
+        if profile_name:
+            _pm.release_lock(profile_name)
         raise Exception(f"Failed to spawn browser: {str(e)}")
 
 @section_tool("browser-management")
@@ -292,6 +316,10 @@ async def close_instance(instance_id: str) -> bool:
     success = await browser_manager.close_instance(instance_id)
     if success:
         await network_interceptor.clear_instance_data(instance_id)
+    # Release profile lock if this instance was using a named profile
+    profile_name = _instance_profiles.pop(instance_id, None)
+    if profile_name:
+        _pm.release_lock(profile_name)
     return success
 
 @section_tool("browser-management")
@@ -1167,8 +1195,8 @@ async def list_browser_credentials() -> List[Dict[str, str]]:
 async def auto_login(
     instance_id: str,
     credential_name: str,
-    username_selector: str = 'input[type="email"], input[name="username"], input[name="email"], input[name="login"], input[id="username"], input[id="email"], input[id="login"]',
-    password_selector: str = 'input[type="password"]',
+    username_selector: str = 'input[type="email"], input[name="username"], input[name="email"], input[name="login"], input[name="acct"], input[name="user"], input[id="username"], input[id="email"], input[id="login"]',
+    password_selector: str = 'input[type="password"], input[name="pw"]',
     submit_selector: str = 'button[type="submit"], input[type="submit"]',
     delay_ms: int = 80,
 ) -> Dict[str, Any]:
@@ -1177,6 +1205,9 @@ async def auto_login(
 
     The credential value is never returned or logged — only success/failure.
     Works with username_password type credentials only.
+
+    After submitting, waits for the page navigation to complete so the
+    browser is in a stable state for subsequent tool calls.
 
     Args:
         instance_id (str): Browser instance ID.
@@ -1223,12 +1254,31 @@ async def auto_login(
     except Exception as e:
         return {"success": False, "error": f"Failed to fill password field: {str(e)}"}
 
-    # Click submit
+    # Click submit and wait for resulting page navigation to complete.
+    # Without this wait, the next tool call would hit a stale CDP tab
+    # mid-navigation and incorrectly report "CDP connection lost".
     try:
         await dom_handler.click_element(tab, submit_selector, None, 10000)
     except Exception:
         # Submit button not found is non-fatal — some forms auto-submit
         pass
+
+    # Wait for any post-submit navigation to settle. Form submissions
+    # typically trigger a server redirect which causes a full page load.
+    try:
+        await asyncio.wait_for(
+            tab.wait(uc.cdp.page.LoadEventFired),
+            timeout=15.0,
+        )
+    except asyncio.TimeoutError:
+        # Page might not navigate (SPA login) or load slowly — not fatal
+        pass
+    except Exception:
+        # CDP event may fail if page navigated to a different origin — not fatal
+        pass
+
+    # Brief settle time for any post-load JavaScript initialization
+    await asyncio.sleep(1.0)
 
     return {"success": True, "message": f"Login form submitted for '{credential_name}'."}
 
@@ -1345,6 +1395,78 @@ async def inject_auth_header(
     if result:
         return {"success": True, "message": f"Header '{header_name}' set for all future requests."}
     return {"success": False, "error": f"Failed to set header '{header_name}'."}
+
+
+# ─── Profile management tools ─────────────────────────────────────────────────
+# Named persistent Chrome profiles for session reuse across automation runs.
+
+
+@section_tool("profiles")
+async def list_profiles() -> List[Dict[str, Any]]:
+    """
+    List all named browser profiles.
+
+    Profiles persist cookies and sessions across automation runs, avoiding
+    re-authentication on subsequent visits.
+
+    Returns:
+        List[Dict[str, Any]]: Profiles with name, path, created_at, last_used, notes, locked status.
+    """
+    return _pm.list_profiles()
+
+
+@section_tool("profiles")
+async def create_profile(
+    name: str,
+    notes: str = "",
+) -> Dict[str, Any]:
+    """
+    Create a new named browser profile for persistent sessions.
+
+    The profile directory stores Chrome's cookies, localStorage, and session
+    data. Use with spawn_browser(profile="name") to reuse sessions.
+
+    Args:
+        name (str): Profile name (alphanumeric + hyphens, e.g. "xcom", "reddit-main").
+        notes (str): Optional description of what this profile is used for.
+
+    Returns:
+        Dict[str, Any]: Created profile info with name and path.
+    """
+    path = _pm.create_profile(name, notes=notes)
+    return {"name": name, "path": path, "message": f"Profile '{name}' created."}
+
+
+@section_tool("profiles")
+async def check_session(
+    instance_id: str,
+    domain: str,
+) -> Dict[str, Any]:
+    """
+    Check if a browser instance has a valid logged-in session for a domain.
+
+    Inspects cookies to determine if authentication tokens are present.
+    For known domains (x.com, reddit.com, github.com, linkedin.com), checks
+    for specific required auth cookies. For unknown domains, checks if any
+    cookies exist.
+
+    If the session is invalid, use request_user_help() to prompt the user
+    to log in manually in the visible browser window.
+
+    Args:
+        instance_id (str): Browser instance ID.
+        domain (str): Domain to check (e.g. "x.com", "reddit.com").
+
+    Returns:
+        Dict[str, Any]: Session status with logged_in, cookies_present,
+            required_cookies, and missing_cookies fields.
+    """
+    tab = await browser_manager.get_tab(instance_id)
+    if not tab:
+        raise Exception(f"Instance not found: {instance_id}")
+    return await _pm.check_session_cookies(
+        tab, domain, network_interceptor=network_interceptor
+    )
 
 
 @mcp.resource("browser://{instance_id}/state")
@@ -3026,7 +3148,7 @@ def validate_hook_function(function_code: str) -> Dict[str, Any]:
 
 # ── CAPTCHA Detection & User Intervention ──
 
-@section_tool("captcha")
+@section_tool("intervention")
 async def detect_captcha(instance_id: str) -> Dict[str, Any]:
     """
     Inspect the current page for CAPTCHA or robot-check challenges.
@@ -3054,26 +3176,32 @@ async def detect_captcha(instance_id: str) -> Dict[str, Any]:
     return await captcha_detector.detect(tab)
 
 
-@section_tool("captcha")
+@section_tool("intervention")
 async def request_user_help(
     instance_id: str,
     reason: str,
 ) -> Dict[str, Any]:
     """
-    Request the user to manually solve a CAPTCHA or robot check.
+    Request user intervention in the browser (CAPTCHA, login, or verification).
 
     Takes a screenshot and creates an intervention request that triggers a
     dashboard alert with native notification in OpenHelm. The user should then
-    open the visible Chrome browser window and solve the CAPTCHA manually.
+    open the visible Chrome browser window and complete the required action.
+
+    Common use cases:
+    - Solve a CAPTCHA or robot check
+    - Log in to a site when session has expired (persistent profile re-auth)
+    - Complete 2FA or email verification
 
     After calling this tool, poll every 30 seconds by taking a screenshot and
-    checking if the CAPTCHA is gone. Output a status message each time like
-    "Waiting for user to solve CAPTCHA on [url]..." to prevent silence timeout.
+    checking if the issue is resolved. Output a status message each time like
+    "Waiting for user intervention on [url]..." to prevent silence timeout.
     Give up after 5 minutes of waiting.
 
     Args:
         instance_id (str): Browser instance ID
-        reason (str): What the user needs to do (e.g. "Solve reCAPTCHA on login page")
+        reason (str): What the user needs to do (e.g. "Solve reCAPTCHA on login page"
+            or "Please log in to X.com — your session has expired")
 
     Returns:
         Dict with request_id, screenshot_path, and polling instructions
@@ -3125,7 +3253,11 @@ if __name__ == "__main__":
     parser.add_argument("--disable-dynamic-hooks", action="store_true",
                       help="Disable dynamic network hook system")
     parser.add_argument("--disable-captcha", action="store_true",
+                      help="Disable CAPTCHA detection and intervention tools (alias for --disable-intervention)")
+    parser.add_argument("--disable-intervention", action="store_true",
                       help="Disable CAPTCHA detection and intervention tools")
+    parser.add_argument("--disable-profiles", action="store_true",
+                      help="Disable profile management tools")
 
     parser.add_argument("--block-resources-default", type=str, default=None,
                       help="Comma-separated resource types to block by default on every spawn_browser call (e.g. 'font,media,image')")
@@ -3151,7 +3283,8 @@ if __name__ == "__main__":
         print("  debugging: Debug and system tools (6 tools)")
         print("  dynamic-hooks: AI-powered network hook system (12 tools)")
         print("  credentials: Secure browser credential injection (4 tools)")
-        print("  captcha: CAPTCHA detection and user intervention (2 tools)")
+        print("  profiles: Named persistent Chrome profile management (3 tools)")
+        print("  intervention: CAPTCHA detection and user intervention (2 tools)")
         print("\nUse --disable-<section-name> to disable specific sections")
         print("Use --minimal to enable only core functionality")
         sys.exit(0)
@@ -3186,8 +3319,10 @@ if __name__ == "__main__":
     if args.disable_dynamic_hooks:
         DISABLED_SECTIONS.add("dynamic-hooks")
     
-    if args.disable_captcha:
-        DISABLED_SECTIONS.add("captcha")
+    if args.disable_captcha or args.disable_intervention:
+        DISABLED_SECTIONS.add("intervention")
+    if args.disable_profiles:
+        DISABLED_SECTIONS.add("profiles")
 
     if args.block_resources_default:
         _default_block_resources[:] = [r.strip() for r in args.block_resources_default.split(',') if r.strip()]

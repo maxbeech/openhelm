@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import logoSvg from "@/assets/logo.svg";
-import { Settings, ChevronDown, Plus, LayoutDashboard, Layers, Waypoints, Database, KeyRound, Pencil, MessageSquare, Star, X } from "lucide-react";
+import { Settings, ChevronDown, Plus, LayoutDashboard, Layers, Waypoints, Database, KeyRound, Pencil, MessageSquare, Star, X, Inbox } from "lucide-react";
 import { motion } from "framer-motion";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
@@ -18,6 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useResizePanel } from "@/hooks/use-resize-panel";
 import { useDashboardStore } from "@/stores/dashboard-store";
+import { useInboxStore } from "@/stores/inbox-store";
 import { useMemoryStore } from "@/stores/memory-store";
 import { useCredentialStore } from "@/stores/credential-store";
 import { useDataTableStore } from "@/stores/data-table-store";
@@ -34,6 +35,7 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
     useAppStore();
   const { projects } = useProjectStore();
   const { openCount } = useDashboardStore();
+  const { unreadCount: inboxUnreadCount } = useInboxStore();
   const { memoryCount } = useMemoryStore();
   const { credentialCount } = useCredentialStore();
   const { tableCount } = useDataTableStore();
@@ -130,6 +132,7 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
       {/* Dashboard + Memory */}
       <div className="border-b border-sidebar-border px-2 py-2 space-y-0.5">
         {([
+          { view: "inbox" as const, icon: Inbox, label: "Inbox", badge: inboxUnreadCount > 0 ? (inboxUnreadCount > 99 ? "99+" : String(inboxUnreadCount)) : null, badgeType: "alert" as const },
           { view: "dashboard" as const, icon: LayoutDashboard, label: "Dashboard", badge: openCount > 0 ? (openCount > 99 ? "99+" : String(openCount)) : null, badgeType: "alert" as const },
           { view: "memory" as const, icon: Waypoints, label: "Memory", badge: memoryCount > 0 ? String(memoryCount) : null, badgeType: "count" as const },
           { view: "data-tables" as const, icon: Database, label: "Data", badge: tableCount > 0 ? String(tableCount) : null, badgeType: "count" as const },

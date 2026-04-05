@@ -240,7 +240,9 @@ export type SettingKey =
   | "show_system_items"
   | "captain_interval_minutes"
   | "captain_last_snapshot"
-  | "captain_investigation_cooldowns";
+  | "captain_investigation_cooldowns"
+  | "inbox_backfill_complete"
+  | "inbox_backfill_v2";
 
 export interface Setting {
   key: SettingKey;
@@ -271,6 +273,7 @@ export interface CreateGoalParams {
   description?: string;
   parentId?: string;
   isSystem?: boolean;
+  icon?: string;
 }
 
 export interface UpdateGoalParams {
@@ -476,7 +479,7 @@ export interface BulkReorderParams {
 
 export type MessageRole = "user" | "assistant" | "system" | "tool_result";
 /** Source channel of a conversation. Extend for future 3P integrations (WhatsApp, Slack, etc.) */
-export type ChatChannel = "app";
+export type ChatChannel = "app" | "inbox";
 
 export interface Conversation {
   id: string;
@@ -932,6 +935,8 @@ export interface Credential {
   allowPromptInjection: boolean;
   /** When true, credential is injected directly into the browser MCP (no env var, no prompt) */
   allowBrowserInjection: boolean;
+  /** Named persistent Chrome profile for session reuse (nullable) */
+  browserProfileName: string | null;
   /** Legacy single-scope field — "global" for global credentials, "scoped" when bindings are used */
   scopeType: CredentialScope;
   scopeId: string | null;
@@ -972,6 +977,8 @@ export interface UpdateCredentialParams {
   name?: string;
   allowPromptInjection?: boolean;
   allowBrowserInjection?: boolean;
+  /** Named persistent Chrome profile for session reuse */
+  browserProfileName?: string | null;
   value?: CredentialValue;
   /** Legacy single-scope (kept for backward compat) */
   scopeType?: CredentialScope;
@@ -990,6 +997,39 @@ export interface ListCredentialsParams {
 export interface ListCredentialsByScopeParams {
   scopeType: "project" | "goal" | "job";
   scopeId: string;
+}
+
+// ─── Browser Profile Setup Types ───
+
+export interface SetupBrowserProfileParams {
+  /** Credential ID to set up the profile for. */
+  credentialId: string;
+  /** Optional URL to navigate to for login (e.g. "https://x.com/login"). */
+  loginUrl?: string;
+}
+
+export interface SetupBrowserProfileResult {
+  /** The name of the created/used profile. */
+  profileName: string;
+  /** Whether the browser was successfully spawned. */
+  launched: boolean;
+  /** User-facing message. */
+  message: string;
+}
+
+export type BrowserSetupStatus =
+  | "idle"
+  | "launching"
+  | "browser_open"
+  | "verifying"
+  | "completed"
+  | "no_login_detected"
+  | "error";
+
+export interface BrowserSessionVerification {
+  credentialId: string;
+  status: "likely_logged_in" | "no_cookies_detected" | "unknown";
+  cookiesSizeKb?: number;
 }
 
 // ─── Data Import/Export Types ───
@@ -1488,3 +1528,85 @@ export interface ListVisualizationsParams {
   dataTableId?: string;
   status?: VisualizationStatus;
 }
+
+// ─── Inbox Event Types ───
+
+export type InboxCategory = "alert" | "action" | "run" | "chat" | "memory" | "data" | "credential" | "insight" | "system";
+export type InboxEventStatus = "active" | "resolved" | "dismissed";
+export type InboxSourceType = "run" | "message" | "dashboard_item" | "memory" | "data_table" | "credential" | "proposal" | "job";
+
+export interface InboxEvent {
+  id: string;
+  projectId: string | null;
+  category: InboxCategory;
+  eventType: string;
+  importance: number;
+  title: string;
+  body: string | null;
+  sourceId: string | null;
+  sourceType: InboxSourceType | null;
+  metadata: Record<string, unknown>;
+  conversationId: string | null;
+  replyToEventId: string | null;
+  status: InboxEventStatus;
+  resolvedAt: string | null;
+  eventAt: string;
+  createdAt: string;
+}
+
+export interface CreateInboxEventParams {
+  projectId: string | null;
+  category: InboxCategory;
+  eventType: string;
+  importance: number;
+  title: string;
+  body?: string;
+  sourceId?: string;
+  sourceType?: InboxSourceType;
+  metadata?: Record<string, unknown>;
+  conversationId?: string;
+  replyToEventId?: string;
+  eventAt?: string;
+}
+
+export interface ListInboxEventsParams {
+  projectId?: string | null;
+  category?: InboxCategory;
+  status?: InboxEventStatus;
+  minImportance?: number;
+  before?: string;
+  after?: string;
+  limit?: number;
+}
+
+export interface ResolveInboxEventParams {
+  id: string;
+  status: "resolved" | "dismissed";
+}
+
+export interface SendInboxMessageParams {
+  projectId: string | null;
+  content: string;
+  replyToEventId?: string;
+  context?: ChatContext;
+}
+
+export interface InboxTierBoundaries {
+  boundaries: number[];
+  labels: string[];
+}
+
+export interface GetInboxTiersParams {
+  projectId?: string | null;
+  from: string;
+  to: string;
+}
+
+export interface ListFutureInboxEventsParams {
+  projectId?: string | null;
+  limit?: number;
+}
+
+// Re-export tiering utilities so they're accessible from @openhelm/shared
+export { computeTierBoundaries, getTierForImportance } from "./inbox-tiering.js";
+export type { TierConfig, TierResult } from "./inbox-tiering.js";

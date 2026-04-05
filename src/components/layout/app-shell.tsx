@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { AnimatePresence } from "framer-motion";
-import { AlertTriangle, MessageSquare, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, MessageSquare, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sidebar } from "./sidebar";
 import { SchedulerControl } from "./scheduler-control";
@@ -11,6 +11,7 @@ import { useLicense } from "@/hooks/use-license";
 import { useClaudeHealth } from "@/hooks/use-claude-health";
 import { useChatStore } from "@/stores/chat-store";
 import { useAppStore } from "@/stores/app-store";
+import { useNavStore } from "@/stores/nav-store";
 import { useUpdaterStore } from "@/stores/updater-store";
 import { useUpdater } from "@/hooks/use-updater";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -31,7 +32,8 @@ export function AppShell({
   onNewJobForGoal,
 }: AppShellProps) {
   const { panelOpen, togglePanel } = useChatStore();
-  const { activeProjectId } = useAppStore();
+  const { activeProjectId, navigateBack, navigateForward } = useAppStore();
+  const { canGoBack, canGoForward } = useNavStore();
   const { shouldCheckUpdates } = useUpdaterStore();
   const { licenseStatus } = useLicense();
   const claudeHealth = useClaudeHealth();
@@ -67,8 +69,30 @@ export function AppShell({
         <div
           data-tauri-drag-region
           onMouseDown={() => { if ("__TAURI_INTERNALS__" in window) getCurrentWindow().startDragging(); }}
-          className="flex h-12 shrink-0 items-center justify-end gap-2 border-b border-border px-3"
+          className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3"
         >
+          {/* Back / Forward navigation */}
+          <div className="flex items-center gap-0.5" onMouseDown={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              disabled={!canGoBack}
+              onClick={navigateBack}
+              className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+              title="Go back"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+            <button
+              type="button"
+              disabled={!canGoForward}
+              onClick={navigateForward}
+              className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+              title="Go forward"
+            >
+              <ChevronRight className="size-4" />
+            </button>
+          </div>
+          <div className="flex-1" />
           {licenseStatus && shouldShowLicenseBanner(licenseStatus) && (
             <LicenseBanner licenseStatus={licenseStatus} />
           )}

@@ -39,6 +39,7 @@ export function createGoal(params: CreateGoalParams): Goal {
       name: params.name,
       description: params.description ?? "",
       status: "active",
+      icon: params.icon ?? null,
       isSystem: params.isSystem ?? false,
       sortOrder,
       createdAt: now,
@@ -93,7 +94,10 @@ export function updateGoal(params: UpdateGoalParams): Goal {
     }
   }
 
-  // If archiving, also archive all descendant goals and their jobs atomically
+  // If archiving, also archive all descendant goals and their jobs atomically.
+  // The parent goal's own status is also updated inside the transaction so that
+  // a crash between the transaction and the outer db.update cannot leave the
+  // parent as "active" while its children and jobs are already archived.
   if (params.status === "archived" && existing.status !== "archived") {
     const descendants = getGoalDescendants(params.id);
     db.transaction((tx) => {
@@ -110,6 +114,11 @@ export function updateGoal(params: UpdateGoalParams): Goal {
       tx.update(jobs)
         .set({ isEnabled: false, isArchived: true, nextFireAt: null, updatedAt: now })
         .where(eq(jobs.goalId, params.id))
+        .run();
+      // Archive the parent goal itself — must be inside the transaction to be atomic
+      tx.update(goals)
+        .set({ status: "archived", updatedAt: now })
+        .where(eq(goals.id, params.id))
         .run();
     });
   }
@@ -138,14 +147,13 @@ export function deleteGoal(id: string): boolean {
   // jobs would survive with a null goalId, leaking as orphaned standalone jobs.
   const descendants = getGoalDescendants(id);
   const allGoalIds = [id, ...descendants.map((d) => d.id)];
-  let result: { changes: number };
-  db.transaction((tx) => {
+  const result = db.transaction((tx) => {
     for (const gid of allGoalIds) {
       tx.delete(jobs).where(eq(jobs.goalId, gid)).run();
     }
-    result = tx.delete(goals).where(eq(goals.id, id)).run();
+    return tx.delete(goals).where(eq(goals.id, id)).run();
   });
-  return result!.changes > 0;
+  return result.changes > 0;
 }
 
 /** Bulk-update sort_order for multiple goals */

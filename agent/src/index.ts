@@ -14,6 +14,7 @@ import { initAgentSentry, captureAgentError } from "./sentry.js";
 import { initPowerManagement, shutdownPowerManagement } from "./power/index.js";
 import { startPeriodicVerifier, stopPeriodicVerifier } from "./license/periodic-verifier.js";
 import { backfillMissingAutopilotJobs, autopilotScanner } from "./autopilot/index.js";
+import { runBackfillIfNeeded } from "./ipc/inbox-bridge.js";
 import { backfillMissingVisualizations } from "./data-tables/visualization-suggester.js";
 import { usageService } from "./usage/service.js";
 import { cleanupOrphanedConfigs } from "./mcp-servers/mcp-config-builder.js";
@@ -179,6 +180,13 @@ try {
   backfillMissingVisualizations();
 } catch (err) {
   console.error("[agent] visualization backfill failed (non-fatal):", err);
+}
+
+// 7e3. Backfill inbox events from historic runs and open dashboard items
+try {
+  runBackfillIfNeeded();
+} catch (err) {
+  console.error("[agent] inbox backfill failed (non-fatal):", err);
 }
 
 // 7e. Initial usage snapshot (non-blocking)

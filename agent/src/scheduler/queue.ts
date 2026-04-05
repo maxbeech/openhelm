@@ -78,6 +78,18 @@ export class JobQueue {
     return this.items[0] ?? null;
   }
 
+  /**
+   * Dequeue the first item matching a predicate (preserving priority order).
+   * Returns null if no item matches.
+   */
+  dequeueWhere(predicate: (item: QueueItem) => boolean): QueueItem | null {
+    const idx = this.items.findIndex(predicate);
+    if (idx < 0) return null;
+    const [item] = this.items.splice(idx, 1);
+    this.runIdSet.delete(item.runId);
+    return item;
+  }
+
   /** Get a snapshot of all items (for status reporting) */
   getAll(): QueueItem[] {
     return [...this.items];

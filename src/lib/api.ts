@@ -97,6 +97,15 @@ import type {
   CustomerPortalResult,
   PricingResult,
   UsageSummary,
+  InboxEvent,
+  ListInboxEventsParams,
+  ResolveInboxEventParams,
+  SendInboxMessageParams,
+  GetInboxTiersParams,
+  InboxTierBoundaries,
+  ListFutureInboxEventsParams,
+  SetupBrowserProfileParams,
+  SetupBrowserProfileResult,
 } from "@openhelm/shared";
 
 // ─── Projects ───
@@ -513,6 +522,16 @@ export function setCredentialScopesForEntity(params: {
   return agentClient.request("credentials.setScopesForEntity", params);
 }
 
+// ─── Browser Profile Setup ───
+
+export function setupBrowserProfile(params: SetupBrowserProfileParams): Promise<SetupBrowserProfileResult> {
+  return agentClient.request<SetupBrowserProfileResult>("credential.setupBrowserProfile", params);
+}
+
+export function cancelBrowserSetup(credentialId: string): Promise<{ cancelled: boolean }> {
+  return agentClient.request("credential.cancelBrowserSetup", { credentialId });
+}
+
 // ─── Data Import/Export ───
 
 export function getExportStats(): Promise<import("@openhelm/shared").ExportStatsResult> {
@@ -792,4 +811,30 @@ export function getAutopilotStatus(): Promise<{ intervalMinutes: number }> {
 
 export function forceAutopilotScan(): Promise<{ success: boolean }> {
   return agentClient.request("autopilot.forceScan");
+}
+
+// ─── Inbox ───
+
+export function listInboxEvents(params?: ListInboxEventsParams): Promise<InboxEvent[]> {
+  return agentClient.request<InboxEvent[]>("inbox.list", params);
+}
+
+export function resolveInboxEvent(params: ResolveInboxEventParams): Promise<InboxEvent> {
+  return agentClient.request<InboxEvent>("inbox.resolve", params);
+}
+
+export function sendInboxMessage(params: SendInboxMessageParams): Promise<{ started: boolean; conversationId: string }> {
+  return agentClient.request("inbox.sendMessage", params);
+}
+
+export function countInboxEvents(params?: { projectId?: string; status?: string }): Promise<{ count: number }> {
+  return agentClient.request<{ count: number }>("inbox.count", params);
+}
+
+export function getInboxTierBoundaries(params: GetInboxTiersParams): Promise<InboxTierBoundaries> {
+  return agentClient.request("inbox.getTierBoundaries", params);
+}
+
+export function listFutureInboxEvents(params?: ListFutureInboxEventsParams): Promise<InboxEvent[]> {
+  return agentClient.request<InboxEvent[]>("inbox.listFuture", params);
 }

@@ -248,6 +248,8 @@ export const credentials = sqliteTable("credentials", {
   allowPromptInjection: integer("allow_prompt_injection", { mode: "boolean" }).notNull().default(false),
   /** When true, credential is injected directly into the browser MCP (no env var, no prompt) */
   allowBrowserInjection: integer("allow_browser_injection", { mode: "boolean" }).notNull().default(false),
+  /** Named persistent Chrome profile (under ~/.openhelm/profiles/) for session reuse */
+  browserProfileName: text("browser_profile_name"),
   scopeType: text("scope_type", { enum: ["global", "project", "goal", "job"] }).notNull().default("global"),
   scopeId: text("scope_id"),
   isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true),
@@ -419,6 +421,34 @@ export const visualizations = sqliteTable("visualizations", {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+/** Unified event timeline for the Inbox page */
+export const inboxEvents = sqliteTable("inbox_events", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  category: text("category", {
+    enum: ["alert", "action", "run", "chat", "memory", "data", "credential", "insight", "system"],
+  }).notNull(),
+  eventType: text("event_type").notNull(),
+  importance: integer("importance").notNull().default(50),
+  title: text("title").notNull(),
+  body: text("body"),
+  sourceId: text("source_id"),
+  sourceType: text("source_type", {
+    enum: ["run", "message", "dashboard_item", "memory", "data_table", "credential", "proposal", "job"],
+  }),
+  /** JSON: type-specific payload for the frontend renderer */
+  metadata: text("metadata").notNull().default("{}"),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  replyToEventId: text("reply_to_event_id"),
+  status: text("status", { enum: ["active", "resolved", "dismissed"] }).notNull().default("active"),
+  resolvedAt: text("resolved_at"),
+  /** When the event logically occurred (or will occur for future scheduled runs) */
+  eventAt: text("event_at").notNull(),
+  createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });

@@ -67,6 +67,8 @@ type RunnerFn = (
 export class Executor {
   private activeRuns = new Map<string, AbortController>();
   private hitlKilledRuns = new Map<string, InteractiveDetectionType>();
+  /** Tracks which browser profile paths are in use by running tasks. */
+  private profileLocks = new Map<string, string>(); // profileName → runId
   private runnerFn: RunnerFn;
 
   constructor(runnerFn?: RunnerFn) {
@@ -91,16 +93,28 @@ export class Executor {
 
     if (this.activeRuns.size >= this.maxConcurrency) return;
 
-    const item = jobQueue.dequeue();
+    // Profile-aware dequeue: skip items whose browser credentials require a
+    // profile that is currently locked by another running task.
+    const item = jobQueue.dequeueWhere((candidate) => {
+      const profiles = this.getRequiredProfiles(candidate.jobId);
+      if (profiles.length === 0) return true; // no profile needed — eligible
+      return profiles.every((p) => !this.profileLocks.has(p));
+    });
     if (!item) return;
+
+    // Lock any profiles this run needs
+    const profiles = this.getRequiredProfiles(item.jobId);
+    for (const p of profiles) {
+      this.profileLocks.set(p, item.runId);
+    }
 
     // Fire and forget — the async execution manages its own lifecycle
     this.executeRun(item).catch((err) => {
       console.error(`[executor] unexpected error in executeRun:`, err);
       captureAgentError(err, { runId: item.runId, jobId: item.jobId });
-      // Release the active-run slot and ensure the run is not left stuck in
-      // "running" state if an unexpected exception escaped executeRun.
+      // Release the active-run slot and profile locks
       this.activeRuns.delete(item.runId);
+      this.releaseProfileLocks(item.runId);
       try {
         const current = getRun(item.runId);
         if (current?.status === "running") {
@@ -123,6 +137,31 @@ export class Executor {
         console.error(`[executor] cleanup failed for run ${item.runId}:`, cleanupErr);
       }
     });
+  }
+
+  /**
+   * Get browser profile names required by a job's credentials.
+   * Returns empty array if no browser-only credentials have profiles.
+   */
+  private getRequiredProfiles(jobId: string): string[] {
+    try {
+      const creds = resolveCredentialsForJob(jobId);
+      return creds
+        .filter((c) => c.allowBrowserInjection && c.browserProfileName)
+        .map((c) => c.browserProfileName!)
+        .filter((v, i, a) => a.indexOf(v) === i); // dedupe
+    } catch {
+      return [];
+    }
+  }
+
+  /** Release all profile locks held by a run. */
+  private releaseProfileLocks(runId: string): void {
+    for (const [profile, lockRunId] of this.profileLocks) {
+      if (lockRunId === runId) {
+        this.profileLocks.delete(profile);
+      }
+    }
   }
 
   /** Cancel a run — removes from queue or aborts the process */
@@ -379,126 +418,124 @@ export class Executor {
     }
 
     // ── Credential injection ──
-    // Credentials are partitioned by injection mode:
-    // - ENV: injected as environment variables (Claude Code can read via shell)
-    // - PROMPT: also injected into the prompt text (sent to Anthropic)
-    // - BROWSER: injected into the browser MCP server only (Claude Code never sees values)
+    // Credentials are ALWAYS resolved (even for resumed corrective runs) because
+    // MCP servers are respawned fresh and need the browser credentials file.
+    // Only the prompt-level hints are skipped for resumed sessions (the parent
+    // session context already contains them).
     const additionalEnv: Record<string, string> = {};
     const credentialAudit: RunCredentialEntry[] = [];
     const allSecrets: string[] = [];
     let browserCredentialsFilePath: string | undefined;
 
-    if (!isResumable) {
-      try {
-        const applicableCreds = resolveCredentialsForJob(jobId);
-        const credentialHints: string[] = [];
-        const browserCredentialHints: string[] = [];
-        const browserCredentials: import("../credentials/browser-credentials.js").BrowserCredential[] = [];
+    try {
+      const applicableCreds = resolveCredentialsForJob(jobId);
+      const credentialHints: string[] = [];
+      const browserCredentialHints: string[] = [];
+      const browserCredentials: import("../credentials/browser-credentials.js").BrowserCredential[] = [];
 
-        for (const cred of applicableCreds) {
-          let raw: string | null = null;
-          try {
-            raw = await getKeychainItem(cred.id);
-          } catch (err) {
-            console.error(`[executor] keychain read failed for credential "${cred.name}" (non-fatal):`, err);
-            continue;
-          }
-          if (!raw) continue;
+      for (const cred of applicableCreds) {
+        let raw: string | null = null;
+        try {
+          raw = await getKeychainItem(cred.id);
+        } catch (err) {
+          console.error(`[executor] keychain read failed for credential "${cred.name}" (non-fatal):`, err);
+          continue;
+        }
+        if (!raw) continue;
 
-          let value: CredentialValue;
-          try {
-            value = JSON.parse(raw) as CredentialValue;
-          } catch (err) {
-            // Malformed JSON in keychain (e.g. raw token stored by hand) — skip
-            // this credential rather than aborting all subsequent ones.
-            console.error(`[executor] credential "${cred.name}" has non-JSON keychain value (skipping):`, err);
-            continue;
-          }
-          // Always add to redactor (catches leaks in logs regardless of injection mode)
-          allSecrets.push(...extractSecretStrings(value));
+        let value: CredentialValue;
+        try {
+          value = JSON.parse(raw) as CredentialValue;
+        } catch (err) {
+          // Malformed JSON in keychain (e.g. raw token stored by hand) — skip
+          // this credential rather than aborting all subsequent ones.
+          console.error(`[executor] credential "${cred.name}" has non-JSON keychain value (skipping):`, err);
+          continue;
+        }
+        // Always add to redactor (catches leaks in logs regardless of injection mode)
+        allSecrets.push(...extractSecretStrings(value));
 
-          if (cred.allowBrowserInjection) {
-            // Browser-only injection — NO env var, NO prompt
-            if (value.type === "username_password") {
-              browserCredentials.push({
-                name: cred.name,
-                type: "username_password",
-                username: value.username,
-                password: value.password,
-              });
-              browserCredentialHints.push(
-                `- "${cred.name}" (username_password) — use auto_login`,
-              );
-            } else {
-              browserCredentials.push({
-                name: cred.name,
-                type: "token",
-                value: value.value,
-              });
-              browserCredentialHints.push(
-                `- "${cred.name}" (token) — use inject_auth_cookie or inject_auth_header`,
-              );
-            }
-            credentialAudit.push({ credentialId: cred.id, injectionMethod: "browser" });
+        if (cred.allowBrowserInjection) {
+          // Browser-only injection — NO env var, NO prompt
+          if (value.type === "username_password") {
+            browserCredentials.push({
+              name: cred.name,
+              type: "username_password",
+              username: value.username,
+              password: value.password,
+            });
+            browserCredentialHints.push(
+              `- "${cred.name}" (username_password) — use auto_login`,
+            );
           } else {
-            // Env injection (default)
-            if (value.type === "username_password") {
-              additionalEnv[cred.envVarName + "_USERNAME"] = value.username;
-              additionalEnv[cred.envVarName + "_PASSWORD"] = value.password;
-              credentialHints.push(
-                `- $${cred.envVarName}_USERNAME / $${cred.envVarName}_PASSWORD — "${cred.name}" (username & password)`,
-              );
-            } else {
-              additionalEnv[cred.envVarName] = value.value;
-              credentialHints.push(`- $${cred.envVarName} — "${cred.name}" (token)`);
-            }
-            credentialAudit.push({ credentialId: cred.id, injectionMethod: "env" });
-
-            // Optionally also inject value into prompt context
-            if (cred.allowPromptInjection) {
-              const valueStr = value.type === "username_password"
-                ? `Username: ${value.username}, Password: ${value.password}`
-                : value.value;
-              effectivePrompt += `\n\n---\n\nCredential "${cred.name}": ${valueStr}`;
-              credentialAudit.push({ credentialId: cred.id, injectionMethod: "prompt" });
-            }
+            browserCredentials.push({
+              name: cred.name,
+              type: "token",
+              value: value.value,
+            });
+            browserCredentialHints.push(
+              `- "${cred.name}" (token) — use inject_auth_cookie or inject_auth_header`,
+            );
           }
+          credentialAudit.push({ credentialId: cred.id, injectionMethod: "browser" });
+        } else {
+          // Env injection (default)
+          if (value.type === "username_password") {
+            additionalEnv[cred.envVarName + "_USERNAME"] = value.username;
+            additionalEnv[cred.envVarName + "_PASSWORD"] = value.password;
+            credentialHints.push(
+              `- $${cred.envVarName}_USERNAME / $${cred.envVarName}_PASSWORD — "${cred.name}" (username & password)`,
+            );
+          } else {
+            additionalEnv[cred.envVarName] = value.value;
+            credentialHints.push(`- $${cred.envVarName} — "${cred.name}" (token)`);
+          }
+          credentialAudit.push({ credentialId: cred.id, injectionMethod: "env" });
 
-          touchCredential(cred.id);
+          // Optionally also inject value into prompt context
+          if (!isResumable && cred.allowPromptInjection) {
+            const valueStr = value.type === "username_password"
+              ? `Username: ${value.username}, Password: ${value.password}`
+              : value.value;
+            effectivePrompt += `\n\n---\n\nCredential "${cred.name}": ${valueStr}`;
+            credentialAudit.push({ credentialId: cred.id, injectionMethod: "prompt" });
+          }
         }
 
-        // Append env credential hints
+        touchCredential(cred.id);
+      }
+
+      // Append credential hints to prompt (skip for resumed sessions — parent has them)
+      if (!isResumable) {
         if (credentialHints.length > 0) {
           effectivePrompt +=
             `\n\n---\n\nAvailable Credentials (set as environment variables — use in shell commands):\n` +
             credentialHints.join("\n");
         }
-
-        // Append browser credential hints
         if (browserCredentialHints.length > 0) {
           effectivePrompt +=
             `\n\n---\n\nBrowser credentials available (use browser MCP tools — values are pre-loaded securely):\n` +
             browserCredentialHints.join("\n");
         }
-
-        // Write browser credentials to temp file for MCP server
-        if (browserCredentials.length > 0) {
-          try {
-            const { writeBrowserCredentialsFile } = await import("../credentials/browser-credentials.js");
-            browserCredentialsFilePath = writeBrowserCredentialsFile(runId, browserCredentials);
-            console.error(`[executor] browser credentials file written for run ${runId}`);
-          } catch (err) {
-            console.error("[executor] browser credentials file write error (non-fatal):", err);
-          }
-        }
-
-        const totalCreds = credentialHints.length + browserCredentialHints.length;
-        if (totalCreds > 0) {
-          console.error(`[executor] injected ${totalCreds} credentials into run ${runId} (${browserCredentials.length} browser-only)`);
-        }
-      } catch (err) {
-        console.error("[executor] credential resolution error (non-fatal):", err);
       }
+
+      // Write browser credentials to temp file for MCP server (always — MCP is respawned)
+      if (browserCredentials.length > 0) {
+        try {
+          const { writeBrowserCredentialsFile } = await import("../credentials/browser-credentials.js");
+          browserCredentialsFilePath = writeBrowserCredentialsFile(runId, browserCredentials);
+          console.error(`[executor] browser credentials file written for run ${runId}`);
+        } catch (err) {
+          console.error("[executor] browser credentials file write error (non-fatal):", err);
+        }
+      }
+
+      const totalCreds = credentialHints.length + browserCredentialHints.length;
+      if (totalCreds > 0) {
+        console.error(`[executor] injected ${totalCreds} credentials into run ${runId} (${browserCredentials.length} browser-only)`);
+      }
+    } catch (err) {
+      console.error("[executor] credential resolution error (non-fatal):", err);
     }
 
     // Create redactor for log output
@@ -540,12 +577,12 @@ export class Executor {
     // Prepend MCP preambles and build system prompt additions
     let appendSystemPrompt: string | undefined;
     if (mcpConfigPath) {
-      const { BROWSER_MCP_PREAMBLE, BROWSER_CAPTCHA_PREAMBLE, BROWSER_CREDENTIALS_PREAMBLE, DATA_TABLES_MCP_PREAMBLE, BROWSER_SYSTEM_PROMPT } = await import("../mcp-servers/mcp-config-builder.js");
+      const { BROWSER_MCP_PREAMBLE, BROWSER_CAPTCHA_PREAMBLE, BROWSER_CREDENTIALS_PREAMBLE, BROWSER_PROFILE_PREAMBLE, DATA_TABLES_MCP_PREAMBLE, BROWSER_SYSTEM_PROMPT } = await import("../mcp-servers/mcp-config-builder.js");
       // Data tables preamble (always available when MCP config exists)
       effectivePrompt = DATA_TABLES_MCP_PREAMBLE + effectivePrompt;
       // Browser MCP preamble + system prompt (only when browser venv is ready)
       if (hasBrowserMcp) {
-        effectivePrompt = BROWSER_MCP_PREAMBLE + BROWSER_CAPTCHA_PREAMBLE + effectivePrompt;
+        effectivePrompt = BROWSER_MCP_PREAMBLE + BROWSER_CAPTCHA_PREAMBLE + BROWSER_PROFILE_PREAMBLE + effectivePrompt;
         // System-level instruction is far more authoritative than user-prompt preamble
         appendSystemPrompt = BROWSER_SYSTEM_PROMPT;
         if (browserCredentialsFilePath) {
@@ -647,8 +684,9 @@ export class Executor {
         }
       }
     } finally {
-      // Remove from active runs — must happen even if cleanup steps above throw
+      // Remove from active runs and release profile locks
       this.activeRuns.delete(runId);
+      this.releaseProfileLocks(runId);
     }
 
     // Handle completion (includes async summary generation)

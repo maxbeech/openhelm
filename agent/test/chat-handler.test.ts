@@ -750,6 +750,15 @@ describe("handleChatMessage — early thinking status (Issue 2 fix)", () => {
 });
 
 describe("handleChatMessage — streaming sanitizer (Issue 3 fix)", () => {
+  // Helper: streaming events now carry fullText (cumulative). Use the last
+  // event's fullText to get the final streamed content.
+  function getStreamedText(): string {
+    const streamEvents = emitMock.mock.calls.filter(([event]: [string]) => event === "chat.streaming");
+    if (streamEvents.length === 0) return "";
+    const last = streamEvents[streamEvents.length - 1];
+    return (last[1] as Record<string, string>).fullText ?? "";
+  }
+
   it("strips tool_call XML that arrives in a single chunk", async () => {
     callLlmViaCliMock.mockImplementationOnce(async (config: Record<string, unknown>) => {
       const onTextChunk = config.onTextChunk as (text: string) => void;
@@ -759,8 +768,7 @@ describe("handleChatMessage — streaming sanitizer (Issue 3 fix)", () => {
 
     await handleChatMessage(projectId, "Test streaming single chunk");
 
-    const streamEvents = emitMock.mock.calls.filter(([event]) => event === "chat.streaming");
-    const streamedText = streamEvents.map(([, data]) => data.text).join("");
+    const streamedText = getStreamedText();
     expect(streamedText).not.toContain("<tool_call>");
     expect(streamedText).not.toContain("</tool_call>");
     expect(streamedText).toContain("Here is my plan.");
@@ -779,8 +787,7 @@ describe("handleChatMessage — streaming sanitizer (Issue 3 fix)", () => {
 
     await handleChatMessage(projectId, "Test streaming multi chunk");
 
-    const streamEvents = emitMock.mock.calls.filter(([event]) => event === "chat.streaming");
-    const streamedText = streamEvents.map(([, data]) => data.text).join("");
+    const streamedText = getStreamedText();
     expect(streamedText).not.toContain("<tool_call>");
     expect(streamedText).not.toContain("</tool_call>");
     expect(streamedText).not.toContain("create_goal");
@@ -799,8 +806,7 @@ describe("handleChatMessage — streaming sanitizer (Issue 3 fix)", () => {
 
     await handleChatMessage(projectId, "Test split closing tag");
 
-    const streamEvents = emitMock.mock.calls.filter(([event]) => event === "chat.streaming");
-    const streamedText = streamEvents.map(([, data]) => data.text).join("");
+    const streamedText = getStreamedText();
     expect(streamedText).not.toContain("<tool_call>");
     expect(streamedText).not.toContain("</tool_call>");
     expect(streamedText).not.toContain("data");
@@ -818,8 +824,7 @@ describe("handleChatMessage — streaming sanitizer (Issue 3 fix)", () => {
 
     await handleChatMessage(projectId, "Test incomplete tool call");
 
-    const streamEvents = emitMock.mock.calls.filter(([event]) => event === "chat.streaming");
-    const streamedText = streamEvents.map(([, data]) => data.text).join("");
+    const streamedText = getStreamedText();
     expect(streamedText).not.toContain("<tool_call>");
     expect(streamedText).toContain("Some text");
   });
