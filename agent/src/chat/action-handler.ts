@@ -51,7 +51,7 @@ export async function handleActionApproval(
       return a;
     });
 
-    // Note: legacy system job generation removed — AutoCaptain handles
+    // Note: legacy system job generation removed — Autopilot handles
     // proactive monitoring via its scanner tick.
   }
 

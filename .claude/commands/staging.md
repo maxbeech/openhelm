@@ -39,8 +39,10 @@ Verify `dist/agent.js` exists and was copied to `src-tauri/binaries/`.
 
 ### 2. Build the Tauri app (production bundle)
 
+Use `tauri:build` (not `tauri build`) — this runs `tauri build` AND then `scripts/patch-bundle.mjs`, which writes `.node-bin-dir` into `Contents/MacOS/` so the app uses the exact Node.js version that compiled the native modules (e.g. better-sqlite3). Skipping this step can cause NODE_MODULE_VERSION mismatches at runtime.
+
 ```bash
-cd /Users/maxbeech/Documents/Beech/Development/OpenHelm && npm run tauri build
+cd /Users/maxbeech/Documents/Beech/Development/OpenHelm && npm run tauri:build
 ```
 
 This produces the `.app` bundle at:

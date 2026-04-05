@@ -349,7 +349,7 @@ const EVENT_HANDLERS: Record<string, HandlerFn> = {
       category: "insight",
       eventType: "insight.captain_scan",
       importance,
-      title: `Captain scan: ${insights.length} insight${insights.length > 1 ? "s" : ""}`,
+      title: `Autopilot scan: ${insights.length} insight${insights.length > 1 ? "s" : ""}`,
       sourceId: data.projectId as string,
       sourceType: "job",
       metadata: { insights },

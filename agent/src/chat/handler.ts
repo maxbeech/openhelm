@@ -52,8 +52,11 @@ async function callLlmWithRetry(config: LlmCallConfig): Promise<LlmCallResult> {
       return await callLlmViaCli(config);
     } catch (err) {
       lastErr = err instanceof Error ? err : new Error(String(err));
-      const isTransient = lastErr.message.includes("exited with code 1")
-        || lastErr.message.includes("timed out");
+      // Only retry on code-1 exits (transient network/rate-limit errors from the CLI).
+      // Timeouts are NOT retried: our own timer killed the process because the request
+      // was too slow. Retrying would just run three consecutive 10-minute attempts
+      // before finally giving up — total wall time ~30 min vs the ~10 min fail-fast.
+      const isTransient = lastErr.message.includes("exited with code 1");
       if (!isTransient || attempt === MAX_LLM_RETRIES) throw lastErr;
       const delay = 2000 * (attempt + 1);
       console.error(`[chat] LLM call failed (attempt ${attempt + 1}/${MAX_LLM_RETRIES + 1}), retrying in ${delay}ms: ${lastErr.message}`);

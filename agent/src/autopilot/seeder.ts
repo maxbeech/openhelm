@@ -19,6 +19,7 @@ import { createJob, listJobs } from "../db/queries/jobs.js";
 import {
   createVisualization,
   listVisualizations,
+  deleteVisualization,
 } from "../db/queries/visualizations.js";
 import type {
   Goal,
@@ -195,26 +196,40 @@ function ensureSystemGoal(projectId: string): Goal {
   }
 }
 
+const RULES_DESCRIPTION =
+  "Autopilot monitoring rules. Each row defines a metric threshold that triggers an investigation when breached.";
+
+const METRICS_DESCRIPTION =
+  "Time-series health metrics collected by Autopilot on each scan. Each row is a snapshot of all monitored metric values at a point in time.";
+
 function ensureRulesTable(projectId: string): DataTable {
   const allTables = listDataTables({ projectId });
 
-  // Migrate legacy "Captain Rules" name (in case migration 0037 ran on a
-  // table that was already renamed by earlier code, or as an extra guard)
+  // Migrate legacy "Captain Rules" name
   const legacy = allTables.find(
     (t) => t.isSystem && t.name === RULES_TABLE_NAME_LEGACY,
   );
   if (legacy) {
-    return updateDataTable({ id: legacy.id, name: RULES_TABLE_NAME });
+    return updateDataTable({
+      id: legacy.id,
+      name: RULES_TABLE_NAME,
+      description: RULES_DESCRIPTION,
+    });
   }
 
   const existing = allTables.find((t) => t.isSystem && t.name === RULES_TABLE_NAME);
-  if (existing) return existing;
+  if (existing) {
+    // Update description if stale (e.g., stored old "AutoCaptain" wording)
+    if (existing.description !== RULES_DESCRIPTION) {
+      return updateDataTable({ id: existing.id, description: RULES_DESCRIPTION });
+    }
+    return existing;
+  }
 
   return createDataTable({
     projectId,
     name: RULES_TABLE_NAME,
-    description:
-      "Autopilot monitoring rules. Each row defines a metric threshold that triggers an investigation when breached.",
+    description: RULES_DESCRIPTION,
     columns: buildRulesColumns(),
     isSystem: true,
     createdBy: "ai",
@@ -229,17 +244,26 @@ function ensureMetricsTable(projectId: string): DataTable {
     (t) => t.isSystem && t.name === METRICS_TABLE_NAME_LEGACY,
   );
   if (legacy) {
-    return updateDataTable({ id: legacy.id, name: METRICS_TABLE_NAME });
+    return updateDataTable({
+      id: legacy.id,
+      name: METRICS_TABLE_NAME,
+      description: METRICS_DESCRIPTION,
+    });
   }
 
   const existing = allTables.find((t) => t.isSystem && t.name === METRICS_TABLE_NAME);
-  if (existing) return existing;
+  if (existing) {
+    // Update description if stale
+    if (existing.description !== METRICS_DESCRIPTION) {
+      return updateDataTable({ id: existing.id, description: METRICS_DESCRIPTION });
+    }
+    return existing;
+  }
 
   return createDataTable({
     projectId,
     name: METRICS_TABLE_NAME,
-    description:
-      "Time-series health metrics collected by Autopilot on each scan. Each row is a snapshot of all monitored metric values at a point in time.",
+    description: METRICS_DESCRIPTION,
     columns: buildMetricsColumns(),
     isSystem: true,
     createdBy: "ai",
@@ -316,7 +340,12 @@ function ensureMetaJob(projectId: string, goalId: string): void {
 }
 
 /**
- * Ensure system visualizations exist for the Autopilot tables:
+ * Ensure system visualizations for the Autopilot tables are correct.
+ * This is authoritative: any existing system viz that doesn't match the
+ * expected config (wrong chart type, wrong xColumnId, wrong name) is deleted
+ * and recreated. This handles cases where the suggester auto-created a bad
+ * chart before the seeder got a chance to run.
+ *
  * - Autopilot Metrics: line chart over time with pretty metric labels
  * - Autopilot Rules: stat showing count of enabled rules
  */
@@ -326,10 +355,17 @@ function ensureSystemVisualizations(
   rulesTable: DataTable,
   metricsTable: DataTable,
 ): void {
-  // Autopilot Metrics — line chart (only create once table has data)
+  // ── Autopilot Metrics: must be a line chart with xColumnId set ──
   if (metricsTable.rowCount >= 1) {
-    const metricsVizs = listVisualizations({ dataTableId: metricsTable.id });
-    if (metricsVizs.length === 0) {
+    const existingVizs = listVisualizations({ dataTableId: metricsTable.id });
+    const correctViz = existingVizs.find(
+      (v) => v.chartType === "line" && v.config.xColumnId === "col_collected_at",
+    );
+
+    if (!correctViz) {
+      // Delete any wrong vizs (bad chart type / bad x-axis / suggested from backfill)
+      for (const v of existingVizs) deleteVisualization(v.id);
+
       createVisualization({
         projectId,
         goalId,
@@ -353,10 +389,16 @@ function ensureSystemVisualizations(
     }
   }
 
-  // Autopilot Rules — stat card showing enabled rule count
+  // ── Autopilot Rules: must be a stat card for enabled count ──
   if (rulesTable.rowCount >= 1) {
-    const rulesVizs = listVisualizations({ dataTableId: rulesTable.id });
-    if (rulesVizs.length === 0) {
+    const existingVizs = listVisualizations({ dataTableId: rulesTable.id });
+    const correctViz = existingVizs.find(
+      (v) => v.chartType === "stat" && v.config.statColumnId === "col_enabled",
+    );
+
+    if (!correctViz) {
+      for (const v of existingVizs) deleteVisualization(v.id);
+
       createVisualization({
         projectId,
         goalId,

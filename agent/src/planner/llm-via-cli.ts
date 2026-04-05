@@ -51,7 +51,9 @@ const MODEL_MAP: Record<ModelTier, string> = {
 const TIMEOUT_MAP: Record<ModelTier, number> = {
   planning: 180_000,      // 3 minutes — sonnet plan generation can take 60-90s
   classification: 60_000, // 1 minute — haiku assess/summarise is fast but allow headroom
-  chat: 300_000,          // 5 minutes — native tool use (web search, file read) takes longer
+  chat: 600_000,          // 10 minutes — complex messages with multiple native tool calls
+                          // (web search, file reads) and multi-step reasoning need headroom;
+                          // previously 5 min caused false timeouts on legitimate long requests
 };
 
 /**

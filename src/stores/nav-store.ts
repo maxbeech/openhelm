@@ -15,11 +15,15 @@ export interface NavEntry {
   tierThreshold: number;
 }
 
+export type NavDirection = "forward" | "back";
+
 interface NavState {
   past: NavEntry[];
   future: NavEntry[];
   canGoBack: boolean;
   canGoForward: boolean;
+  /** Direction of the most recent navigation — drives slide animation. */
+  navDirection: NavDirection;
 
   /** Record a navigation event. Call this BEFORE changing the app store. */
   push: (entry: NavEntry) => void;
@@ -36,11 +40,12 @@ export const useNavStore = create<NavState>((set, get) => ({
   future: [],
   canGoBack: false,
   canGoForward: false,
+  navDirection: "forward",
 
   push: (entry) => {
     set((s) => {
       const past = [...s.past, entry].slice(-MAX_HISTORY);
-      return { past, future: [], canGoBack: true, canGoForward: false };
+      return { past, future: [], canGoBack: true, canGoForward: false, navDirection: "forward" };
     });
   },
 
@@ -53,6 +58,7 @@ export const useNavStore = create<NavState>((set, get) => ({
       future: [current, ...s.future].slice(0, MAX_HISTORY),
       canGoBack: s.past.length > 1,
       canGoForward: true,
+      navDirection: "back",
     }));
     return prev;
   },
@@ -66,6 +72,7 @@ export const useNavStore = create<NavState>((set, get) => ({
       future: s.future.slice(1),
       canGoBack: true,
       canGoForward: s.future.length > 1,
+      navDirection: "forward",
     }));
     return next;
   },

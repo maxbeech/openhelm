@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { BarChart3, Plus, Trash2, Check, X, Sparkles } from "lucide-react";
+import { BarChart3, Plus, Pencil, Trash2, Check, X, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ChartRenderer } from "./chart-renderer";
@@ -19,6 +19,7 @@ export function VisualizationList({ projectId, goalId, jobId, compact }: Props) 
   const { visualizations, fetchVisualizations, deleteVisualization, acceptVisualization, dismissVisualization } =
     useVisualizationStore();
   const [showCreate, setShowCreate] = useState(false);
+  const [editingViz, setEditingViz] = useState<Visualization | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadData = useCallback(() => {
@@ -41,90 +42,87 @@ export function VisualizationList({ projectId, goalId, jobId, compact }: Props) 
     setDeletingId(null);
   };
 
-  if (active.length === 0 && suggested.length === 0 && !showCreate) {
-    return (
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <h4 className="text-xs font-medium text-muted-foreground">Charts</h4>
-          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setShowCreate(true)}>
-            <Plus className="h-3 w-3 mr-1" /> Add
-          </Button>
-        </div>
-        <div className="text-xs text-muted-foreground py-4 text-center">
-          No charts yet
-        </div>
-        {showCreate && (
-          <ChartCreateDialog
-            projectId={projectId}
-            goalId={goalId}
-            jobId={jobId}
-            onClose={() => setShowCreate(false)}
-            onCreated={loadData}
-          />
-        )}
-      </div>
-    );
-  }
+  const isEmpty = active.length === 0 && suggested.length === 0;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
         <h4 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-          <BarChart3 className="h-3.5 w-3.5" /> Charts ({active.length})
+          {!isEmpty && <BarChart3 className="h-3.5 w-3.5" />}
+          {isEmpty ? "Charts" : `Charts (${active.length})`}
         </h4>
         <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setShowCreate(true)}>
           <Plus className="h-3 w-3 mr-1" /> Add
         </Button>
       </div>
 
-      {suggested.length > 0 && (
-        <div className="space-y-2 mb-3">
-          {suggested.map((viz) => (
-            <SuggestedCard
-              key={viz.id}
-              viz={viz}
-              compact={compact}
-              onAccept={() => acceptVisualization(viz.id)}
-              onDismiss={() => dismissVisualization(viz.id)}
-            />
-          ))}
+      {isEmpty ? (
+        <div className="text-xs text-muted-foreground py-4 text-center">
+          No charts yet
         </div>
-      )}
-
-      <div className="space-y-3">
-        {active.map((viz) => (
-          <div key={viz.id} className="rounded-lg border bg-card">
-            <div className="flex items-start justify-between px-3 py-2 border-b">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium">{viz.name}</span>
-                  <Badge variant="outline" className="text-3xs px-1.5 py-0 shrink-0">
-                    {viz.chartType}
-                  </Badge>
-                  {viz.source === "system" && (
-                    <Badge variant="secondary" className="text-3xs px-1.5 py-0 shrink-0">auto</Badge>
-                  )}
-                </div>
-                {viz.description && (
-                  <p className="text-3xs text-muted-foreground mt-0.5 leading-relaxed">
-                    {viz.description}
-                  </p>
-                )}
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive shrink-0 ml-2"
-                onClick={() => handleDelete(viz.id)}
-                disabled={deletingId === viz.id}
-              >
-                <Trash2 className="h-3 w-3" />
-              </Button>
+      ) : (
+        <>
+          {suggested.length > 0 && (
+            <div className="space-y-2 mb-3">
+              {suggested.map((viz) => (
+                <SuggestedCard
+                  key={viz.id}
+                  viz={viz}
+                  compact={compact}
+                  onAccept={() => acceptVisualization(viz.id)}
+                  onDismiss={() => dismissVisualization(viz.id)}
+                />
+              ))}
             </div>
-            <ChartRenderer visualization={viz} compact={compact} />
+          )}
+
+          <div className="space-y-3">
+            {active.map((viz) => (
+              <div key={viz.id} className="rounded-lg border bg-card">
+                <div className="flex items-start justify-between px-3 py-2 border-b">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium">{viz.name}</span>
+                      <Badge variant="outline" className="text-3xs px-1.5 py-0 shrink-0">
+                        {viz.chartType}
+                      </Badge>
+                      {viz.source === "system" && (
+                        <Badge variant="secondary" className="text-3xs px-1.5 py-0 shrink-0">auto</Badge>
+                      )}
+                    </div>
+                    {viz.description && (
+                      <p className="text-3xs text-muted-foreground mt-0.5 leading-relaxed">
+                        {viz.description}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-0.5 shrink-0 ml-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
+                      onClick={() => setEditingViz(viz)}
+                      title="Edit chart"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => handleDelete(viz.id)}
+                      disabled={deletingId === viz.id}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+                <ChartRenderer visualization={viz} compact={compact} />
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
 
       {showCreate && (
         <ChartCreateDialog
@@ -132,6 +130,17 @@ export function VisualizationList({ projectId, goalId, jobId, compact }: Props) 
           goalId={goalId}
           jobId={jobId}
           onClose={() => setShowCreate(false)}
+          onCreated={loadData}
+        />
+      )}
+
+      {editingViz && (
+        <ChartCreateDialog
+          projectId={projectId}
+          goalId={goalId}
+          jobId={jobId}
+          existingVisualization={editingViz}
+          onClose={() => setEditingViz(null)}
           onCreated={loadData}
         />
       )}

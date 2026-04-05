@@ -75,11 +75,20 @@ export function runMigrations(sqlite: Database.Database): void {
 
   const applyAll = sqlite.transaction(() => {
     for (const migration of pending) {
-      // Split on Drizzle's statement-breakpoint marker
-      const statements = migration.sql
-        .split("--> statement-breakpoint")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      // Split on Drizzle's statement-breakpoint marker first, then on semicolons.
+      // Hand-written migrations may lack breakpoints but still have multiple
+      // statements separated by semicolons.
+      const chunks = migration.sql.split("--> statement-breakpoint");
+      const statements: string[] = [];
+      for (const chunk of chunks) {
+        // Strip line comments before splitting on semicolons so comment text
+        // containing semicolons doesn't produce spurious empty statements.
+        const stripped = chunk.replace(/--[^\n]*/g, "");
+        for (const stmt of stripped.split(";")) {
+          const trimmed = stmt.trim();
+          if (trimmed) statements.push(trimmed);
+        }
+      }
 
       for (const stmt of statements) {
         sqlite.prepare(stmt).run();

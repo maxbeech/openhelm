@@ -46,6 +46,33 @@ export const pageTransition: Transition = {
   ease: [0.25, 0.1, 0.25, 1],
 };
 
+/**
+ * Safari-style directional slide for back/forward navigation.
+ * Pass `custom` as "forward" | "back" to both AnimatePresence and each motion.div.
+ */
+export const slidePageVariants: Variants = {
+  initial: (direction: "forward" | "back") => ({
+    opacity: 0,
+    x: direction === "back" ? -36 : 36,
+    filter: "blur(2px)",
+  }),
+  animate: {
+    opacity: 1,
+    x: 0,
+    filter: "blur(0px)",
+  },
+  exit: (direction: "forward" | "back") => ({
+    opacity: 0,
+    x: direction === "back" ? 36 : -36,
+    filter: "blur(1px)",
+  }),
+};
+
+export const slidePageTransition: Transition = {
+  duration: 0.22,
+  ease: [0.4, 0, 0.2, 1],
+};
+
 // ─── Panel slide (chat, right panels) ──────────────────────────────────────────
 
 export const slidePanelVariants: Variants = {

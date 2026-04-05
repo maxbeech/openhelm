@@ -21,7 +21,11 @@ export function validateRowData(
   data: Record<string, unknown>,
 ): void {
   for (const [colId, value] of Object.entries(data)) {
-    if (value === null || value === undefined) continue;
+    // Remove null/undefined from writes — let the DB use its default
+    if (value === null || value === undefined) {
+      delete data[colId];
+      continue;
+    }
 
     const col = columns.find((c) => c.id === colId);
     if (!col) continue; // Extra keys are ignored (not an error)
@@ -44,6 +48,8 @@ function coerceValue(col: DataTableColumn, value: unknown): unknown {
 
     case "number": {
       if (typeof value === "number") return value;
+      // Treat empty string as "not set" — remove from writes rather than throwing
+      if (value === "") return undefined;
       const n = Number(value);
       if (isNaN(n)) throw new Error(`Column "${col.name}": "${value}" is not a valid number`);
       return n;
@@ -65,12 +71,14 @@ function coerceValue(col: DataTableColumn, value: unknown): unknown {
     }
 
     case "select": {
-      const options = (col.config?.options ?? []) as Array<{ id: string; label: string }>;
+      const raw = (col.config?.options ?? []) as Array<string | { id?: string; label: string }>;
+      const options = normaliseOptions(raw);
       return resolveSelectOption(col.name, options, value);
     }
 
     case "multi_select": {
-      const options = (col.config?.options ?? []) as Array<{ id: string; label: string }>;
+      const raw = (col.config?.options ?? []) as Array<string | { id?: string; label: string }>;
+      const options = normaliseOptions(raw);
       const values = Array.isArray(value) ? value : [value];
       return values.map((v) => resolveSelectOption(col.name, options, v));
     }
@@ -110,6 +118,17 @@ function coerceValue(col: DataTableColumn, value: unknown): unknown {
     default:
       return value;
   }
+}
+
+/**
+ * Normalise select options to a consistent { id, label } shape.
+ * Options may be stored as plain strings ("low") or objects ({ label: "low" }).
+ */
+function normaliseOptions(raw: Array<string | { id?: string; label: string }>): Array<{ id: string; label: string }> {
+  return raw.map((o) => {
+    if (typeof o === "string") return { id: o, label: o };
+    return { id: o.id ?? o.label, label: o.label };
+  });
 }
 
 /**

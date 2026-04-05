@@ -33,7 +33,7 @@ export function registerGoalHandlers() {
       console.error("[goals] memory extraction error:", err),
     );
 
-    // Note: legacy system job generation removed — AutoCaptain handles
+    // Note: legacy system job generation removed — Autopilot handles
     // proactive monitoring via its scanner tick.
 
     return goal;

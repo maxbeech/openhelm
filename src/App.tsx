@@ -34,7 +34,8 @@ import {
   notifyChatResponse,
 } from "./lib/notifications";
 import { AnimatePresence, motion } from "framer-motion";
-import { pageVariants, pageTransition } from "./lib/motion";
+import { slidePageVariants, slidePageTransition } from "./lib/motion";
+import { useNavStore } from "./stores/nav-store";
 import { OnboardingWizard } from "./components/onboarding/onboarding-wizard";
 import { AppShell } from "./components/layout/app-shell";
 import { WelcomeView } from "./components/content/welcome-view";
@@ -97,6 +98,7 @@ export default function App() {
     setContentView,
     setProjectGroupOrder,
   } = useAppStore();
+  const navDirection = useNavStore((s) => s.navDirection);
   const { projects, fetchProjects } = useProjectStore();
   const { goals, fetchGoals } = useGoalStore();
   const { fetchJobs, updateJobInStore } = useJobStore();
@@ -836,15 +838,16 @@ export default function App() {
           selectedRunId ? <RunDetailView runId={selectedRunId} /> : undefined
         }
       >
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="wait" custom={navDirection}>
           {contentView === "inbox" && (
             <motion.div
               key="inbox"
-              variants={pageVariants}
+              custom={navDirection}
+              variants={slidePageVariants}
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={pageTransition}
+              transition={slidePageTransition}
               className="h-full"
             >
               <InboxView />
@@ -853,11 +856,12 @@ export default function App() {
           {contentView === "dashboard" && (
             <motion.div
               key={showWelcome ? "welcome" : "dashboard"}
-              variants={pageVariants}
+              custom={navDirection}
+              variants={slidePageVariants}
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={pageTransition}
+              transition={slidePageTransition}
               className="h-full"
             >
               {showWelcome ? (
@@ -870,11 +874,12 @@ export default function App() {
           {contentView === "home" && (
             <motion.div
               key="home"
-              variants={pageVariants}
+              custom={navDirection}
+              variants={slidePageVariants}
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={pageTransition}
+              transition={slidePageTransition}
               className="h-full"
             >
               <DashboardView />
@@ -883,11 +888,12 @@ export default function App() {
           {contentView === "goal-detail" && selectedGoalId && (
             <motion.div
               key={`goal-${selectedGoalId}`}
-              variants={pageVariants}
+              custom={navDirection}
+              variants={slidePageVariants}
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={pageTransition}
+              transition={slidePageTransition}
               className="h-full"
             >
               <GoalDetailView
@@ -906,11 +912,12 @@ export default function App() {
           {contentView === "job-detail" && selectedJobId && (
             <motion.div
               key={`job-${selectedJobId}`}
-              variants={pageVariants}
+              custom={navDirection}
+              variants={slidePageVariants}
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={pageTransition}
+              transition={slidePageTransition}
               className="h-full"
             >
               <JobDetailView jobId={selectedJobId} />
@@ -919,11 +926,12 @@ export default function App() {
           {contentView === "memory" && (
             <motion.div
               key="memory"
-              variants={pageVariants}
+              custom={navDirection}
+              variants={slidePageVariants}
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={pageTransition}
+              transition={slidePageTransition}
               className="h-full"
             >
               <MemoryView />
@@ -932,11 +940,12 @@ export default function App() {
           {(contentView === "data-tables" || contentView === "data-table-detail") && (
             <motion.div
               key="data-tables"
-              variants={pageVariants}
+              custom={navDirection}
+              variants={slidePageVariants}
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={pageTransition}
+              transition={slidePageTransition}
               className="h-full"
             >
               <DataTableView />
@@ -945,11 +954,12 @@ export default function App() {
           {contentView === "credentials" && (
             <motion.div
               key="credentials"
-              variants={pageVariants}
+              custom={navDirection}
+              variants={slidePageVariants}
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={pageTransition}
+              transition={slidePageTransition}
               className="h-full"
             >
               <CredentialView />
@@ -958,11 +968,12 @@ export default function App() {
           {contentView === "settings" && (
             <motion.div
               key="settings"
-              variants={pageVariants}
+              custom={navDirection}
+              variants={slidePageVariants}
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={pageTransition}
+              transition={slidePageTransition}
               className="h-full"
             >
               <SettingsScreen />

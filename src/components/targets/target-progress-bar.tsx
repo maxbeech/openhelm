@@ -27,7 +27,7 @@ export function TargetProgressBar({ evaluation, compact }: TargetProgressBarProp
   if (compact) {
     return (
       <div className="flex items-center gap-2 min-w-0">
-        <Progress value={pct} className={cn("h-1.5 flex-1", barColor)} />
+        <Progress value={pct} className={cn("h-2 flex-1", barColor)} />
         <span className="text-xs text-muted-foreground shrink-0">{pct}%</span>
       </div>
     );

@@ -457,6 +457,27 @@ export function listDataTableChanges(params: ListDataTableChangesParams): DataTa
     .map(rowToChange);
 }
 
+// ─── Startup reconciliation ───
+
+/**
+ * Reconcile stale row_count values for all tables.
+ * Called once at agent startup to fix any rows inserted outside of
+ * insertDataTableRows() (e.g. direct SQL by Claude Code jobs).
+ */
+export function reconcileAllRowCounts(): void {
+  const db = getDb();
+  db.prepare(`
+    UPDATE data_tables
+    SET row_count = (
+      SELECT COUNT(*) FROM data_table_rows WHERE data_table_rows.table_id = data_tables.id
+    ),
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE row_count != (
+      SELECT COUNT(*) FROM data_table_rows WHERE data_table_rows.table_id = data_tables.id
+    )
+  `).run();
+}
+
 // ─── Helpers ───
 
 function updateRowCount(tableId: string): void {

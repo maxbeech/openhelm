@@ -16,6 +16,7 @@ import { startPeriodicVerifier, stopPeriodicVerifier } from "./license/periodic-
 import { backfillMissingAutopilotJobs, autopilotScanner } from "./autopilot/index.js";
 import { runBackfillIfNeeded } from "./ipc/inbox-bridge.js";
 import { backfillMissingVisualizations } from "./data-tables/visualization-suggester.js";
+import { reconcileAllRowCounts } from "./db/queries/data-tables.js";
 import { usageService } from "./usage/service.js";
 import { cleanupOrphanedConfigs } from "./mcp-servers/mcp-config-builder.js";
 import { cleanupOrphanedBrowserCredentials } from "./credentials/browser-credentials.js";
@@ -77,6 +78,13 @@ registerAllHandlers();
 
 // 2b. Start browser-accessible dev HTTP bridge (port 1421)
 startDevServer();
+
+// 2c. Reconcile any stale row_count values (rows inserted outside insertDataTableRows)
+try {
+  reconcileAllRowCounts();
+} catch (err) {
+  console.error("[agent] row count reconciliation failed (non-fatal):", err);
+}
 
 // 3. Crash recovery — must happen after DB init, before scheduler start
 try {
@@ -172,7 +180,7 @@ try {
 // Process any re-enqueued runs from crash recovery
 executor.processNext();
 
-// 7d. Start AutoCaptain scanner (replaces legacy system job backfill)
+// 7d. Start Autopilot scanner (replaces legacy system job backfill)
 autopilotScanner.start();
 
 // 7e2. Backfill missing visualizations for data tables with sufficient numeric data

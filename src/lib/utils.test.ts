@@ -2,14 +2,21 @@ import { describe, it, expect } from "vitest";
 import { friendlyError } from "./utils";
 
 describe("friendlyError", () => {
-  it("returns agent timeout message for timeout errors", () => {
+  it("returns AI timeout message for Claude Code LLM timeouts", () => {
+    const err = new Error("Claude Code timed out after 600000ms");
+    expect(friendlyError(err, "Failed to load")).toBe(
+      "The AI response timed out. Your request may be complex — try breaking it into smaller parts, or send the same message again.",
+    );
+  });
+
+  it("returns agent timeout message for generic IPC timeout errors", () => {
     const err = new Error("request timed out after 5000ms");
     expect(friendlyError(err, "Failed to load")).toBe(
       "The agent is not responding. Try again or restart the app.",
     );
   });
 
-  it("handles uppercase 'Timed Out' variants", () => {
+  it("handles uppercase 'Timed Out' variants for generic timeouts", () => {
     const err = new Error("Connection Timed Out");
     expect(friendlyError(err, "Loading")).toBe(
       "The agent is not responding. Try again or restart the app.",

@@ -13,6 +13,12 @@ export function cn(...inputs: ClassValue[]) {
 export function friendlyError(err: unknown, context: string): string {
   const raw = err instanceof Error ? err.message : String(err);
 
+  // Claude Code LLM timeout: the AI process was killed for being too slow.
+  // This is distinct from the agent process itself being unresponsive.
+  if (raw.includes("Claude Code timed out")) {
+    return "The AI response timed out. Your request may be complex — try breaking it into smaller parts, or send the same message again.";
+  }
+  // Generic IPC/heartbeat timeout: the agent process is not responding.
   if (raw.toLowerCase().includes("timed out")) {
     return "The agent is not responding. Try again or restart the app.";
   }

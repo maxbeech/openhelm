@@ -148,7 +148,7 @@ export function DataTableDetailView({ tableId }: Props) {
             <p className="text-3xs text-muted-foreground truncate">{table.description}</p>
           )}
         </div>
-        <span className="text-3xs text-muted-foreground">{table.rowCount} rows</span>
+        <span className="text-3xs text-muted-foreground">{currentRows.length} rows</span>
         <button
           onClick={() => setShowAddColumn(true)}
           className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"

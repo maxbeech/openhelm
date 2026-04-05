@@ -27,14 +27,22 @@ export function broadcastEvent(line: string): void {
   }
 }
 
-function setCorsHeaders(res: ServerResponse): void {
-  res.setHeader("Access-Control-Allow-Origin", "http://localhost:1420");
+const ALLOWED_ORIGINS = new Set([
+  "http://localhost:1420",
+  "http://localhost:1422", // npx serve static (used by browser-based E2E testing)
+  "http://localhost:4173", // vite preview (used by browser-based E2E testing)
+]);
+
+function setCorsHeaders(res: ServerResponse, req?: IncomingMessage): void {
+  const origin = req?.headers?.origin ?? "http://localhost:1420";
+  const allowed = ALLOWED_ORIGINS.has(origin) ? origin : "http://localhost:1420";
+  res.setHeader("Access-Control-Allow-Origin", allowed);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
 function handleSse(req: IncomingMessage, res: ServerResponse): void {
-  setCorsHeaders(res);
+  setCorsHeaders(res, req);
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -50,7 +58,7 @@ function handleSse(req: IncomingMessage, res: ServerResponse): void {
 const MAX_BODY_BYTES = 1_048_576; // 1 MB
 
 async function handleIpcPost(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  setCorsHeaders(res);
+  setCorsHeaders(res, req);
   let body = "";
   let bytes = 0;
   await new Promise<void>((resolve, reject) => {
@@ -79,7 +87,7 @@ async function handleIpcPost(req: IncomingMessage, res: ServerResponse): Promise
 export function startDevServer(): void {
   const server = createServer((req, res) => {
     if (req.method === "OPTIONS") {
-      setCorsHeaders(res);
+      setCorsHeaders(res, req);
       res.writeHead(204);
       res.end();
       return;

@@ -12,25 +12,36 @@ import {
 } from "@/components/ui/select";
 import { useDataTableStore } from "@/stores/data-table-store";
 import { useVisualizationStore } from "@/stores/visualization-store";
-import type { ChartType, DataTableColumn, VisualizationConfig } from "@openhelm/shared";
+import type { ChartType, VisualizationConfig, Visualization } from "@openhelm/shared";
 
 interface Props {
   projectId: string;
   goalId?: string;
   jobId?: string;
+  existingVisualization?: Visualization;
   onClose: () => void;
   onCreated: () => void;
 }
 
-export function ChartCreateDialog({ projectId, goalId, jobId, onClose, onCreated }: Props) {
+export function ChartCreateDialog({ projectId, goalId, jobId, existingVisualization, onClose, onCreated }: Props) {
   const { tables, fetchTables } = useDataTableStore();
-  const { createVisualization } = useVisualizationStore();
+  const { createVisualization, updateVisualization } = useVisualizationStore();
+  const isEditing = !!existingVisualization;
 
-  const [name, setName] = useState("");
-  const [tableId, setTableId] = useState("");
-  const [chartType, setChartType] = useState<ChartType>("line");
-  const [xColumnId, setXColumnId] = useState("");
-  const [yColumnIds, setYColumnIds] = useState<string[]>([]);
+  // Derive initial Y columns from existing config
+  const initialYColumnIds = useMemo(() => {
+    if (!existingVisualization) return [];
+    const { config, chartType } = existingVisualization;
+    if (chartType === "stat") return config.statColumnId ? [config.statColumnId] : [];
+    if (chartType === "pie") return config.valueColumnId ? [config.valueColumnId] : [];
+    return config.series.map((s) => s.columnId);
+  }, [existingVisualization]);
+
+  const [name, setName] = useState(existingVisualization?.name ?? "");
+  const [tableId, setTableId] = useState(existingVisualization?.dataTableId ?? "");
+  const [chartType, setChartType] = useState<ChartType>(existingVisualization?.chartType ?? "line");
+  const [xColumnId, setXColumnId] = useState(existingVisualization?.config.xColumnId ?? "");
+  const [yColumnIds, setYColumnIds] = useState<string[]>(initialYColumnIds);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -97,15 +108,24 @@ export function ChartCreateDialog({ projectId, goalId, jobId, onClose, onCreated
       };
     }
 
-    await createVisualization({
-      projectId,
-      goalId,
-      jobId,
-      dataTableId: tableId,
-      name: name.trim(),
-      chartType,
-      config,
-    });
+    if (isEditing && existingVisualization) {
+      await updateVisualization({
+        id: existingVisualization.id,
+        name: name.trim(),
+        chartType,
+        config,
+      });
+    } else {
+      await createVisualization({
+        projectId,
+        goalId,
+        jobId,
+        dataTableId: tableId,
+        name: name.trim(),
+        chartType,
+        config,
+      });
+    }
 
     setSubmitting(false);
     onCreated();
@@ -116,7 +136,7 @@ export function ChartCreateDialog({ projectId, goalId, jobId, onClose, onCreated
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-popover border rounded-lg shadow-lg w-full max-w-md p-4 space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-sm">New Chart</h3>
+          <h3 className="font-semibold text-sm">{isEditing ? "Edit Chart" : "New Chart"}</h3>
           <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
@@ -135,7 +155,11 @@ export function ChartCreateDialog({ projectId, goalId, jobId, onClose, onCreated
 
           <div>
             <Label className="text-xs">Data Table</Label>
-            <Select value={tableId} onValueChange={(v) => { setTableId(v); setXColumnId(""); setYColumnIds([]); }}>
+            <Select
+              value={tableId}
+              onValueChange={(v) => { setTableId(v); setXColumnId(""); setYColumnIds([]); }}
+              disabled={isEditing}
+            >
               <SelectTrigger className="h-8 text-sm">
                 <SelectValue placeholder="Select a table" />
               </SelectTrigger>
@@ -225,7 +249,7 @@ export function ChartCreateDialog({ projectId, goalId, jobId, onClose, onCreated
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" onClick={handleSubmit} disabled={!canSubmit || submitting}>
-            {submitting ? "Creating…" : "Create Chart"}
+            {submitting ? (isEditing ? "Saving…" : "Creating…") : (isEditing ? "Save Changes" : "Create Chart")}
           </Button>
         </div>
       </div>

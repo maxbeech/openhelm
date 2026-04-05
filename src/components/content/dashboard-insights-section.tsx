@@ -177,12 +177,12 @@ function GoalTargetGroup({ goal, allGoals, targetsByGoal, getEval, depth = 0 }: 
   return (
     <div className="mb-4" style={{ paddingLeft: depth * 12 }}>
       <p className="text-xs font-medium mb-2">{goal.name}</p>
-      <div className="space-y-3 pl-1">
+      <div className="space-y-1 pl-1">
         {goalTargets.map((t) => {
           const evaluation = getEval(t.id);
           return evaluation ? (
-            <div key={t.id} className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground w-28 truncate">{t.label ?? "Target"}</span>
+            <div key={t.id} className="flex items-center gap-3 py-2">
+              <span className="text-xs text-muted-foreground w-28 shrink-0 truncate">{t.label ?? "Target"}</span>
               <div className="flex-1"><TargetProgressBar evaluation={evaluation} compact /></div>
             </div>
           ) : null;

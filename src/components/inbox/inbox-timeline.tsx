@@ -1,4 +1,5 @@
 import { useRef, useMemo, useCallback, useLayoutEffect, useState, useEffect, Fragment } from "react";
+import { flushSync } from "react-dom";
 import { motion } from "framer-motion";
 import { Loader2, ArrowDown, ArrowUp } from "lucide-react";
 import { useInboxStore } from "@/stores/inbox-store";
@@ -64,11 +65,17 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
   }, [tierBoundaries]);
 
   const zoomAccRef = useRef(0);
-  const zoomAnchorRef = useRef<{ anchorTimeMs: number; viewportOffset: number } | null>(null);
 
-  const captureZoomAnchor = useCallback(() => {
+  // Snapshot of what sits at viewport center immediately before a zoom.
+  // Records the TIME (ms) of the nearest event and its pixel offset from the
+  // container's visible top edge, so we can pin that same time back to the
+  // same visual position after the DOM updates — even if the exact event
+  // gets filtered out by the new threshold.
+  type Anchor = { anchorTimeMs: number; viewportOffset: number };
+
+  const captureAnchor = useCallback((): Anchor | null => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) return null;
     const containerRect = container.getBoundingClientRect();
     const centerY = containerRect.top + containerRect.height / 2;
     const eventEls = container.querySelectorAll<HTMLElement>("[data-event-at]");
@@ -85,12 +92,34 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
         bestOffset = rect.top - containerRect.top;
       }
     });
-    if (bestAt) {
-      zoomAnchorRef.current = {
-        anchorTimeMs: new Date(bestAt).getTime(),
-        viewportOffset: bestOffset,
-      };
-    }
+    if (!bestAt) return null;
+    return {
+      anchorTimeMs: new Date(bestAt).getTime(),
+      viewportOffset: bestOffset,
+    };
+  }, []);
+
+  const restoreAnchor = useCallback((anchor: Anchor) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const eventEls = container.querySelectorAll<HTMLElement>("[data-event-at]");
+    let bestEl: HTMLElement | null = null;
+    let bestDist = Infinity;
+    eventEls.forEach((el) => {
+      const at = el.dataset.eventAt;
+      if (!at) return;
+      const diff = Math.abs(new Date(at).getTime() - anchor.anchorTimeMs);
+      if (diff < bestDist) {
+        bestDist = diff;
+        bestEl = el;
+      }
+    });
+    if (!bestEl) return;
+    const containerRect = container.getBoundingClientRect();
+    const elRect = (bestEl as HTMLElement).getBoundingClientRect();
+    const currentOffset = elRect.top - containerRect.top;
+    const delta = currentOffset - anchor.viewportOffset;
+    if (delta !== 0) container.scrollTop += delta;
   }, []);
 
   const handleZoom = useCallback(
@@ -107,8 +136,11 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
       const direction = zoomAccRef.current > 0 ? 1 : -1;
       zoomAccRef.current = 0;
 
-      captureZoomAnchor();
+      // Capture BEFORE state change — DOM is still in old layout here.
+      const anchor = captureAnchor();
 
+      // Compute the next threshold value.
+      let nextThreshold: number;
       if (stops.length > 1) {
         let idx = 0;
         let bestDist = Infinity;
@@ -119,41 +151,27 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
         const nextIdx = direction > 0
           ? Math.max(0, idx - 1)
           : Math.min(stops.length - 1, idx + 1);
-        setTierThreshold(stops[nextIdx]);
+        nextThreshold = stops[nextIdx];
       } else {
-        setTierThreshold(tierThreshold >= maxStop ? minStop : maxStop);
+        nextThreshold = tierThreshold >= maxStop ? minStop : maxStop;
       }
+
+      if (nextThreshold === tierThreshold) return;
+
+      // flushSync forces the re-render + DOM commit to complete synchronously
+      // inside the wheel handler. After this returns, the DOM reflects the new
+      // threshold and we can measure & correct scrollTop immediately — no
+      // useLayoutEffect timing games, no dependency on Framer Motion's unmount
+      // schedule, no visible jump.
+      flushSync(() => {
+        setTierThreshold(nextThreshold);
+      });
+
+      if (anchor) restoreAnchor(anchor);
     },
-    [tierThreshold, setTierThreshold, captureZoomAnchor],
+    [tierThreshold, setTierThreshold, captureAnchor, restoreAnchor],
   );
   usePinchZoom(containerRef, handleZoom);
-
-  // After threshold changes, restore scroll anchor
-  useLayoutEffect(() => {
-    const anchor = zoomAnchorRef.current;
-    if (!anchor || !containerRef.current) return;
-    const container = containerRef.current;
-    const eventEls = container.querySelectorAll<HTMLElement>("[data-event-at]");
-    let bestEl: HTMLElement | null = null;
-    let bestDist = Infinity;
-    eventEls.forEach((el) => {
-      const at = el.dataset.eventAt;
-      if (!at) return;
-      const diff = Math.abs(new Date(at).getTime() - anchor.anchorTimeMs);
-      if (diff < bestDist) {
-        bestDist = diff;
-        bestEl = el;
-      }
-    });
-    if (bestEl) {
-      const containerRect = container.getBoundingClientRect();
-      const elRect = (bestEl as HTMLElement).getBoundingClientRect();
-      const currentOffset = elRect.top - containerRect.top;
-      const delta = currentOffset - anchor.viewportOffset;
-      container.scrollTop += delta;
-    }
-    zoomAnchorRef.current = null;
-  }, [tierThreshold]);
 
   // Filter events by tier threshold + search + category
   const filterEvent = useCallback(
@@ -291,7 +309,11 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
   }
 
   return (
-    <div ref={containerRef} className="relative flex-1 overflow-y-auto px-4">
+    <div
+      ref={containerRef}
+      className="relative flex-1 overflow-y-auto px-4"
+      style={{ overflowAnchor: "none" }}
+    >
       {/* Top sentinel for infinite scroll */}
       <div ref={topSentinelRef} className="h-1" />
 

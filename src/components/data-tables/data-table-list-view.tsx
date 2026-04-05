@@ -16,18 +16,25 @@ export function DataTableListView() {
   const [showCreate, setShowCreate] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterProjectId, setFilterProjectId] = useState<string | null>(null);
-  const [showSystemTables, setShowSystemTables] = useState(true);
+  const [showSystemTables, setShowSystemTables] = useState(() => {
+    const saved = localStorage.getItem("dataTables.showSystemTables");
+    return saved === null ? true : saved === "true";
+  });
+
+  const handleShowSystemTablesChange = (val: boolean) => {
+    setShowSystemTables(val);
+    localStorage.setItem("dataTables.showSystemTables", String(val));
+  };
 
   useEffect(() => {
     fetchTables(activeProjectId);
     fetchCount(activeProjectId);
   }, [activeProjectId, fetchTables, fetchCount]);
 
-  // Reset filters when switching project context
+  // Reset search/project filters when switching project context (but not the system tables preference)
   useEffect(() => {
     setSearchQuery("");
     setFilterProjectId(null);
-    setShowSystemTables(true);
   }, [activeProjectId]);
 
   const getProjectName = useCallback(
@@ -111,7 +118,7 @@ export function DataTableListView() {
               <Switch
                 size="sm"
                 checked={showSystemTables}
-                onCheckedChange={setShowSystemTables}
+                onCheckedChange={handleShowSystemTablesChange}
               />
               System tables
             </label>
