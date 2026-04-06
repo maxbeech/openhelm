@@ -14,6 +14,7 @@ import {
   setScopeBindingsForEntity,
 } from "../src/db/queries/credentials.js";
 import { generateEnvVarName, deduplicateEnvVarName } from "../src/credentials/env-var-name.js";
+import { isAuthError } from "../src/executor/auth-monitor.js";
 import { createProject } from "../src/db/queries/projects.js";
 import { createGoal } from "../src/db/queries/goals.js";
 import { createJob } from "../src/db/queries/jobs.js";
@@ -332,6 +333,38 @@ describe("resolveCredentialsForJob", () => {
     expect(resolved).toHaveLength(0);
   });
 
+  it("resolves global browser-only credentials created with empty scopes (UI default)", () => {
+    // Simulates the exact UI flow: user creates a credential with
+    // injectionMode="browser" and leaves scope as "Global (all projects)"
+    // which sends scopes=[] and no scopeType/scopeId.
+    const project = createTestProject();
+    const cred = createCredential({
+      name: "X (Twitter)",
+      type: "username_password",
+      value: { type: "username_password", username: "max", password: "secret" },
+      allowBrowserInjection: true,
+      scopes: [],
+    });
+
+    // Verify it stored as global
+    expect(cred.scopeType).toBe("global");
+    expect(cred.allowBrowserInjection).toBe(true);
+
+    const job = createJob({
+      projectId: project.id,
+      name: "X Engagement",
+      prompt: "post on X",
+      scheduleType: "manual",
+      scheduleConfig: {},
+    });
+
+    const resolved = resolveCredentialsForJob(job.id);
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0].name).toBe("X (Twitter)");
+    expect(resolved[0].allowBrowserInjection).toBe(true);
+    expect(resolved[0].scopeType).toBe("global");
+  });
+
   it("excludes credentials scoped to other projects", () => {
     const project1 = createTestProject();
     const project2 = createProject({ name: "Other", directoryPath: "/tmp/other" });
@@ -620,5 +653,36 @@ describe("credential scope bindings", () => {
     // Job C should still see this global credential
     const resolved = resolveCredentialsForJob(jobC.id);
     expect(resolved.some((c) => c.id === cred.id)).toBe(true);
+  });
+});
+
+// ─── Auth Error Detection ───
+
+describe("isAuthError", () => {
+  it("detects OAuth token expired error from Claude Code CLI", () => {
+    const stderr = 'Claude Code error: Failed to authenticate. API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired. Please obtain a new token or refresh your existing token."},"request_id":"req_011CZnqQnFGStQqgyGCtmViQ"}';
+    expect(isAuthError(stderr)).toBe(true);
+  });
+
+  it("detects 'Failed to authenticate' prefix", () => {
+    expect(isAuthError("Failed to authenticate. Some error details.")).toBe(true);
+  });
+
+  it("detects 'authentication_error' API type", () => {
+    expect(isAuthError('{"type":"authentication_error","message":"bad token"}')).toBe(true);
+  });
+
+  it("detects existing patterns", () => {
+    expect(isAuthError("not logged in")).toBe(true);
+    expect(isAuthError("session expired")).toBe(true);
+    expect(isAuthError("please log in")).toBe(true);
+    expect(isAuthError("authentication failed")).toBe(true);
+    expect(isAuthError("sign-in required")).toBe(true);
+  });
+
+  it("does not false-positive on normal output", () => {
+    expect(isAuthError("Running task successfully")).toBe(false);
+    expect(isAuthError("Checking authentication status for user")).toBe(false);
+    expect(isAuthError("")).toBe(false);
   });
 });

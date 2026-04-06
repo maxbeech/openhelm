@@ -26,7 +26,7 @@ import { triagePermanentFailure } from "./failure-triage.js";
 import { handleInteractiveDetected } from "./hitl-handler.js";
 import { createDashboardItem } from "../db/queries/dashboard-items.js";
 import { getProject } from "../db/queries/projects.js";
-import { createRunLog } from "../db/queries/run-logs.js";
+import { createRunLog, hasTokenLimitError } from "../db/queries/run-logs.js";
 import { getSetting, deleteSetting } from "../db/queries/settings.js";
 import { computeNextFireAt } from "../scheduler/schedule.js";
 import { emit } from "../ipc/emitter.js";
@@ -53,6 +53,8 @@ import {
 import { InterventionWatcher, cleanupOrphanedInterventions } from "./intervention-watcher.js";
 import { isAuthError, handleAuthFailure } from "./auth-monitor.js";
 import { isMcpError, handleMcpFailure } from "./mcp-monitor.js";
+import { isTransientCliError, handleTransientCliError, resetTransientErrorCount } from "./cli-error-monitor.js";
+import { rateLimitThrottle } from "./rate-limit-throttle.js";
 import { handleAutopilotRunCompleted } from "../autopilot/post-run.js";
 
 const DEFAULT_MAX_CONCURRENCY = 2;
@@ -69,6 +71,8 @@ export class Executor {
   private hitlKilledRuns = new Map<string, InteractiveDetectionType>();
   /** Tracks which browser profile paths are in use by running tasks. */
   private profileLocks = new Map<string, string>(); // profileName → runId
+  /** Pending throttle delay timer — prevents stacking multiple timeouts. */
+  private throttleTimer: ReturnType<typeof setTimeout> | null = null;
   private runnerFn: RunnerFn;
 
   constructor(runnerFn?: RunnerFn) {
@@ -85,13 +89,42 @@ export class Executor {
     return Math.max(1, Math.min(5, isNaN(value) ? DEFAULT_MAX_CONCURRENCY : value));
   }
 
-  /** Try to dequeue and execute the next run if under concurrency limit */
+  /** Try to dequeue and execute runs up to the concurrency limit */
   processNext(): void {
-    // Don't start new runs when the scheduler is paused — leave items in the
-    // queue so they execute once the user resumes.
     if (getSetting("scheduler_paused")?.value === "true") return;
+    if (this.throttleTimer) return; // delay already pending
 
-    if (this.activeRuns.size >= this.maxConcurrency) return;
+    // Rate-limit throttle: delay the next run when API utilization is high
+    // or after consecutive transient errors (exponential backoff).
+    const delayMs = rateLimitThrottle.getDelayMs();
+    if (delayMs > 0) {
+      console.error(
+        `[executor] throttle: delaying next run by ${Math.round(delayMs / 1000)}s ` +
+        `(utilization=${rateLimitThrottle.utilization.toFixed(2)}, errors=${rateLimitThrottle.errorCount})`,
+      );
+      this.throttleTimer = setTimeout(() => {
+        this.throttleTimer = null;
+        // Re-enter processNext to fill all available slots after the delay
+        this.processNext();
+      }, delayMs);
+      return;
+    }
+
+    // Loop to fill all available concurrency slots in one pass.
+    // executeRun sets activeRuns synchronously before any await, so
+    // activeRuns.size is accurate on each iteration.
+    while (this.activeRuns.size < this.maxConcurrency) {
+      const started = this.processNextImmediate();
+      if (!started) break; // queue empty or all eligible items profile-locked
+    }
+  }
+
+  /** Dequeue and execute immediately (called after throttle delay or when no delay needed).
+   *  Returns true if a run was started, false if nothing was dequeued. */
+  private processNextImmediate(): boolean {
+    // Re-check guards — state may have changed during a throttle delay
+    if (getSetting("scheduler_paused")?.value === "true") return false;
+    if (this.activeRuns.size >= this.maxConcurrency) return false;
 
     // Profile-aware dequeue: skip items whose browser credentials require a
     // profile that is currently locked by another running task.
@@ -100,7 +133,7 @@ export class Executor {
       if (profiles.length === 0) return true; // no profile needed — eligible
       return profiles.every((p) => !this.profileLocks.has(p));
     });
-    if (!item) return;
+    if (!item) return false;
 
     // Lock any profiles this run needs
     const profiles = this.getRequiredProfiles(item.jobId);
@@ -137,17 +170,26 @@ export class Executor {
         console.error(`[executor] cleanup failed for run ${item.runId}:`, cleanupErr);
       }
     });
+    return true;
   }
 
   /**
    * Get browser profile names required by a job's credentials.
    * Returns empty array if no browser-only credentials have profiles.
+   *
+   * NOTE: Global-scoped credentials are deliberately excluded from profile
+   * locking. A global credential is shared across all jobs by design — two
+   * concurrent runs almost certainly use *different* global profiles (e.g.
+   * Reddit vs Instagram). Locking all global profiles on the first run would
+   * prevent any second run from starting, defeating concurrency entirely.
+   * Profile locking is only meaningful for credentials explicitly scoped to a
+   * specific job/project/goal, where the same profile is likely to be reused.
    */
   private getRequiredProfiles(jobId: string): string[] {
     try {
       const creds = resolveCredentialsForJob(jobId);
       return creds
-        .filter((c) => c.allowBrowserInjection && c.browserProfileName)
+        .filter((c) => c.allowBrowserInjection && c.browserProfileName && c.scopeType !== "global")
         .map((c) => c.browserProfileName!)
         .filter((v, i, a) => a.indexOf(v) === i); // dedupe
     } catch {
@@ -325,11 +367,22 @@ export class Executor {
     // Determine if this is a resumable corrective run
     const run = getRun(runId);
     let parentSessionId: string | null = null;
+    let parentRunIsNonResumable = false;
     if (run?.triggerSource === "corrective" && run.parentRunId) {
       const parentRun = getRun(run.parentRunId);
       parentSessionId = parentRun?.sessionId ?? null;
+      // If the parent run hit a context-window / token-limit failure, the
+      // session itself is poisoned: resuming it would replay the same
+      // oversized context and fail again within seconds. Start fresh.
+      if (parentSessionId !== null && hasTokenLimitError(run.parentRunId)) {
+        parentRunIsNonResumable = true;
+        console.error(
+          `[executor] parent run ${run.parentRunId} hit a token-limit error — ` +
+          `forcing fresh start for corrective run ${runId} (not resuming session ${parentSessionId})`,
+        );
+      }
     }
-    const isResumable = parentSessionId !== null;
+    const isResumable = parentSessionId !== null && !parentRunIsNonResumable;
 
     // Build effective prompt based on execution path
     let effectivePrompt: string;
@@ -426,12 +479,25 @@ export class Executor {
     const credentialAudit: RunCredentialEntry[] = [];
     const allSecrets: string[] = [];
     let browserCredentialsFilePath: string | undefined;
+    // Kept outside the try-block so the MCP preamble step can surface the
+    // actual credential names (or the empty state) to Claude.
+    const resolvedBrowserCredentials: Array<{ name: string; type: "username_password" | "token"; profileName?: string }> = [];
 
     try {
       const applicableCreds = resolveCredentialsForJob(jobId);
       const credentialHints: string[] = [];
       const browserCredentialHints: string[] = [];
       const browserCredentials: import("../credentials/browser-credentials.js").BrowserCredential[] = [];
+
+      // Diagnostic: log resolved credentials so scope / injection issues are visible
+      if (applicableCreds.length > 0) {
+        const summary = applicableCreds.map(
+          (c) => `"${c.name}" (scope=${c.scopeType}, browser=${c.allowBrowserInjection}, enabled=${c.isEnabled})`,
+        ).join(", ");
+        console.error(`[executor] resolved ${applicableCreds.length} credentials for job ${jobId}: ${summary}`);
+      } else {
+        console.error(`[executor] no credentials resolved for job ${jobId} (project=${job.projectId})`);
+      }
 
       for (const cred of applicableCreds) {
         let raw: string | null = null;
@@ -441,7 +507,10 @@ export class Executor {
           console.error(`[executor] keychain read failed for credential "${cred.name}" (non-fatal):`, err);
           continue;
         }
-        if (!raw) continue;
+        if (!raw) {
+          console.error(`[executor] credential "${cred.name}" has no keychain entry (skipping)`);
+          continue;
+        }
 
         let value: CredentialValue;
         try {
@@ -519,6 +588,17 @@ export class Executor {
         }
       }
 
+      // Record browser credentials + their profile names for downstream preamble generation.
+      // The profile name tells Claude which spawn_browser(profile=...) to use for each credential.
+      for (const bc of browserCredentials) {
+        const matchingCred = applicableCreds.find((c) => c.name === bc.name);
+        resolvedBrowserCredentials.push({
+          name: bc.name,
+          type: bc.type,
+          profileName: matchingCred?.browserProfileName ?? undefined,
+        });
+      }
+
       // Write browser credentials to temp file for MCP server (always — MCP is respawned)
       if (browserCredentials.length > 0) {
         try {
@@ -577,7 +657,7 @@ export class Executor {
     // Prepend MCP preambles and build system prompt additions
     let appendSystemPrompt: string | undefined;
     if (mcpConfigPath) {
-      const { BROWSER_MCP_PREAMBLE, BROWSER_CAPTCHA_PREAMBLE, BROWSER_CREDENTIALS_PREAMBLE, BROWSER_PROFILE_PREAMBLE, DATA_TABLES_MCP_PREAMBLE, BROWSER_SYSTEM_PROMPT } = await import("../mcp-servers/mcp-config-builder.js");
+      const { BROWSER_MCP_PREAMBLE, BROWSER_CAPTCHA_PREAMBLE, BROWSER_PROFILE_PREAMBLE, DATA_TABLES_MCP_PREAMBLE, BROWSER_SYSTEM_PROMPT, buildBrowserCredentialsNotice } = await import("../mcp-servers/mcp-config-builder.js");
       // Data tables preamble (always available when MCP config exists)
       effectivePrompt = DATA_TABLES_MCP_PREAMBLE + effectivePrompt;
       // Browser MCP preamble + system prompt (only when browser venv is ready)
@@ -585,9 +665,9 @@ export class Executor {
         effectivePrompt = BROWSER_MCP_PREAMBLE + BROWSER_CAPTCHA_PREAMBLE + BROWSER_PROFILE_PREAMBLE + effectivePrompt;
         // System-level instruction is far more authoritative than user-prompt preamble
         appendSystemPrompt = BROWSER_SYSTEM_PROMPT;
-        if (browserCredentialsFilePath) {
-          effectivePrompt = BROWSER_CREDENTIALS_PREAMBLE + effectivePrompt;
-        }
+        // Always tell Claude which browser credentials are (or are NOT) loaded
+        // for this run. This prevents hallucinating credential names.
+        effectivePrompt = buildBrowserCredentialsNotice(resolvedBrowserCredentials) + effectivePrompt;
       }
     }
 
@@ -672,12 +752,18 @@ export class Executor {
         } catch { /* ignore */ }
       }
 
-      // Kill any orphaned Chrome processes from this run (MCP server cleanup may not have completed)
+      // Kill any orphaned Chrome processes from this run — but NOT if the user
+      // has an open CAPTCHA intervention to solve (they need the browser alive).
       if (mcpConfigPath) {
-        try {
-          const { cleanupBrowsersForRun } = await import("../mcp-servers/browser-cleanup.js");
-          cleanupBrowsersForRun(runId);
-        } catch { /* ignore */ }
+        const hasOpenCaptcha = interventionWatcher.hasOpenItems();
+        if (hasOpenCaptcha) {
+          console.error(`[executor] skipping browser cleanup for run ${runId} — open CAPTCHA intervention`);
+        } else {
+          try {
+            const { cleanupBrowsersForRun } = await import("../mcp-servers/browser-cleanup.js");
+            cleanupBrowsersForRun(runId);
+          } catch { /* ignore */ }
+        }
       }
 
       // Save credential audit trail
@@ -768,6 +854,11 @@ export class Executor {
     // Release sleep prevention for this run
     if (isPowerManagementEnabled()) {
       onRunFinished();
+    }
+
+    // Feed rate-limit utilization to the throttle (before any other processing)
+    if (result.rateLimitUtilization != null) {
+      rateLimitThrottle.recordUtilization(result.rateLimitUtilization);
     }
 
     const finishedAt = new Date().toISOString();
@@ -866,6 +957,15 @@ export class Executor {
         return;
       }
 
+      // Transient CLI/API error (e.g. "An unknown error occurred (Unexpected)")
+      // — skip self-correction (would just fail the same way and waste tokens),
+      // and record for exponential backoff throttling.
+      if (isTransientCliError(stderrText)) {
+        rateLimitThrottle.recordError();
+        handleTransientCliError(runId, job.id, job.projectId, stderrText.trim());
+        return;
+      }
+
       // MCP failure — create alert but still allow self-correction
       if (isMcpError(stderrText)) {
         handleMcpFailure(runId, job.id, job.projectId, stderrText.slice(-300));
@@ -933,6 +1033,12 @@ export class Executor {
         console.error(`[executor] self-correction error:`, err);
         captureAgentError(err, { runId });
       });
+    }
+
+    // Reset error counters on any successful run
+    if (finalStatus === "succeeded") {
+      resetTransientErrorCount();
+      rateLimitThrottle.resetErrors();
     }
 
     // Evaluate correction note when any run succeeds with a note active

@@ -13,7 +13,7 @@ import { getSetting } from "./db/queries/settings.js";
 import { initAgentSentry, captureAgentError } from "./sentry.js";
 import { initPowerManagement, shutdownPowerManagement } from "./power/index.js";
 import { startPeriodicVerifier, stopPeriodicVerifier } from "./license/periodic-verifier.js";
-import { backfillMissingAutopilotJobs, autopilotScanner } from "./autopilot/index.js";
+import { autopilotScanner } from "./autopilot/index.js";
 import { runBackfillIfNeeded } from "./ipc/inbox-bridge.js";
 import { backfillMissingVisualizations } from "./data-tables/visualization-suggester.js";
 import { reconcileAllRowCounts } from "./db/queries/data-tables.js";

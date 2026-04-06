@@ -1,4 +1,4 @@
-import { eq, and, gt, asc, sql } from "drizzle-orm";
+import { eq, and, gt, asc, or, like, sql } from "drizzle-orm";
 import { getDb } from "../init.js";
 import { runLogs } from "../schema.js";
 import type {
@@ -54,6 +54,42 @@ export function listRunLogs(params: ListRunLogsParams): RunLog[] {
     .where(and(...conditions))
     .orderBy(asc(runLogs.sequence))
     .all() as RunLog[];
+}
+
+/**
+ * Detect whether a run failed with a non-resumable error — one where the
+ * session itself cannot be continued because re-attaching to it would hit
+ * the same failure again. The canonical case is "Prompt is too long":
+ * the accumulated context has exceeded the model's window, and resuming
+ * the session will immediately re-submit the same oversized context.
+ *
+ * Used by the executor and self-correction to decide whether a corrective
+ * retry should start a fresh Claude Code session or resume the parent's.
+ */
+export function hasTokenLimitError(runId: string): boolean {
+  const db = getDb();
+  const row = db
+    .select({ id: runLogs.id })
+    .from(runLogs)
+    .where(
+      and(
+        eq(runLogs.runId, runId),
+        // Only inspect stderr — error results are forwarded there exclusively
+        // (runner.ts). Scanning stdout risks false positives if a job's output
+        // happens to mention these error strings (e.g. docs, test fixtures).
+        eq(runLogs.stream, "stderr"),
+        or(
+          like(runLogs.text, "%Prompt is too long%"),
+          like(runLogs.text, "%prompt is too long%"),
+          like(runLogs.text, "%context_length_exceeded%"),
+          like(runLogs.text, "%maximum context length%"),
+          like(runLogs.text, "%input length and `max_tokens` exceed%"),
+        ),
+      ),
+    )
+    .limit(1)
+    .get();
+  return row != null;
 }
 
 export function deleteRunLogs(runId: string): boolean {

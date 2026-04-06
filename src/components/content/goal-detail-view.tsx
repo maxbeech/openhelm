@@ -281,15 +281,17 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
 
       {/* Actions */}
       <div className="flex gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setShowEditSheet(true)}
-        >
-          <Pencil className="size-3.5" />
-          Edit
-        </Button>
-        {goal.status !== "archived" ? (
+        {!goal.isSystem && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowEditSheet(true)}
+          >
+            <Pencil className="size-3.5" />
+            Edit
+          </Button>
+        )}
+        {!goal.isSystem && (goal.status !== "archived" ? (
           <Button
             variant="outline"
             size="sm"
@@ -307,15 +309,17 @@ export function GoalDetailView({ goalId, onNewJob }: GoalDetailViewProps) {
             <ArchiveRestore className="size-3.5" />
             Unarchive
           </Button>
+        ))}
+        {!goal.isSystem && (
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => openConfirm("delete")}
+          >
+            <Trash2 className="size-3.5" />
+            Delete
+          </Button>
         )}
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={() => openConfirm("delete")}
-        >
-          <Trash2 className="size-3.5" />
-          Delete
-        </Button>
       </div>
 
       <ConfirmDialog

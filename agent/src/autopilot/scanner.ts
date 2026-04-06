@@ -73,6 +73,20 @@ class AutopilotScanner {
     console.error("[autopilot] scanner stopped");
   }
 
+  /**
+   * Restart the recurring interval with the current setting value.
+   * Call this after the user changes `captain_interval_minutes`.
+   */
+  updateInterval(): void {
+    if (!this._started) return;
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+    }
+    const ms = this.getIntervalMs();
+    this.intervalId = setInterval(() => this.scan(), ms);
+    console.error(`[autopilot] scanner interval updated to ${ms / 60_000}min`);
+  }
+
   /** Trigger an immediate scan (e.g., from IPC). */
   async forceScan(): Promise<void> {
     await this.scan();

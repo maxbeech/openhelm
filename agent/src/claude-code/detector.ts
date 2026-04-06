@@ -287,7 +287,7 @@ export async function checkClaudeCodeHealth(): Promise<ClaudeCodeHealthResult> {
       // Detect common auth-related error patterns.
       // Only check stderr — it avoids false positives from command args in error messages.
       const isAuthError =
-        /not\s+logged\s+in|unauthenticated|unauthorized|session\s+expired|sign[\s-]?in\s+required|login\s+required|please\s+(log|sign)\s+in/i.test(stderr);
+        /not\s+logged\s+in|unauthenticated|unauthorized|session\s+expired|sign[\s-]?in\s+required|login\s+required|please\s+(log|sign)\s+in|authentication\s+failed|failed\s+to\s+authenticate|oauth\s+token\s+has\s+expired|authentication_error/i.test(stderr);
 
       if (isAuthError) {
         resolve({

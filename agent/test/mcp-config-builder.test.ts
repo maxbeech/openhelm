@@ -14,6 +14,7 @@ import {
   writeMcpConfigFile,
   removeMcpConfigFile,
   cleanupOrphanedConfigs,
+  buildBrowserCredentialsNotice,
 } from "../src/mcp-servers/mcp-config-builder.js";
 
 const mockGetBrowserMcpPaths = vi.mocked(getBrowserMcpPaths);
@@ -165,6 +166,26 @@ describe("writeMcpConfigFile (happy path)", () => {
     expect(parsed.mcpServers["openhelm-browser"].command).toBe("/venv/bin/python");
     expect(parsed.mcpServers["openhelm-browser"].args).toContain("/server.py");
     expect(parsed.mcpServers["openhelm-browser"].cwd).toBe("/browser");
+  });
+});
+
+describe("buildBrowserCredentialsNotice", () => {
+  it("says no credentials when list is empty", () => {
+    const notice = buildBrowserCredentialsNotice([]);
+    expect(notice).toContain("No credentials are bound");
+    expect(notice).toContain("WILL fail");
+    expect(notice).toContain("spawn_browser");
+  });
+
+  it("lists credentials by name with profile hints when present", () => {
+    const notice = buildBrowserCredentialsNotice([
+      { name: "X (Twitter)", type: "username_password", profileName: "cred-abc123" },
+      { name: "Reddit", type: "token" },
+    ]);
+    expect(notice).toContain('"X (Twitter)" (username_password)');
+    expect(notice).toContain('spawn_browser(profile="cred-abc123")');
+    expect(notice).toContain('"Reddit" (token)');
+    expect(notice).toContain("check_session");
   });
 });
 

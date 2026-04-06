@@ -50,24 +50,21 @@ export class InterventionWatcher {
     this.timer = setInterval(() => this.poll(), POLL_INTERVAL_MS);
   }
 
+  /** Returns true if this watcher created any CAPTCHA alerts (may still be open). */
+  hasOpenItems(): boolean {
+    return this.createdItemIds.length > 0;
+  }
+
   stop(): void {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
     }
-    // Auto-dismiss any open CAPTCHA alerts created by this watcher so stale
-    // cards don't linger after the AI has already given up and moved on.
-    for (const id of this.createdItemIds) {
-      try {
-        const resolved = resolveDashboardItem(id, "dismissed");
-        emit("dashboard.resolved", resolved);
-        console.error(`[intervention] auto-dismissed stale CAPTCHA alert ${id} for run ${this.runId}`);
-      } catch {
-        // Item may already be resolved by user — ignore
-      }
-    }
+    // Do NOT auto-dismiss CAPTCHA alerts — they must persist until the user
+    // manually resolves them. The user may not have seen the notification yet,
+    // and the browser may still be open for them to solve the CAPTCHA.
     this.createdItemIds = [];
-    // Clean up any remaining files for this run
+    // Clean up any remaining intervention request files for this run
     this.cleanupRunFiles();
   }
 
@@ -109,6 +106,16 @@ export class InterventionWatcher {
 
       this.createdItemIds.push(item.id);
       emit("dashboard.created", item);
+      // Emit a dedicated event so the frontend can show a persistent/urgent notification
+      emit("intervention.captchaRequired", {
+        runId: this.runId,
+        jobId: this.jobId,
+        projectId: this.projectId,
+        reason: request.reason,
+        pageUrl: request.pageUrl,
+        screenshotPath: request.screenshotPath,
+        dashboardItemId: item.id,
+      });
       console.error(`[intervention] dashboard alert created for run ${this.runId}: ${request.reason}`);
 
       // Remove the request file (consumed)

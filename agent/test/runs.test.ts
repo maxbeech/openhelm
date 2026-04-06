@@ -10,7 +10,7 @@ import {
   deleteRun,
   getJobTokenStats,
 } from "../src/db/queries/runs.js";
-import { createRunLog, listRunLogs } from "../src/db/queries/run-logs.js";
+import { createRunLog, listRunLogs, hasTokenLimitError } from "../src/db/queries/run-logs.js";
 
 let cleanup: () => void;
 let projectId: string;
@@ -313,6 +313,26 @@ describe("run log queries", () => {
     expect(logs[0].sequence).toBe(1);
     expect(logs[1].sequence).toBe(2);
     expect(logs[2].sequence).toBe(3);
+  });
+
+  it("hasTokenLimitError detects 'Prompt is too long' in run logs", () => {
+    const run = createRun({ jobId, triggerSource: "manual" });
+    createRunLog({ runId: run.id, stream: "stdout", text: "routine output" });
+    expect(hasTokenLimitError(run.id)).toBe(false);
+
+    createRunLog({
+      runId: run.id,
+      stream: "stderr",
+      text: "Claude Code error: Prompt is too long",
+    });
+    expect(hasTokenLimitError(run.id)).toBe(true);
+  });
+
+  it("hasTokenLimitError returns false for unrelated failures", () => {
+    const run = createRun({ jobId, triggerSource: "manual" });
+    createRunLog({ runId: run.id, stream: "stderr", text: "Tool: Bash failed" });
+    createRunLog({ runId: run.id, stream: "stderr", text: "Run timed out." });
+    expect(hasTokenLimitError(run.id)).toBe(false);
   });
 
   it("should list logs after a given sequence", () => {

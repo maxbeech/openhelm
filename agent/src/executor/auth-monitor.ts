@@ -24,7 +24,7 @@ import type { QueueItem } from "../scheduler/queue.js";
  * Aligned with the regex in detector.ts checkClaudeCodeHealth().
  */
 const AUTH_ERROR_PATTERN =
-  /not\s+logged\s+in|unauthenticated|unauthorized|session\s+expired|sign[\s-]?in\s+required|login\s+required|please\s+(log|sign)\s+in|authentication\s+failed|invalid.*api[\s_-]?key/i;
+  /not\s+logged\s+in|unauthenticated|unauthorized|session\s+expired|sign[\s-]?in\s+required|login\s+required|please\s+(log|sign)\s+in|authentication\s+failed|failed\s+to\s+authenticate|oauth\s+token\s+has\s+expired|authentication_error|invalid.*api[\s_-]?key/i;
 
 /** Test whether stderr output indicates an authentication failure. */
 export function isAuthError(stderr: string): boolean {

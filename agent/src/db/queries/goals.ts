@@ -142,6 +142,11 @@ export function updateGoal(params: UpdateGoalParams): Goal {
 
 export function deleteGoal(id: string): boolean {
   const db = getDb();
+  // System goals cannot be deleted (Autopilot Maintenance, etc.)
+  const target = getGoal(id);
+  if (target?.isSystem) {
+    throw new Error("Cannot delete a system goal");
+  }
   // goals.parentId has ON DELETE CASCADE, so deleting a parent cascades to children.
   // But jobs.goalId has ON DELETE SET NULL — without explicit cleanup the child goals'
   // jobs would survive with a null goalId, leaking as orphaned standalone jobs.

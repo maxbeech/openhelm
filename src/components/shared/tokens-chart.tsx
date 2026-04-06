@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getJobTokenStats } from "@/lib/api";
 import { formatTokenCount } from "@/lib/format";
 import { useAgentEvent } from "@/hooks/use-agent-event";
 import { useAppStore } from "@/stores/app-store";
+import { useRunStore } from "@/stores/run-store";
 import type { JobTokenStat } from "@openhelm/shared";
 import { cn } from "@/lib/utils";
 
@@ -49,12 +50,34 @@ const BAR_COLORS = [
 
 export function TokensChart({ projectId, jobIds, compact = false }: TokensChartProps) {
   const { selectJob } = useAppStore();
+  const { runs } = useRunStore();
   const [mode, setMode] = useState<Mode>("avg");
-  const [period, setPeriod] = useState<Period>("30d");
+  const [period, setPeriod] = useState<Period>("all");
   const [stats, setStats] = useState<JobTokenStat[]>([]);
   const [loading, setLoading] = useState(true);
   // Stable ref so the event handler never re-subscribes
   const fetchRef = useRef<() => void>(null!);
+
+  // Determine which periods have data based on existing runs
+  const supportedPeriods = useMemo(() => {
+    const set = new Set<Period>(["all"]);
+    const relevantRuns = jobIds ? runs.filter((r) => jobIds.includes(r.jobId)) : runs;
+    for (const [p, hours] of Object.entries(PERIOD_HOURS) as [Period, number | null][]) {
+      if (hours == null) continue; // "all" already added
+      const from = new Date(Date.now() - hours * 60 * 60 * 1000);
+      if (relevantRuns.some((r) => new Date(r.createdAt) >= from)) {
+        set.add(p);
+      }
+    }
+    return set;
+  }, [runs, jobIds]);
+
+  // Auto-reset to "all" if the selected period loses its data
+  useEffect(() => {
+    if (!supportedPeriods.has(period)) {
+      setPeriod("all");
+    }
+  }, [supportedPeriods, period]);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
@@ -131,22 +154,29 @@ export function TokensChart({ projectId, jobIds, compact = false }: TokensChartP
 
         {/* Period toggle */}
         <div className="flex items-center rounded-md border border-border text-2xs">
-          {(["12h", "1d", "7d", "30d", "90d", "all"] as Period[]).map((p, i, arr) => (
-            <button
-              key={p}
-              onClick={() => setPeriod(p)}
-              className={cn(
-                "px-2 py-1 transition-colors",
-                i === 0 && "rounded-l-md",
-                i === arr.length - 1 && "rounded-r-md",
-                period === p
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {p === "all" ? "All" : p === "1d" ? "1d" : p}
-            </button>
-          ))}
+          {(["12h", "1d", "7d", "30d", "90d", "all"] as Period[]).map((p, i, arr) => {
+            const isSupported = supportedPeriods.has(p);
+            return (
+              <button
+                key={p}
+                onClick={() => isSupported && setPeriod(p)}
+                disabled={!isSupported}
+                className={cn(
+                  "px-2 py-1 transition-colors",
+                  i === 0 && "rounded-l-md",
+                  i === arr.length - 1 && "rounded-r-md",
+                  !isSupported && "opacity-30 cursor-not-allowed",
+                  period === p
+                    ? "bg-primary text-primary-foreground"
+                    : isSupported
+                      ? "text-muted-foreground hover:text-foreground"
+                      : "text-muted-foreground",
+                )}
+              >
+                {p === "all" ? "All" : p}
+              </button>
+            );
+          })}
         </div>
       </div>
 

@@ -107,13 +107,22 @@ function restoreNavEntry(entry: NavEntry, set: (partial: Partial<AppState>) => v
   });
   // Restore inbox tier threshold
   useInboxStore.getState().setTierThreshold(entry.tierThreshold);
-  // Restore scroll position after the view re-renders (double rAF to wait for layout)
-  requestAnimationFrame(() => {
+
+  if (entry.contentView === "inbox") {
+    // Inbox defers rendering until data loads — store the scroll position so
+    // InboxTimeline can apply it once the container exists, instead of scrolling
+    // to the unread/now marker on first render.
+    useInboxStore.getState().setPendingScrollTop(entry.scrollTop);
+  } else {
+    // For all other pages the scroll container exists immediately — double rAF
+    // ensures layout is complete before we set scrollTop.
     requestAnimationFrame(() => {
-      const scrollEl = getScrollElement();
-      if (scrollEl) scrollEl.scrollTop = entry.scrollTop;
+      requestAnimationFrame(() => {
+        const scrollEl = getScrollElement();
+        if (scrollEl) scrollEl.scrollTop = entry.scrollTop;
+      });
     });
-  });
+  }
 }
 
 export const useAppStore = create<AppState>((set, get) => ({

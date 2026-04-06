@@ -3,6 +3,7 @@ import * as api from "@/lib/api";
 import type { InboxEvent } from "@openhelm/shared";
 
 const LAST_READ_KEY = "inbox-last-read-at";
+const ZOOM_KEY = "inbox-tier-threshold";
 
 function getStoredLastReadAt(): string | null {
   try {
@@ -17,6 +18,19 @@ function getStoredLastReadAt(): string | null {
 function saveLastReadAt(at: string): void {
   try {
     if (typeof localStorage !== "undefined") localStorage.setItem(LAST_READ_KEY, at);
+  } catch { /* non-fatal */ }
+}
+
+function getStoredTierThreshold(): number {
+  try {
+    const v = typeof localStorage !== "undefined" ? localStorage.getItem(ZOOM_KEY) : null;
+    return v != null ? Number(v) : 0;
+  } catch { return 0; }
+}
+
+function saveStoredTierThreshold(v: number): void {
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(ZOOM_KEY, String(v));
   } catch { /* non-fatal */ }
 }
 
@@ -45,7 +59,11 @@ interface InboxState {
   lastReadAt: string | null;
   topTierMinImportance: number;
 
+  // Scroll restoration (set by nav back/forward, consumed by InboxTimeline on first render)
+  pendingScrollTop: number | null;
+
   // Actions
+  setPendingScrollTop: (v: number | null) => void;
   fetchInitial: (projectId: string | null) => Promise<void>;
   fetchOlderEvents: (projectId: string | null) => Promise<void>;
   fetchFutureEvents: (projectId: string | null) => Promise<void>;
@@ -91,7 +109,7 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   error: null,
   hasMorePast: true,
   loadingPast: false,
-  tierThreshold: 0,
+  tierThreshold: getStoredTierThreshold(),
   tierBoundaries: [],
   tierLabels: ["All Events"],
   replyContext: null,
@@ -99,6 +117,9 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   unreadCount: 0,
   lastReadAt: getStoredLastReadAt(),
   topTierMinImportance: 0,
+  pendingScrollTop: null,
+
+  setPendingScrollTop: (v) => set({ pendingScrollTop: v }),
 
   fetchInitial: async (projectId) => {
     set({ loading: true, error: null });
@@ -165,7 +186,10 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     } catch { /* non-fatal */ }
   },
 
-  setTierThreshold: (value) => set({ tierThreshold: value }),
+  setTierThreshold: (value) => {
+    saveStoredTierThreshold(value);
+    set({ tierThreshold: value });
+  },
 
   setReplyContext: (ctx) => set({ replyContext: ctx }),
 
@@ -226,7 +250,6 @@ export const useInboxStore = create<InboxState>((set, get) => ({
       set({
         tierBoundaries: result.boundaries,
         tierLabels: result.labels,
-        tierThreshold: 0,
         topTierMinImportance,
         unreadCount: computeUnreadCount(events, lastReadAt, topTierMinImportance),
       });

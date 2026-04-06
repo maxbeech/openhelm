@@ -11,6 +11,7 @@ import { removeSudoersEntry } from "../../power/wake-scheduler.js";
 import { emit } from "../emitter.js";
 import { disableAllSystemJobs } from "../../db/queries/jobs.js";
 import { expireAllPendingProposals } from "../../db/queries/autopilot-proposals.js";
+import { autopilotScanner } from "../../autopilot/index.js";
 
 export function registerSettingHandlers() {
   registerHandler("settings.get", (params) => {
@@ -39,6 +40,11 @@ export function registerSettingHandlers() {
     // Propagate focus guard toggle to the Tauri Rust layer immediately
     if (p.key === "focus_guard_enabled") {
       emit("focus_guard.setEnabled", { enabled: p.value !== "false" });
+    }
+
+    // React to scanner interval change — restart the scanner timer immediately
+    if (p.key === "captain_interval_minutes") {
+      autopilotScanner.updateInterval();
     }
 
     // React to autopilot mode change — disable system jobs when switched off

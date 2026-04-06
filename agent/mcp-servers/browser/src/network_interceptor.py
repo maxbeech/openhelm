@@ -14,6 +14,41 @@ from nodriver import Tab
 from models import NetworkRequest, NetworkResponse
 
 
+    # Third-party tracking and analytics domains that add load without
+    # being necessary for page functionality. Blocking these reduces
+    # memory/CPU pressure and prevents CDP socket drops on heavy SPAs.
+TRACKER_URL_PATTERNS: List[str] = [
+    # Analytics & tracking
+    "*://www.google-analytics.com/*",
+    "*://analytics.google.com/*",
+    "*://www.googletagmanager.com/*",
+    "*://connect.facebook.net/*",
+    "*://pixel.facebook.com/*",
+    "*://bat.bing.com/*",
+    "*://sc-static.net/*",
+    "*://sentry.io/*",
+    "*://sentry-cdn.com/*",
+    "*://cdn.mxpnl.com/*",
+    "*://cdn.segment.com/*",
+    "*://api.segment.io/*",
+    "*://cdn.amplitude.com/*",
+    "*://heapanalytics.com/*",
+    "*://snap.licdn.com/*",
+    "*://ads.linkedin.com/*",
+    "*://t.co/i/*",
+    "*://analytics.twitter.com/*",
+    "*://static.ads-twitter.com/*",
+    # Ad networks
+    "*://pagead2.googlesyndication.com/*",
+    "*://securepubads.g.doubleclick.net/*",
+    "*://ad.doubleclick.net/*",
+    "*://ads.google.com/*",
+    # Heavy media CDNs (video previews, auto-playing content)
+    "*://video.twimg.com/*",
+    "*://platform.twitter.com/widgets.js",
+]
+
+
 class NetworkInterceptor:
     """Intercepts and manages network traffic for browser instances."""
 
@@ -34,10 +69,14 @@ class NetworkInterceptor:
         """
         try:
             await tab.send(uc.cdp.network.enable())
-            
+
+            # Only block trackers when explicitly requested via block_resources.
+            # Real browsers accept analytics — blocking them signals "bot/adblocker"
+            # and is a major anti-bot detection vector.
+            url_patterns: List[str] = []
+
             if block_resources:
-                # Convert resource types to URL patterns for blocking
-                url_patterns = []
+                # Convert resource types to additional URL patterns for blocking
                 for resource_type in block_resources:
                     # Map resource types to URL patterns that typically identify these resources
                     resource_patterns = {
@@ -56,10 +95,10 @@ class NetworkInterceptor:
                         url_patterns.append(resource_type)
                         print(f"[DEBUG] Added custom URL pattern: {resource_type}", file=sys.stderr)
                 
-                # Use network.set_blocked_ur_ls to block the URL patterns
-                if url_patterns:
-                    await tab.send(uc.cdp.network.set_blocked_ur_ls(urls=url_patterns))
-                    print(f"[DEBUG] Blocked {len(url_patterns)} URL patterns: {url_patterns}", file=sys.stderr)
+            # Apply all blocking patterns (trackers + user-specified resource types)
+            if url_patterns:
+                await tab.send(uc.cdp.network.set_blocked_ur_ls(urls=url_patterns))
+                print(f"[DEBUG] Blocked {len(url_patterns)} URL patterns (incl. trackers)", file=sys.stderr)
             
             tab.add_handler(
                 uc.cdp.network.RequestWillBeSent,

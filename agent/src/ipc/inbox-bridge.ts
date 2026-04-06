@@ -365,7 +365,7 @@ const EVENT_HANDLERS: Record<string, HandlerFn> = {
 export function runBackfillIfNeeded(): void {
   try {
     // Use versioned key so we can re-run backfill after fixing bugs
-    if (getSetting("inbox_backfill_v2")) return;
+    if (getSetting("inbox_backfill_v3")) return;
 
     const db = getDb();
     const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
@@ -462,7 +462,7 @@ export function runBackfillIfNeeded(): void {
       });
     }
 
-    setSetting("inbox_backfill_v2", new Date().toISOString());
+    setSetting("inbox_backfill_v3", new Date().toISOString());
     process.stderr.write(
       `[inbox-bridge] backfill complete: ${historicRuns.length} runs, ${openItems.length} alerts\n`,
     );

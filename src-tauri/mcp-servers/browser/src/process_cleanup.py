@@ -353,6 +353,104 @@ class ProcessCleanup:
         except Exception as e:
             debug_logger.log_warning("process_cleanup", "clear_pid_file", f"Failed to clear PID file: {e}")
     
+    def kill_all_nodriver_chrome(self) -> int:
+        """Kill ALL nodriver Chrome processes on this machine.
+
+        Called before spawning a new browser to ensure no stale
+        processes from previous runs interfere with port binding or
+        profile locking.  Also cleans up stale PID files from the
+        ``~/.openhelm/browser-pids/`` directory.
+
+        Returns the number of processes killed.
+        """
+        killed = 0
+
+        # 1. Kill tracked processes (current run)
+        for instance_id, pid in list(self.browser_processes.items()):
+            if self._kill_process_by_pid(pid, instance_id):
+                killed += 1
+        self.browser_processes.clear()
+        self.tracked_pids.clear()
+
+        # 2. Kill orphans found via process scan
+        for pid in self._find_nodriver_chrome_pids():
+            if self._kill_process_by_pid(pid, "pre-spawn-cleanup"):
+                killed += 1
+
+        # 3. Clean stale PID files from other runs
+        pid_dir = Path(os.path.expanduser("~/.openhelm/browser-pids"))
+        if pid_dir.is_dir():
+            for f in pid_dir.iterdir():
+                if f.suffix == ".json" and f != self.pid_file:
+                    try:
+                        data = json.loads(f.read_text())
+                        for inst_id, pid in data.get("browser_processes", {}).items():
+                            if psutil.pid_exists(pid):
+                                self._kill_process_by_pid(pid, f"stale-{inst_id}")
+                                killed += 1
+                        f.unlink(missing_ok=True)
+                    except Exception:
+                        f.unlink(missing_ok=True)
+
+        # 4. Clean stale profile locks
+        profiles_dir = Path(os.path.expanduser("~/.openhelm/profiles"))
+        if profiles_dir.is_dir():
+            for lock in profiles_dir.rglob(".openhelm.lock"):
+                try:
+                    lock.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+        if killed:
+            debug_logger.log_info(
+                "process_cleanup", "kill_all_nodriver_chrome",
+                f"Pre-spawn cleanup: killed {killed} stale Chrome processes",
+            )
+        return killed
+
+    def kill_stale_nodriver_chrome(self) -> int:
+        """Kill only THIS instance's tracked Chrome processes and stale PID files.
+
+        Unlike ``kill_all_nodriver_chrome()``, this does NOT scan for and kill
+        ALL nodriver Chrome processes system-wide. This prevents destroying
+        browsers from other concurrent runs (e.g. ones where the user is
+        solving a CAPTCHA).
+
+        Returns the number of processes killed.
+        """
+        killed = 0
+
+        # 1. Kill processes tracked by THIS MCP instance
+        for instance_id, pid in list(self.browser_processes.items()):
+            if self._kill_process_by_pid(pid, instance_id):
+                killed += 1
+        self.browser_processes.clear()
+        self.tracked_pids.clear()
+
+        # 2. Clean stale PID files from OTHER runs (only if the process is dead)
+        pid_dir = Path(os.path.expanduser("~/.openhelm/browser-pids"))
+        if pid_dir.is_dir():
+            for f in pid_dir.iterdir():
+                if f.suffix == ".json" and f != self.pid_file:
+                    try:
+                        data = json.loads(f.read_text())
+                        all_dead = True
+                        for inst_id, pid in data.get("browser_processes", {}).items():
+                            if psutil.pid_exists(pid):
+                                all_dead = False
+                        # Only remove stale PID files (all processes dead)
+                        if all_dead:
+                            f.unlink(missing_ok=True)
+                    except Exception:
+                        f.unlink(missing_ok=True)
+
+        if killed:
+            debug_logger.log_info(
+                "process_cleanup", "kill_stale_nodriver_chrome",
+                f"Pre-spawn cleanup: killed {killed} own tracked Chrome processes",
+            )
+        return killed
+
     def get_tracked_processes(self) -> Dict[str, int]:
         """Get currently tracked processes.
         

@@ -662,6 +662,8 @@ export interface ClaudeCodeRunResult {
   sessionId: string | null;
   inputTokens: number | null;
   outputTokens: number | null;
+  /** API rate-limit utilization (0.0–1.0) from the last rate_limit_event, or null if none received */
+  rateLimitUtilization: number | null;
 }
 
 // ─── Scheduler & Executor Types ───

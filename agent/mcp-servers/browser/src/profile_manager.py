@@ -209,7 +209,7 @@ async def check_session_cookies(
     tab,
     domain: str,
     network_interceptor=None,
-    timeout_seconds: float = 10.0,
+    timeout_seconds: float = 20.0,
 ) -> Dict[str, Any]:
     """
     Check whether a persistent session is likely valid for a domain.

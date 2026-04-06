@@ -49,19 +49,6 @@ export function DashboardSystemSection({
             <p className="mb-2 text-xs font-medium text-muted-foreground">Run Outcomes (14 days)</p>
             <RunOutcomesChart runs={allRuns} />
           </div>
-          {usageSummary && (
-            <div>
-              <h4 className="mb-3 text-xs font-semibold text-muted-foreground">Claude Code Usage</h4>
-              <ClaudeUsageWidgets summary={usageSummary} />
-              <ClaudeUsageChart
-                series={usageSummary.series}
-                dailyBudget={usageSummary.dailyBudget}
-                weeklyBudget={usageSummary.weeklyBudget}
-                weekOnly
-                className="mt-3"
-              />
-            </div>
-          )}
           <div>
             <h4 className="mb-3 text-xs font-semibold text-muted-foreground">Recent Runs</h4>
             {recentRuns.length === 0 ? (
@@ -85,6 +72,19 @@ export function DashboardSystemSection({
               </div>
             )}
           </div>
+          {usageSummary && (
+            <div>
+              <h4 className="mb-3 text-xs font-semibold text-muted-foreground">Claude Code Usage</h4>
+              <ClaudeUsageWidgets summary={usageSummary} />
+              <ClaudeUsageChart
+                series={usageSummary.series}
+                dailyBudget={usageSummary.dailyBudget}
+                weeklyBudget={usageSummary.weeklyBudget}
+                weekOnly
+                className="mt-3"
+              />
+            </div>
+          )}
           <div>
             <h4 className="mb-3 text-xs font-semibold text-muted-foreground">Token Usage</h4>
             <TokensChart projectId={activeProjectId ?? undefined} />

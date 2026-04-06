@@ -8,6 +8,8 @@ import { InboxNowMarker } from "./inbox-now-marker";
 import { InboxUnreadMarker } from "./inbox-unread-marker";
 import { InboxTimeHeader } from "./inbox-time-header";
 import { InboxEvent } from "./inbox-event";
+import { InboxActiveRunRow } from "./inbox-active-run-row";
+import { useActiveRuns } from "@/hooks/use-active-runs";
 import type { InboxEvent as InboxEventType, InboxCategory } from "@openhelm/shared";
 
 interface Props {
@@ -51,6 +53,8 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
     topTierMinImportance,
     markReadUpTo,
   } = useInboxStore();
+
+  const { activeRuns } = useActiveRuns(projectId);
 
   // Reset initial scroll flag when project changes so we re-scroll on next load
   useEffect(() => {
@@ -214,29 +218,50 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
   const dateGroups = useMemo(() => groupEventsByDate(visibleEvents), [visibleEvents]);
   const futureDateGroups = useMemo(() => groupEventsByDate(visibleFutureEvents), [visibleFutureEvents]);
 
-  // On initial load, scroll to the unread marker (if any) otherwise to Now
+  // On initial load, restore a pending nav scroll position (back/forward) or
+  // scroll to the unread marker (if any) otherwise to Now.
+  // Also depends on `events` so we wait until events are populated — avoids
+  // the race where loading=false but events=[] on first render.
   useEffect(() => {
-    if (loading || hasScrolledToUnread.current) return;
+    if (loading || events.length === 0 || hasScrolledToUnread.current) return;
     hasScrolledToUnread.current = true;
-    requestAnimationFrame(() => {
-      if (unreadMarkerRef.current) {
-        unreadMarkerRef.current.scrollIntoView({ block: "start" });
-      } else {
-        nowMarkerRef.current?.scrollIntoView({ block: "center" });
-      }
-    });
-  }, [loading]);
 
-  // Observe now marker visibility and direction
+    const { pendingScrollTop, setPendingScrollTop } = useInboxStore.getState();
+    if (pendingScrollTop !== null) {
+      // Consumed — clear before scrolling so subsequent mounts behave normally.
+      setPendingScrollTop(null);
+      requestAnimationFrame(() => {
+        const container = containerRef.current;
+        if (container) container.scrollTop = pendingScrollTop;
+      });
+    } else {
+      requestAnimationFrame(() => {
+        if (unreadMarkerRef.current) {
+          unreadMarkerRef.current.scrollIntoView({ block: "start" });
+        } else {
+          nowMarkerRef.current?.scrollIntoView({ block: "center" });
+        }
+      });
+    }
+  }, [loading, events]);
+
+  // Observe Now marker visibility relative to the scroll container (not the
+  // viewport). Without `root: container`, elements inside an overflow-y-auto
+  // div always "intersect" the viewport regardless of inner scroll position,
+  // so the observer never fires when scrolling within the container.
   useEffect(() => {
     const el = nowMarkerRef.current;
-    if (!el) return;
+    const container = containerRef.current;
+    if (!el || !container) return;
     const obs = new IntersectionObserver(([entry]) => {
       setNowVisible(entry.isIntersecting);
       if (!entry.isIntersecting) {
-        setNowAboveViewport(entry.boundingClientRect.top < 0);
+        // rootBounds.top is the container's top edge in viewport coordinates.
+        // Now is "above" (user scrolled into future) when its top is above that edge.
+        const rootTop = entry.rootBounds?.top ?? 0;
+        setNowAboveViewport(entry.boundingClientRect.top < rootTop);
       }
-    }, { threshold: 0.1 });
+    }, { threshold: 0.1, root: container });
     obs.observe(el);
     return () => obs.disconnect();
   }, []);
@@ -366,6 +391,22 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
       <div ref={nowMarkerRef}>
         <InboxNowMarker />
       </div>
+
+      {/* Currently running / queued jobs — shown just below Now */}
+      {activeRuns.length > 0 && (
+        <div className="mb-1">
+          {activeRuns.map(({ run, job }) => (
+            <motion.div
+              key={run.id}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1, transition: { duration: 0.15 } }}
+              exit={{ opacity: 0, transition: { duration: 0.1 } }}
+            >
+              <InboxActiveRunRow activeRun={{ run, job }} />
+            </motion.div>
+          ))}
+        </div>
+      )}
 
       {/* Future events */}
       {Array.from(futureDateGroups.entries()).map(([date, dateEvents]) => (

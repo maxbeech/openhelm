@@ -39,18 +39,24 @@ export const BROWSER_SYSTEM_PROMPT =
  */
 export const BROWSER_CAPTCHA_PREAMBLE =
   "If you hit a CAPTCHA, call detect_captcha and follow auto_solve_hint. " +
-  "If unsolvable, call request_user_help and poll screenshots every 30s for up to 5 minutes.\n\n";
+  "If unsolvable, call request_user_help and poll screenshots every 30s for up to 15 minutes. " +
+  "Output a brief status line each poll to prevent silence timeout. " +
+  "Do NOT close the browser instance while waiting — the user needs it open to solve the CAPTCHA.\n\n";
 
 /**
  * Prepended to job prompts to instruct Claude on persistent profile usage
  * and authenticated session handling.
  */
 export const BROWSER_PROFILE_PREAMBLE =
-  "PERSISTENT BROWSER PROFILES: For sites requiring login (X.com, Reddit, etc.), " +
-  "use spawn_browser(profile=\"default\") to reuse saved sessions. " +
-  "After navigating, call check_session(instance_id, domain) to verify login status. " +
-  "If the session is expired, call request_user_help to prompt the user to log in " +
-  "manually in the visible browser window — their session will persist for future runs.\n\n";
+  "PERSISTENT BROWSER PROFILES (mandatory): NEVER spawn a browser without a profile. " +
+  "When credentials are listed above with a profile name, " +
+  "ALWAYS use that exact profile in spawn_browser(profile=...) to reuse the saved session. " +
+  "If no credential-linked profile exists, use a default profile named after the project slug. " +
+  "Do NOT create new profile names or use 'default' when a credential-linked profile exists. " +
+  "Profiles preserve cookies, localStorage, and browser state between runs — this is critical for avoiding bot detection. " +
+  "After spawning, call check_session(instance_id, domain) to verify login status. " +
+  "If the session is expired, call auto_login with the credential name. " +
+  "If auto_login also fails, call request_user_help for manual login.\n\n";
 
 /**
  * Prepended to job prompts when the data tables MCP is available.
@@ -58,8 +64,46 @@ export const BROWSER_PROFILE_PREAMBLE =
 export const DATA_TABLES_MCP_PREAMBLE =
   "Data tables are available via openhelm-data MCP tools. Check existing tables before creating new ones.\n\n";
 
-export const BROWSER_CREDENTIALS_PREAMBLE =
-  "Browser credentials are pre-loaded. Call list_browser_credentials to see available credentials.\n\n";
+/**
+ * Produce an explicit browser-credentials notice for the job prompt based on
+ * which credentials are actually bound to this run. This prevents Claude from
+ * hallucinating credential names and blindly calling auto_login when nothing
+ * is actually loaded (which wastes turns and tokens).
+ *
+ * Each credential may have an associated persistent browser profile. When
+ * present, Claude should spawn_browser with that profile to reuse saved
+ * cookies/sessions — auto_login is only needed if the session has expired.
+ */
+export function buildBrowserCredentialsNotice(
+  credentials: Array<{ name: string; type: "username_password" | "token"; profileName?: string }>,
+): string {
+  if (credentials.length === 0) {
+    return (
+      "BROWSER CREDENTIALS: No credentials are bound to this project/job. " +
+      "`list_browser_credentials` will return an empty array, and `auto_login` " +
+      "WILL fail. Do NOT guess credential names. " +
+      "If the task requires a logged-in session, first try a persistent profile " +
+      "via `spawn_browser(profile=\"default\")` — if that session is also expired, " +
+      "call `request_user_help` so the user can log in manually in the visible window, " +
+      "then poll for completion. If no profile is authenticated either, stop and " +
+      "report that credentials are missing — do not attempt to create an account.\n\n"
+    );
+  }
+  const lines = credentials.map((c) => {
+    const profileHint = c.profileName
+      ? ` → spawn_browser(profile="${c.profileName}") for pre-authenticated session`
+      : "";
+    return `  - "${c.name}" (${c.type})${profileHint}`;
+  }).join("\n");
+  return (
+    "BROWSER CREDENTIALS (pre-loaded for this run — use the exact names below):\n" +
+    lines +
+    "\n\nWORKFLOW: For each site, first `spawn_browser` with the credential's profile " +
+    "(listed above) to reuse the saved session. Call `check_session` to verify. " +
+    "Only if the session is expired, fall back to `auto_login` with the credential name. " +
+    "If auto_login also fails, call `request_user_help` for manual login.\n\n"
+  );
+}
 
 const MCP_CONFIG_DIR = join(
   process.env.OPENHELM_DATA_DIR ?? join(homedir(), ".openhelm"),

@@ -41,18 +41,29 @@ function insertCredential(db, { id, name, envVarName, value }) {
 async function main() {
   const db = new Database(DB_PATH);
 
+  const apiKey = process.env.POSTHOG_API_KEY;
+  const projectId = process.env.POSTHOG_PROJECT_ID;
+  if (!apiKey) {
+    console.error("Error: POSTHOG_API_KEY environment variable is required.");
+    process.exit(1);
+  }
+  if (!projectId) {
+    console.error("Error: POSTHOG_PROJECT_ID environment variable is required.");
+    process.exit(1);
+  }
+
   const creds = [
     {
       id: randomUUID(),
       name: "PostHog API Key",
       envVarName: "OPENHELM_POSTHOG_API_KEY",
-      value: "phc_xP6OmXLGEj31qP9mH8z7afKCrLVQZRJsqJOfB0KgaOV",
+      value: apiKey,
     },
     {
       id: randomUUID(),
       name: "PostHog Project ID",
       envVarName: "OPENHELM_POSTHOG_PROJECT_ID",
-      value: "150360",
+      value: projectId,
     },
   ];
 

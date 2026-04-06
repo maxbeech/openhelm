@@ -76,6 +76,35 @@ describe("parseStreamLine", () => {
     expect(result!.numTurns).toBe(3);
   });
 
+  it("surfaces the error text and isError=true for an error result", () => {
+    const line = JSON.stringify({
+      type: "result",
+      subtype: "error_max_turns",
+      is_error: true,
+      error: "Prompt is too long",
+      result: "",
+      session_id: "sess-abc",
+    });
+
+    const result = parseStreamLine(line);
+    expect(result).not.toBeNull();
+    expect(result!.isResult).toBe(true);
+    expect(result!.isError).toBe(true);
+    expect(result!.text).toBe("Prompt is too long");
+    expect(result!.sessionId).toBe("sess-abc");
+  });
+
+  it("defaults isError to false for a successful result", () => {
+    const line = JSON.stringify({
+      type: "result",
+      result: "All done.",
+    });
+
+    const result = parseStreamLine(line);
+    expect(result).not.toBeNull();
+    expect(result!.isError).toBe(false);
+  });
+
   it("extracts token counts from result usage object", () => {
     const line = JSON.stringify({
       type: "result",
@@ -205,5 +234,44 @@ describe("parseStreamLine", () => {
     const result = parseStreamLine(line);
     expect(result).not.toBeNull();
     expect(result!.text).toBe("Line 1\nLine 2");
+  });
+
+  it("parses rate_limit_event with utilization", () => {
+    const line = JSON.stringify({
+      type: "rate_limit_event",
+      rate_limit_info: {
+        status: "allowed_warning",
+        resetsAt: 1775581200,
+        rateLimitType: "seven_day",
+        utilization: 0.87,
+        isUsingOverage: false,
+        surpassedThreshold: 0.75,
+      },
+    });
+
+    const result = parseStreamLine(line);
+    expect(result).not.toBeNull();
+    expect(result!.rateLimitUtilization).toBe(0.87);
+    expect(result!.text).toBe("");
+    expect(result!.isResult).toBe(false);
+  });
+
+  it("handles rate_limit_event with missing utilization", () => {
+    const line = JSON.stringify({
+      type: "rate_limit_event",
+      rate_limit_info: { status: "allowed" },
+    });
+
+    const result = parseStreamLine(line);
+    expect(result).not.toBeNull();
+    expect(result!.rateLimitUtilization).toBeUndefined();
+  });
+
+  it("handles rate_limit_event with no rate_limit_info", () => {
+    const line = JSON.stringify({ type: "rate_limit_event" });
+
+    const result = parseStreamLine(line);
+    expect(result).not.toBeNull();
+    expect(result!.rateLimitUtilization).toBeUndefined();
   });
 });

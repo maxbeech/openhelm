@@ -1150,7 +1150,9 @@ describe("Executor browser MCP preamble", () => {
     expect(capturedPrompt).toContain(BROWSER_MCP_PREAMBLE);
     expect(capturedPrompt).toContain(BROWSER_CAPTCHA_PREAMBLE);
     expect(capturedPrompt).toContain("navigate to example.com");
-    expect(capturedPrompt.startsWith(BROWSER_MCP_PREAMBLE)).toBe(true);
+    // Browser credentials notice is now always prepended (even when empty),
+    // so the prompt no longer starts with BROWSER_MCP_PREAMBLE.
+    expect(capturedPrompt).toContain("BROWSER CREDENTIALS:");
   });
 
   it("does not prepend preamble when venv is not ready", async () => {

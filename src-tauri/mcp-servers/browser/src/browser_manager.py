@@ -30,9 +30,73 @@ class BrowserManager:
     # Idle timeout in seconds — instances unused for this long are auto-closed.
     IDLE_TIMEOUT_SECONDS = 300  # 5 minutes
 
+    # Heartbeat interval — how often to check CDP connections
+    HEARTBEAT_INTERVAL_SECONDS = 30
+
     def __init__(self):
         self._instances: Dict[str, dict] = {}
         self._lock = asyncio.Lock()
+        self._heartbeat_task: Optional[asyncio.Task] = None
+
+    def start_heartbeat(self):
+        """Start the background CDP heartbeat task."""
+        if self._heartbeat_task is None or self._heartbeat_task.done():
+            self._heartbeat_task = asyncio.ensure_future(self._heartbeat_loop())
+
+    async def _heartbeat_loop(self):
+        """
+        Periodically ping all active CDP connections and reconnect if needed.
+
+        This catches degrading connections early — before a tool call hits
+        the dead connection and fails. If a connection is found dead, we
+        attempt reconnection while the Chrome process is still warm.
+        """
+        while True:
+            try:
+                await asyncio.sleep(self.HEARTBEAT_INTERVAL_SECONDS)
+                await self._heartbeat_tick()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                debug_logger.log_warning(
+                    "browser_manager", "_heartbeat_loop",
+                    f"Heartbeat error: {e}"
+                )
+
+    async def _heartbeat_tick(self):
+        """Run one heartbeat check across all instances."""
+        async with self._lock:
+            instance_ids = list(self._instances.keys())
+
+        for instance_id in instance_ids:
+            try:
+                data = await self.get_instance(instance_id)
+                if not data:
+                    continue
+
+                tab = data['tab']
+                # Quick probe — 3s timeout is enough for a healthy connection
+                try:
+                    await asyncio.wait_for(tab.evaluate("1"), timeout=3.0)
+                except (OSError, ConnectionError):
+                    # Connection dead — try to reconnect proactively
+                    debug_logger.log_info(
+                        "browser_manager", "_heartbeat_tick",
+                        f"Heartbeat: CDP dead for {instance_id}, reconnecting"
+                    )
+                    await self._reconnect_tab(instance_id, data)
+                except asyncio.TimeoutError:
+                    debug_logger.log_info(
+                        "browser_manager", "_heartbeat_tick",
+                        f"Heartbeat: CDP slow for {instance_id}"
+                    )
+                except Exception:
+                    pass  # Non-connection errors are fine
+            except Exception:
+                pass
+
+    # Maximum spawn retries when Chrome fails to start
+    MAX_SPAWN_RETRIES = 3
 
     async def spawn_browser(self, options: BrowserOptions) -> BrowserInstance:
         """
@@ -44,6 +108,9 @@ class BrowserManager:
 
         Falls back to normal nodriver launch if the background launch fails
         or on non-macOS platforms.
+
+        Retries up to MAX_SPAWN_RETRIES times with aggressive stale-process
+        cleanup between attempts.
         """
         instance_id = str(uuid.uuid4())
 
@@ -54,80 +121,114 @@ class BrowserManager:
             viewport={"width": options.viewport_width, "height": options.viewport_height}
         )
 
-        try:
-            platform_info = get_platform_info()
-            browser_executable = check_browser_executable()
-            if not browser_executable:
-                raise Exception("No compatible browser found")
-
-            browser_type = self._identify_browser_type(browser_executable)
-            debug_logger.log_info(
-                "browser_manager", "spawn_browser",
-                f"Platform: {platform_info['system']} | Sandbox: {options.sandbox} "
-                f"| Background: {options.background} | Browser: {browser_type}"
-            )
-
-            config = uc.Config(
-                headless=options.headless,
-                user_data_dir=options.user_data_dir,
-                sandbox=options.sandbox,
-                browser_executable_path=browser_executable,
-                browser_args=merge_browser_args()
-            )
-
-            # --- Two-phase background launch (macOS only) ---
-            used_background = await self._try_background_launch(
-                config, browser_executable, options
-            )
-
-            browser = await uc.start(config=config)
-            tab = browser.main_tab
-
-            # --- Process tracking ---
-            if used_background:
-                pid = await find_pid_on_port(config.port, retries=15, delay=0.3)
-                if pid:
-                    process_cleanup.track_browser_process_by_pid(instance_id, pid)
-                else:
-                    debug_logger.log_warning(
+        last_error = None
+        for attempt in range(self.MAX_SPAWN_RETRIES):
+            try:
+                if attempt > 0:
+                    debug_logger.log_info(
                         "browser_manager", "spawn_browser",
-                        f"Could not find PID for background browser {instance_id}"
+                        f"Spawn retry {attempt + 1}/{self.MAX_SPAWN_RETRIES} "
+                        f"after: {last_error}"
                     )
-            elif hasattr(browser, '_process') and browser._process:
-                process_cleanup.track_browser_process(instance_id, browser._process)
+                    # Aggressive cleanup before retry
+                    process_cleanup.kill_all_nodriver_chrome()
+                    await asyncio.sleep(1.0 + attempt)  # 1s, 2s backoff
+
+                browser, tab, used_background = await self._do_spawn(
+                    instance_id, options
+                )
+                break  # Success
+            except Exception as e:
+                last_error = e
+                if attempt == self.MAX_SPAWN_RETRIES - 1:
+                    instance.state = BrowserState.ERROR
+                    raise Exception(f"Failed to spawn browser: {str(e)}")
+                continue
+
+        await self._configure_tab(tab, options)
+        await self._setup_dynamic_hooks(tab, instance_id)
+
+        async with self._lock:
+            self._instances[instance_id] = {
+                'browser': browser,
+                'tab': tab,
+                'instance': instance,
+                'options': options,
+                'network_data': []
+            }
+
+        instance.state = BrowserState.READY
+        instance.update_activity()
+
+        persistent_storage.store_instance(instance_id, {
+            'state': instance.state.value,
+            'created_at': instance.created_at.isoformat(),
+            'current_url': getattr(tab, 'url', ''),
+            'title': 'Browser Instance'
+        })
+
+        # Start the heartbeat if not already running
+        self.start_heartbeat()
+
+        return instance
+
+    async def _do_spawn(self, instance_id: str, options: BrowserOptions):
+        """
+        Internal spawn logic — launches Chrome and returns (browser, tab, used_background).
+        Separated so spawn_browser can retry on failure.
+        """
+        # Only kill stale nodriver Chrome processes owned by THIS MCP instance.
+        # Previously killed ALL nodriver Chrome, which destroyed browsers from
+        # other runs (including ones where the user is solving a CAPTCHA).
+        process_cleanup.kill_stale_nodriver_chrome()
+
+        platform_info = get_platform_info()
+        browser_executable = check_browser_executable()
+        if not browser_executable:
+            raise Exception("No compatible browser found")
+
+        browser_type = self._identify_browser_type(browser_executable)
+        debug_logger.log_info(
+            "browser_manager", "spawn_browser",
+            f"Platform: {platform_info['system']} | Sandbox: {options.sandbox} "
+            f"| Background: {options.background} | Browser: {browser_type}"
+        )
+
+        config = uc.Config(
+            headless=options.headless,
+            user_data_dir=options.user_data_dir,
+            sandbox=options.sandbox,
+            browser_executable_path=browser_executable,
+            browser_args=merge_browser_args()
+        )
+
+        # --- Two-phase background launch (macOS only) ---
+        used_background = await self._try_background_launch(
+            config, browser_executable, options
+        )
+
+        browser = await uc.start(config=config)
+        tab = browser.main_tab
+
+        # --- Process tracking ---
+        if used_background:
+            pid = await find_pid_on_port(config.port, retries=15, delay=0.3)
+            if pid:
+                process_cleanup.track_browser_process_by_pid(instance_id, pid)
             else:
                 debug_logger.log_warning(
                     "browser_manager", "spawn_browser",
-                    f"Browser {instance_id} has no process to track"
+                    f"Could not find PID for background browser {instance_id}"
                 )
+        elif hasattr(browser, '_process') and browser._process:
+            process_cleanup.track_browser_process(instance_id, browser._process)
+        else:
+            debug_logger.log_warning(
+                "browser_manager", "spawn_browser",
+                f"Browser {instance_id} has no process to track"
+            )
 
-            await self._configure_tab(tab, options)
-            await self._setup_dynamic_hooks(tab, instance_id)
-
-            async with self._lock:
-                self._instances[instance_id] = {
-                    'browser': browser,
-                    'tab': tab,
-                    'instance': instance,
-                    'options': options,
-                    'network_data': []
-                }
-
-            instance.state = BrowserState.READY
-            instance.update_activity()
-
-            persistent_storage.store_instance(instance_id, {
-                'state': instance.state.value,
-                'created_at': instance.created_at.isoformat(),
-                'current_url': getattr(tab, 'url', ''),
-                'title': 'Browser Instance'
-            })
-
-        except Exception as e:
-            instance.state = BrowserState.ERROR
-            raise Exception(f"Failed to spawn browser: {str(e)}")
-
-        return instance
+        return browser, tab, used_background
 
     # ------------------------------------------------------------------
     # Background launch helpers
@@ -399,6 +500,137 @@ class BrowserManager:
             debug_logger.log_error("browser_manager", "close_instance", e)
             return False
 
+    async def _reconnect_tab(self, instance_id: str, data: dict) -> Optional[Tab]:
+        """
+        Attempt to reconnect to a browser whose CDP WebSocket dropped.
+
+        The Chrome process often survives even when the WebSocket connection
+        is lost (e.g. heavy SPA JS overwhelmed the event loop, macOS
+        sleep/wake, or site-triggered disconnection). This method:
+
+        1. Checks if the Chrome process is still alive
+        2. Fetches the current tab list from Chrome's HTTP debug endpoint
+        3. Creates a fresh WebSocket connection to the first page target
+        4. Re-injects stealth patches and updates the stored tab reference
+
+        Returns the reconnected Tab, or None if reconnection failed.
+        """
+        browser = data['browser']
+        options = data.get('options')
+
+        # Check the browser process is still alive
+        if not self._is_browser_alive(browser, instance_id):
+            debug_logger.log_info(
+                "browser_manager", "_reconnect_tab",
+                f"Browser process dead for {instance_id} — cannot reconnect"
+            )
+            return None
+
+        try:
+            host = browser.config.host or "127.0.0.1"
+            port = browser.config.port
+            if not port:
+                return None
+
+            debug_logger.log_info(
+                "browser_manager", "_reconnect_tab",
+                f"Attempting CDP reconnect to {host}:{port} for {instance_id}"
+            )
+
+            # Fetch available targets from Chrome's JSON debug endpoint
+            import urllib.request
+            req = urllib.request.Request(f"http://{host}:{port}/json/list")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                targets = json.loads(resp.read().decode())
+
+            # Find a page target to reconnect to
+            page_target = None
+            for t in targets:
+                if t.get("type") == "page":
+                    page_target = t
+                    break
+
+            if not page_target:
+                debug_logger.log_warning(
+                    "browser_manager", "_reconnect_tab",
+                    f"No page targets found on {host}:{port}"
+                )
+                return None
+
+            ws_url = page_target.get("webSocketDebuggerUrl")
+            if not ws_url:
+                return None
+
+            # Create a new Tab connected to the existing page
+            import nodriver.cdp as cdp
+            target_info = cdp.target.TargetInfo(
+                target_id=cdp.target.TargetID(page_target["id"]),
+                type_=page_target.get("type", "page"),
+                title=page_target.get("title", ""),
+                url=page_target.get("url", ""),
+                attached=False,
+                can_access_opener=False,
+            )
+
+            new_tab = Tab(ws_url, target=target_info, browser=browser)
+            await new_tab.connect()
+
+            # Re-inject stealth patches
+            await self._configure_tab(new_tab, options or BrowserOptions())
+
+            # Update stored references
+            async with self._lock:
+                if instance_id in self._instances:
+                    self._instances[instance_id]['tab'] = new_tab
+                    instance = self._instances[instance_id]['instance']
+                    instance.state = BrowserState.READY
+                    instance.update_activity()
+
+            debug_logger.log_info(
+                "browser_manager", "_reconnect_tab",
+                f"CDP reconnected successfully for {instance_id}"
+            )
+            return new_tab
+
+        except Exception as e:
+            debug_logger.log_warning(
+                "browser_manager", "_reconnect_tab",
+                f"Reconnection failed for {instance_id}: {e}"
+            )
+            return None
+
+    @staticmethod
+    def _is_browser_alive(browser, instance_id: str) -> bool:
+        """Check if the Chrome process is still running."""
+        # Check via subprocess handle
+        if hasattr(browser, '_process') and browser._process:
+            if browser._process.returncode is None:
+                return True
+            return False
+
+        # Check via tracked PID
+        if hasattr(browser, '_process_pid') and browser._process_pid:
+            try:
+                import os
+                os.kill(browser._process_pid, 0)  # Signal 0 = alive check
+                return True
+            except (ProcessLookupError, PermissionError):
+                return False
+
+        # Check via process_cleanup tracker
+        tracked = process_cleanup.get_tracked_processes()
+        pid = tracked.get(instance_id)
+        if pid:
+            try:
+                import os
+                os.kill(pid, 0)
+                return True
+            except (ProcessLookupError, PermissionError):
+                return False
+
+        # No process info available — assume alive and let reconnect attempt
+        return True
+
     async def get_tab(self, instance_id: str) -> Optional[Tab]:
         """
         Get the main tab for a browser instance.
@@ -408,6 +640,9 @@ class BrowserManager:
         navigation in progress after form submission where the old page
         context is torn down but the new one hasn't loaded yet).
 
+        If the CDP WebSocket has dropped but the Chrome process is still
+        alive, attempts automatic reconnection before giving up.
+
         Args:
             instance_id (str): The ID of the browser instance.
 
@@ -415,7 +650,8 @@ class BrowserManager:
             Optional[Tab]: The main tab if found and connected, else None.
 
         Raises:
-            Exception: If the CDP connection has dropped after retries.
+            Exception: If the CDP connection has dropped after retries
+                and reconnection also failed.
         """
         data = await self.get_instance(instance_id)
         if not data:
@@ -442,7 +678,7 @@ class BrowserManager:
                 return tab  # Connection is alive
             except (OSError, ConnectionError) as e:
                 # Hard connection errors (socket refused, pipe broken) —
-                # browser process likely crashed, no point retrying
+                # WebSocket dropped, but Chrome process may still be alive
                 last_error = e
                 break
             except asyncio.TimeoutError as e:
@@ -456,10 +692,27 @@ class BrowserManager:
                 # the connection itself is still alive.
                 return tab
 
+        # --- CDP connection lost — attempt reconnection ---
         debug_logger.log_warning(
             "browser_manager", "get_tab",
-            f"CDP connection lost for instance {instance_id}: {last_error}"
+            f"CDP connection lost for {instance_id}: {last_error} — attempting reconnect"
         )
+
+        reconnected_tab = await self._reconnect_tab(instance_id, data)
+        if reconnected_tab:
+            # Verify the reconnected tab works
+            try:
+                await asyncio.wait_for(
+                    reconnected_tab.evaluate("1"),
+                    timeout=5.0,
+                )
+                return reconnected_tab
+            except Exception as e:
+                debug_logger.log_warning(
+                    "browser_manager", "get_tab",
+                    f"Reconnected tab failed verification: {e}"
+                )
+
         # Mark instance as errored so the caller knows to respawn
         instance = data.get('instance')
         if instance:

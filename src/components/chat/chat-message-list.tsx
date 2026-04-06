@@ -76,7 +76,12 @@ export function ChatMessageList({ sending, projectId }: ChatMessageListProps) {
       conversationId: activeConvId ?? "",
       role: "assistant",
       content: fixSplitNegatives(
-        streamingText.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, ""),
+        streamingText
+          .replace(/<tool_call\b[^>]*>[\s\S]*?(<\/tool_call>|$)/g, "")
+          .replace(/<tool_result\b[^>]*>[\s\S]*?(<\/tool_result>|$)/g, "")
+          .replace(/\[Tool results from above\]\s*/g, "")
+          .replace(/Continue your response based on the tool results above\.\s*/g, "")
+          .replace(/^\s*(?:Assistant|User):\s*/gm, ""),
       ),
       toolCalls: null,
       toolResults: null,

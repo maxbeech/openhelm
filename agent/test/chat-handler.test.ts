@@ -828,4 +828,48 @@ describe("handleChatMessage — streaming sanitizer (Issue 3 fix)", () => {
     expect(streamedText).not.toContain("<tool_call>");
     expect(streamedText).toContain("Some text");
   });
+
+  it("strips <tool_result> blocks and framing markers echoed from the prompt", async () => {
+    callLlmViaCliMock.mockImplementationOnce(async (config: Record<string, unknown>) => {
+      const onTextChunk = config.onTextChunk as (text: string) => void;
+      // Simulate the LLM echoing the tool-exchange framing back as its response
+      // (what happens in multi-iteration tool loops when haiku regurgitates).
+      onTextChunk('Now let me pull the current jobs.\n[Tool results from above] ');
+      onTextChunk('<tool_result id="abc-123" tool="list_jobs">\n[{"id":"job1","name":"Test"}]\n');
+      onTextChunk('</tool_result>\nContinue your response based on the tool results above.\n');
+      onTextChunk('Here is what I found.');
+      return { text: 'Now let me pull the current jobs. Here is what I found.', sessionId: null };
+    });
+
+    await handleChatMessage(projectId, "Test tool_result stripping");
+
+    const streamedText = getStreamedText();
+    expect(streamedText).not.toContain("<tool_result");
+    expect(streamedText).not.toContain("</tool_result>");
+    expect(streamedText).not.toContain("[Tool results from above]");
+    expect(streamedText).not.toContain("Continue your response based on the tool results above");
+    expect(streamedText).not.toContain('"list_jobs"');
+    expect(streamedText).toContain("Now let me pull the current jobs.");
+    expect(streamedText).toContain("Here is what I found.");
+  });
+
+  it("strips <tool_result> blocks split across chunks mid-tag", async () => {
+    callLlmViaCliMock.mockImplementationOnce(async (config: Record<string, unknown>) => {
+      const onTextChunk = config.onTextChunk as (text: string) => void;
+      // Opening tag split across chunks
+      onTextChunk("Before <tool_re");
+      onTextChunk('sult id="x" tool="y">dat');
+      onTextChunk("a</tool_result>After");
+      return { text: "Before After", sessionId: null };
+    });
+
+    await handleChatMessage(projectId, "Test tool_result split");
+
+    const streamedText = getStreamedText();
+    expect(streamedText).not.toContain("<tool_result");
+    expect(streamedText).not.toContain("</tool_result>");
+    expect(streamedText).not.toContain("data");
+    expect(streamedText).toContain("Before");
+    expect(streamedText).toContain("After");
+  });
 });

@@ -32,6 +32,23 @@ STEALTH_CHROME_ARGS: List[str] = [
     "--disable-blink-features=AutomationControlled",
     "--disable-infobars",
     "--disable-features=ChromeWhatsNewUI",
+    # Disable background throttling — prevents CDP timeouts on inactive tabs
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    # Reduce memory pressure on heavy SPAs (prevents CDP socket drops)
+    "--disable-features=TranslateUI",
+    "--disable-ipc-flooding-protection",
+    # Disable hang monitor that can kill unresponsive renderers
+    "--disable-hang-monitor",
+    # Prevent renderer crashes on heavy anti-bot pages (CAPTCHA, etc.)
+    "--disable-gpu",
+    "--disable-software-rasterizer",
+    "--disable-dev-shm-usage",
+    # Increase shared memory limit for large pages
+    "--disable-features=VizDisplayCompositor",
+    # Keep CDP connection alive during heavy page loads
+    "--enable-features=NetworkServiceInProcess",
 ]
 
 
@@ -223,6 +240,116 @@ STEALTH_SCRIPT = """
           return arr;
         },
         enumerable: true, configurable: true,
+      });
+    }
+  } catch (e) {}
+
+  // ── 7. Remove cdc_ variables (Chrome DevTools marker) ─────────────────
+  // Chromedriver injects window.cdc_adoQpoasnfa76pfcZLmcfl_* variables.
+  // nodriver doesn't set these, but some anti-bot scripts check for any
+  // window property starting with "cdc_" as a blanket CDP detection.
+  try {
+    var cdcKeys = Object.keys(window).filter(function (k) {
+      return k.startsWith('cdc_') || k.startsWith('$cdc_');
+    });
+    cdcKeys.forEach(function (k) { delete window[k]; });
+
+    // Prevent future cdc_ properties from being set
+    var _origDefProp = Object.defineProperty;
+    Object.defineProperty = function (obj, prop, desc) {
+      if (obj === window && typeof prop === 'string' &&
+          (prop.startsWith('cdc_') || prop.startsWith('$cdc_'))) {
+        return obj; // silently ignore
+      }
+      return _origDefProp.call(Object, obj, prop, desc);
+    };
+    Object.defineProperty.toString = _origDefProp.toString.bind(_origDefProp);
+  } catch (e) {}
+
+  // ── 8. navigator.userAgentData mock ───────────────────────────────────
+  // Modern Chrome exposes NavigatorUAData. Automated Chrome may report
+  // unexpected values or omit brands.  Normalise to match real Chrome.
+  try {
+    if (navigator.userAgentData) {
+      var _origGetHEV = navigator.userAgentData.getHighEntropyValues;
+      navigator.userAgentData.getHighEntropyValues = function (hints) {
+        return _origGetHEV.call(navigator.userAgentData, hints).then(function (values) {
+          // Ensure "Google Chrome" brand is present
+          if (values.brands && !values.brands.some(function (b) {
+            return b.brand === 'Google Chrome';
+          })) {
+            values.brands.push({ brand: 'Google Chrome', version: values.uaFullVersion || '136' });
+          }
+          return values;
+        });
+      };
+      navigator.userAgentData.getHighEntropyValues.toString = function () {
+        return 'function getHighEntropyValues() { [native code] }';
+      };
+    }
+  } catch (e) {}
+
+  // ── 9. Error.stack sanitisation ───────────────────────────────────────
+  // CDP evaluation wraps code in an internal function whose path leaks
+  // in Error.stack traces (e.g. "puppeteer_evaluation_script" or
+  // ":Runtime.evaluate").  Anti-bot scripts create errors and inspect
+  // their stacks.  We override Error.prepareStackTrace to strip these.
+  try {
+    var _origPrepare = Error.prepareStackTrace;
+    Error.prepareStackTrace = function (error, stack) {
+      var filtered = stack.filter(function (frame) {
+        var fn = frame.getFileName() || '';
+        return fn.indexOf('puppeteer') === -1 &&
+               fn.indexOf('__puppeteer') === -1 &&
+               fn.indexOf('Runtime.evaluate') === -1 &&
+               fn.indexOf('devtools') === -1 &&
+               fn.indexOf('__cdp') === -1;
+      });
+      if (_origPrepare) {
+        return _origPrepare(error, filtered);
+      }
+      return error + '\\n' + filtered.map(function (f) {
+        return '    at ' + f.toString();
+      }).join('\\n');
+    };
+  } catch (e) {}
+
+  // ── 10. Prevent CDP detection via iframe contentWindow ────────────────
+  // Some sites create iframes and check contentWindow.chrome.runtime
+  // or similar properties in the iframe context.
+  try {
+    var _origCreate = document.createElement.bind(document);
+    document.createElement = function () {
+      var el = _origCreate.apply(document, arguments);
+      if (arguments[0] && arguments[0].toLowerCase() === 'iframe') {
+        var _origAppend = el.__proto__.appendChild || Node.prototype.appendChild;
+        // Re-inject stealth into iframe contentWindow after it loads
+        el.addEventListener('load', function () {
+          try {
+            if (el.contentWindow && el.contentWindow.chrome &&
+                el.contentWindow.chrome.runtime === undefined) {
+              el.contentWindow.chrome.runtime = window.chrome.runtime;
+            }
+          } catch (e) {} // cross-origin will throw, that's fine
+        });
+      }
+      return el;
+    };
+    document.createElement.toString = _origCreate.toString.bind(_origCreate);
+  } catch (e) {}
+
+  // ── 11. Window.outerWidth/outerHeight alignment ───────────────────────
+  // Headless or automated Chrome may report outerWidth == innerWidth
+  // (no chrome UI). Real browsers have ~100px difference for window chrome.
+  try {
+    if (window.outerWidth === window.innerWidth) {
+      Object.defineProperty(window, 'outerWidth', {
+        get: function () { return window.innerWidth + 15; },
+        configurable: true,
+      });
+      Object.defineProperty(window, 'outerHeight', {
+        get: function () { return window.innerHeight + 85; },
+        configurable: true,
       });
     }
   } catch (e) {}

@@ -105,6 +105,7 @@ export function runClaudeCode(
     let capturedSessionId: string | null = null;
     let capturedInputTokens: number | null = null;
     let capturedOutputTokens: number | null = null;
+    let capturedRateLimitUtilization: number | null = null;
 
     const cleanup = () => {
       if (timeoutTimer) clearTimeout(timeoutTimer);
@@ -123,6 +124,7 @@ export function runClaudeCode(
         sessionId: capturedSessionId,
         inputTokens: capturedInputTokens,
         outputTokens: capturedOutputTokens,
+        rateLimitUtilization: capturedRateLimitUtilization,
       });
     };
 
@@ -143,6 +145,9 @@ export function runClaudeCode(
       const parsed = parseStreamLine(line);
       if (parsed) {
         if (parsed.sessionId) capturedSessionId = parsed.sessionId;
+        if (parsed.rateLimitUtilization != null) {
+          capturedRateLimitUtilization = parsed.rateLimitUtilization;
+        }
         // Input tokens: always overwrite — each assistant event's input_tokens
         // is cumulative (includes all prior context), so the last value is correct.
         if (parsed.inputTokens != null) capturedInputTokens = parsed.inputTokens;
@@ -157,10 +162,16 @@ export function runClaudeCode(
         }
         // Skip the result event text — it duplicates content already shown in
         // the assistant turn and is surfaced separately as the run summary.
+        // EXCEPTION: error-results (is_error=true) carry the actual failure
+        // message ("Prompt is too long", "API Error …") and are NOT present
+        // in any assistant turn, so we forward them to stderr so they land in
+        // RunLog and drive summary + resume-decision logic downstream.
         if (parsed.text && !parsed.isResult) {
           config.onLogChunk("stdout", parsed.text);
           // Record for silence timeout context (no pattern matching)
           interactiveDetector.processLine(parsed.text);
+        } else if (parsed.isResult && parsed.isError && parsed.text) {
+          config.onLogChunk("stderr", `Claude Code error: ${parsed.text}`);
         }
       }
     });

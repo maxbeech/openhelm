@@ -64,7 +64,7 @@ export function DashboardInsightsSection({ collapsed = false, onToggle }: Props)
     for (const t of targets) {
       const ev = getEval(t.id);
       if (ev) result.push({ target: t, evaluation: ev });
-      if (result.length >= 3) break;
+      if (result.length >= 30) break;
     }
     return result;
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -177,13 +177,13 @@ function GoalTargetGroup({ goal, allGoals, targetsByGoal, getEval, depth = 0 }: 
   return (
     <div className="mb-4" style={{ paddingLeft: depth * 12 }}>
       <p className="text-xs font-medium mb-2">{goal.name}</p>
-      <div className="space-y-1 pl-1">
+      <div className="space-y-2 pl-1">
         {goalTargets.map((t) => {
           const evaluation = getEval(t.id);
           return evaluation ? (
-            <div key={t.id} className="flex items-center gap-3 py-2">
-              <span className="text-xs text-muted-foreground w-28 shrink-0 truncate">{t.label ?? "Target"}</span>
-              <div className="flex-1"><TargetProgressBar evaluation={evaluation} compact /></div>
+            <div key={t.id} className="rounded-md border border-border/50 px-3 py-3 space-y-1.5">
+              <span className="text-xs font-medium text-foreground">{t.label ?? "Target"}</span>
+              <TargetProgressBar evaluation={evaluation} />
             </div>
           ) : null;
         })}

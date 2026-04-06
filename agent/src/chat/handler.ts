@@ -156,30 +156,96 @@ export async function handleChatMessage(
   let toolExchange = "";
   let finalTextSegments: string[] = [];
 
-  // Stateful streaming sanitizer — buffers text while inside a <tool_call> block
-  // so that blocks spanning multiple chunks never leak to the UI.
-  // State (streamBuffer, insideToolCall) persists across chunk calls because the
-  // LLM may split an opening or closing tag across two consecutive chunks.
+  // Stateful streaming sanitizer — buffers text while inside a <tool_call> or
+  // <tool_result> block so that blocks spanning multiple chunks never leak to
+  // the UI. State persists across chunk calls because the LLM may split an
+  // opening or closing tag across two consecutive chunks. We also strip the
+  // tool-exchange framing markers (`[Tool results from above]`, `Continue your
+  // response...`, `Assistant: `/`User: ` role prefixes) that the LLM sometimes
+  // echoes back verbatim from the prompt in multi-iteration tool loops.
+  const SUPPRESSED_TAGS = ["tool_call", "tool_result"] as const;
+  type SuppressedTag = typeof SUPPRESSED_TAGS[number];
+  // Line markers we strip out whenever they appear in streamed text.
+  // NOTE: The role-prefix regex only strips "Assistant:" at the very start of
+  // a chunk (no `m` flag) to avoid clobbering legitimate response lines that
+  // begin with "User:" or "Assistant:" as content (e.g. OAuth explanations,
+  // quoted dialogue). The LLM echo-back of these prefixes always appears at
+  // position 0 of the first streamed chunk, so start-of-string matching is
+  // sufficient.
+  const STRIP_MARKERS = [
+    /\[Tool results from above\]\s*/g,
+    /Continue your response based on the tool results above\.\s*/g,
+    /^\s*(?:Assistant|User):\s*/,
+  ];
   let streamBuffer = "";
-  let insideToolCall = false;
+  let insideTag: SuppressedTag | null = null;
+
+  function stripMarkers(text: string): string {
+    let out = text;
+    for (const re of STRIP_MARKERS) out = out.replace(re, "");
+    return out;
+  }
+
+  /**
+   * If the tail of `text` could be the start of any opening tag we suppress
+   * (e.g. `<tool_ca`, `<t`), return the index to split at so the prefix can be
+   * emitted safely while the suspicious tail is held back. Returns text.length
+   * when nothing needs to be held back.
+   */
+  function safeEmitLength(text: string): number {
+    const lastLt = text.lastIndexOf("<");
+    if (lastLt === -1) return text.length;
+    const tail = text.slice(lastLt);
+    for (const tag of SUPPRESSED_TAGS) {
+      const opener = `<${tag}`;
+      // Tail is a prefix of `<tag` (partial tag that may complete next chunk)
+      if (opener.startsWith(tail)) return lastLt;
+      // Tail starts with `<tag` but hasn't closed the `>` yet
+      if (tail.startsWith(opener) && !tail.includes(">")) return lastLt;
+    }
+    return text.length;
+  }
 
   function sanitizeStreamChunk(text: string): string {
     let output = "";
     streamBuffer += text;
     while (streamBuffer.length > 0) {
-      if (insideToolCall) {
-        const closeIdx = streamBuffer.indexOf("</tool_call>");
+      if (insideTag) {
+        const closeTag = `</${insideTag}>`;
+        const closeIdx = streamBuffer.indexOf(closeTag);
         if (closeIdx === -1) { break; }
-        streamBuffer = streamBuffer.slice(closeIdx + "</tool_call>".length);
-        insideToolCall = false;
-        // Insert space so text around stripped tool_call blocks doesn't run together
+        streamBuffer = streamBuffer.slice(closeIdx + closeTag.length);
+        insideTag = null;
+        // Insert space so text around stripped blocks doesn't run together
         if (streamBuffer.length > 0) output += " ";
       } else {
-        const openIdx = streamBuffer.indexOf("<tool_call>");
-        if (openIdx === -1) { output += streamBuffer; streamBuffer = ""; break; }
-        output += streamBuffer.slice(0, openIdx);
-        streamBuffer = streamBuffer.slice(openIdx + "<tool_call>".length);
-        insideToolCall = true;
+        // Find the earliest fully-formed opening tag (with closing `>`).
+        let bestIdx = -1;
+        let bestTag: SuppressedTag | null = null;
+        let bestOpenEnd = -1;
+        for (const tag of SUPPRESSED_TAGS) {
+          const opener = `<${tag}`;
+          const idx = streamBuffer.indexOf(opener);
+          if (idx === -1) continue;
+          const closeIdx = streamBuffer.indexOf(">", idx + opener.length);
+          if (closeIdx === -1) continue;
+          if (bestIdx === -1 || idx < bestIdx) {
+            bestIdx = idx;
+            bestTag = tag;
+            bestOpenEnd = closeIdx;
+          }
+        }
+        if (bestIdx === -1) {
+          // No fully-formed opener. Emit what's safe, hold back any partial
+          // tag at the tail for the next chunk.
+          const emitLen = safeEmitLength(streamBuffer);
+          output += stripMarkers(streamBuffer.slice(0, emitLen));
+          streamBuffer = streamBuffer.slice(emitLen);
+          break;
+        }
+        output += stripMarkers(streamBuffer.slice(0, bestIdx));
+        streamBuffer = streamBuffer.slice(bestOpenEnd + 1);
+        insideTag = bestTag;
       }
     }
     return output;
@@ -202,7 +268,7 @@ export async function handleChatMessage(
     }
     // Reset stream buffer state for each LLM iteration
     streamBuffer = "";
-    insideToolCall = false;
+    insideTag = null;
     iterStreamedText = "";
     const userMessage = buildLlmUserMessage(history, content, toolExchange || undefined);
     if (abortSignal?.aborted) throw new Error("Chat cancelled by user");
@@ -242,6 +308,21 @@ export async function handleChatMessage(
         emit("chat.status", { status: "reading", tools: [toolName], projectId, conversationId: convId });
       },
     });
+    // Flush any text held back in the stream buffer (e.g. a partial tag at the
+    // end of the stream that was never closed). Without this, legitimate text
+    // after an unclosed suppressed tag is silently dropped.
+    if (streamBuffer.length > 0) {
+      const residualStart = insideTag ? streamBuffer.indexOf(`<${insideTag}`) : streamBuffer.length;
+      const residual = residualStart > 0 ? stripMarkers(streamBuffer.slice(0, residualStart)) : "";
+      if (residual) {
+        iterStreamedText += residual;
+        const newFull = fullStreamedText + iterStreamedText;
+        emit("chat.streaming", { fullText: newFull, projectId, conversationId: convId });
+      }
+      streamBuffer = "";
+      insideTag = null;
+    }
+
     const rawResponse = llmResult.text;
     if (!sessionId && llmResult.sessionId) sessionId = llmResult.sessionId;
     const parsed = parseLlmResponse(rawResponse);

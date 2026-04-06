@@ -146,6 +146,11 @@ export function updateDataTable(params: UpdateDataTableParams): DataTable {
 
 export function deleteDataTable(id: string): boolean {
   const db = getDb();
+  // System data tables cannot be deleted (Autopilot Rules, Autopilot Metrics, etc.)
+  const table = getDataTable(id);
+  if (table?.isSystem) {
+    throw new Error("Cannot delete a system data table");
+  }
   const result = db.delete(dataTables).where(eq(dataTables.id, id)).run();
   return result.changes > 0;
 }
