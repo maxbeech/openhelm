@@ -97,7 +97,19 @@ export class Scheduler {
 
       // ── 1. Enqueue due jobs (scheduled runs) ──
       const dueJobs = listDueJobs();
+      const lowTokenActiveForJobs = getSetting("low_token_mode")?.value === "true";
       for (const job of dueJobs) {
+        // Low token mode: skip autopilot system jobs (user-created jobs still run)
+        if (lowTokenActiveForJobs && job.source === "system") {
+          console.error(`[scheduler] low token mode — skipping system job ${job.id} (${job.name})`);
+          // Still advance nextFireAt so the job doesn't fire in a burst when mode is disabled
+          const now = new Date();
+          const normalNext = computeNextFireAt(job.scheduleType, job.scheduleConfig, now);
+          const nextFireAt = applyLowTokenModeToNextFireAt(normalNext, now);
+          updateJobNextFireAt(job.id, nextFireAt);
+          continue;
+        }
+
         // Budget guard for system jobs: skip if over 20% of goal's user token usage
         if (job.source === "system" && job.goalId) {
           const systemUsage = getSystemTokenUsageForGoal(job.goalId);

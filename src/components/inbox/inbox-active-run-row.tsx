@@ -1,4 +1,6 @@
+import { useCallback } from "react";
 import { cn } from "@/lib/utils";
+import { useAppStore } from "@/stores/app-store";
 import type { ActiveRun } from "@/hooks/use-active-runs";
 
 interface Props {
@@ -13,9 +15,17 @@ export function InboxActiveRunRow({ activeRun }: Props) {
   const { run, job } = activeRun;
   const isQueued = run.status === "queued";
   const jobName = job?.name ?? "Running job";
+  const { selectRun } = useAppStore();
+
+  const handleClick = useCallback(() => {
+    selectRun(run.id, run.jobId);
+  }, [run.id, run.jobId, selectRun]);
 
   return (
-    <div className="flex items-center gap-2.5 rounded-md px-3 py-2 transition-colors hover:bg-accent/30">
+    <div
+      className="flex cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 transition-colors hover:bg-accent/30"
+      onClick={handleClick}
+    >
       {/* Pulsing blue circle */}
       <div className="relative shrink-0 mt-0.5">
         <div

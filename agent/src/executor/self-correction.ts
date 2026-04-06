@@ -71,6 +71,12 @@ export async function attemptSelfCorrection(
     return { attempted: false, reason: "Autopilot is off — self-correction disabled" };
   }
 
+  // 1a. Low token mode disables retries to conserve token budget
+  const lowTokenMode = getSetting("low_token_mode");
+  if (lowTokenMode?.value === "true") {
+    return { attempted: false, reason: "Low token mode is active — retries disabled to conserve budget" };
+  }
+
   // 2. Check correction chain depth — respect max retries setting
   const failedRun = getRun(failedRunId);
   if (!failedRun) {
