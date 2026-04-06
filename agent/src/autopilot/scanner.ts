@@ -75,7 +75,7 @@ class AutopilotScanner {
 
   /**
    * Restart the recurring interval with the current setting value.
-   * Call this after the user changes `captain_interval_minutes`.
+   * Call this after the user changes `autopilot_scan_interval_minutes`.
    */
   updateInterval(): void {
     if (!this._started) return;
@@ -109,7 +109,7 @@ class AutopilotScanner {
           console.error(`[autopilot] scan failed for project ${project.id}:`, err);
         }
       }
-      emit("captain.scanComplete", { timestamp: new Date().toISOString() });
+      emit("autopilot.scanComplete", { timestamp: new Date().toISOString() });
     } catch (err) {
       console.error("[autopilot] scan error:", err);
     } finally {
@@ -182,7 +182,7 @@ class AutopilotScanner {
 
   /** Get the scan interval from settings (default 30 min). */
   private getIntervalMs(): number {
-    const setting = getSetting("captain_interval_minutes");
+    const setting = getSetting("autopilot_scan_interval_minutes");
     if (setting?.value) {
       const mins = parseInt(setting.value, 10);
       if (!Number.isNaN(mins) && mins >= 15) {

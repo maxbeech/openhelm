@@ -43,7 +43,7 @@ export function registerSettingHandlers() {
     }
 
     // React to scanner interval change — restart the scanner timer immediately
-    if (p.key === "captain_interval_minutes") {
+    if (p.key === "autopilot_scan_interval_minutes") {
       autopilotScanner.updateInterval();
     }
 

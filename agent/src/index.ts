@@ -3,13 +3,12 @@ import type { IpcRequest } from "@openhelm/shared";
 import { handleRequest } from "./ipc/handler.js";
 import { registerAllHandlers } from "./ipc/handlers/index.js";
 import { initDatabase } from "./db/init.js";
-import { deleteSetting } from "./db/queries/settings.js";
+import { deleteSetting, getSetting, setSetting } from "./db/queries/settings.js";
 import { emit, send } from "./ipc/emitter.js";
 import { startDevServer } from "./ipc/dev-server.js";
 import { detectClaudeCode } from "./claude-code/detector.js";
 import { scheduler } from "./scheduler/index.js";
 import { executor } from "./executor/index.js";
-import { getSetting } from "./db/queries/settings.js";
 import { initAgentSentry, captureAgentError } from "./sentry.js";
 import { initPowerManagement, shutdownPowerManagement } from "./power/index.js";
 import { startPeriodicVerifier, stopPeriodicVerifier } from "./license/periodic-verifier.js";
@@ -47,6 +46,24 @@ try {
   deleteSetting("anthropic_api_key" as any);
 } catch {
   // Ignore — key may not exist
+}
+
+// 1b2. Migrate legacy captain_ settings to autopilot_ (non-fatal, idempotent)
+try {
+  const settingMigrations = [
+    ["captain_interval_minutes", "autopilot_scan_interval_minutes"],
+    ["captain_investigation_cooldowns", "autopilot_investigation_cooldowns"],
+    ["captain_last_snapshot", "autopilot_last_snapshot"],
+  ] as const;
+  for (const [oldKey, newKey] of settingMigrations) {
+    const existing = getSetting(oldKey as any);
+    if (existing?.value) {
+      setSetting(newKey, existing.value);
+      deleteSetting(oldKey as any);
+    }
+  }
+} catch (err) {
+  console.error("[agent] captain settings migration failed (non-fatal):", err);
 }
 
 // 1c. Initialize Sentry (non-fatal — reads analytics_enabled setting from DB)

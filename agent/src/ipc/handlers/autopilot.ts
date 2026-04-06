@@ -121,7 +121,7 @@ export function registerAutopilotHandlers() {
   });
 
   registerHandler("autopilot.getStatus", () => {
-    const intervalSetting = getSetting("captain_interval_minutes");
+    const intervalSetting = getSetting("autopilot_scan_interval_minutes");
     const intervalMinutes = intervalSetting?.value
       ? parseInt(intervalSetting.value, 10) || 30
       : 30;

@@ -339,7 +339,7 @@ const EVENT_HANDLERS: Record<string, HandlerFn> = {
     });
   },
 
-  "captain.scanComplete": (data) => {
+  "autopilot.scanComplete": (data) => {
     const insights = data.insights as unknown[] | undefined;
     if (!insights || insights.length === 0) return;
     const base = getBaseImportance("insight.captain_insight");

@@ -22,7 +22,7 @@ interface CooldownMap {
 }
 
 function getCooldownMap(): CooldownMap {
-  const setting = getSetting("captain_investigation_cooldowns");
+  const setting = getSetting("autopilot_investigation_cooldowns");
   if (!setting?.value) return {};
   try {
     return JSON.parse(setting.value) as CooldownMap;
@@ -34,7 +34,7 @@ function getCooldownMap(): CooldownMap {
 function setCooldown(metricColumn: string, projectId: string): void {
   const map = getCooldownMap();
   map[`${metricColumn}:${projectId}`] = Date.now();
-  setSetting("captain_investigation_cooldowns", JSON.stringify(map));
+  setSetting("autopilot_investigation_cooldowns", JSON.stringify(map));
 }
 
 /** Check if an investigation was recently spawned for this metric. */

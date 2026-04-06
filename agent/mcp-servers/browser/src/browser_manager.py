@@ -210,6 +210,14 @@ class BrowserManager:
         browser = await uc.start(config=config)
         tab = browser.main_tab
 
+        # Inject stealth ASAP — before any navigation can happen.
+        # _configure_tab() also calls inject_stealth() but that runs later;
+        # this early call ensures patches are registered immediately.
+        try:
+            await inject_stealth(tab)
+        except Exception:
+            pass  # Will retry in _configure_tab
+
         # --- Process tracking ---
         if used_background:
             pid = await find_pid_on_port(config.port, retries=15, delay=0.3)

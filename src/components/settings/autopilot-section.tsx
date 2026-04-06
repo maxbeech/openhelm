@@ -31,7 +31,7 @@ export function AutopilotSection() {
     Promise.all([
       api.getSetting("autopilot_mode"),
       api.getSetting("max_correction_retries"),
-      api.getSetting("captain_interval_minutes" as any),
+      api.getSetting("autopilot_scan_interval_minutes"),
     ]).then(([autopilot, retries, interval]) => {
       if (autopilot?.value) setMode(autopilot.value as AutopilotMode);
       if (retries?.value) setMaxRetries(retries.value);
@@ -78,7 +78,7 @@ export function AutopilotSection() {
               value={captainInterval}
               onValueChange={(v) => {
                 setCaptainInterval(v);
-                api.setSetting({ key: "captain_interval_minutes" as any, value: v });
+                api.setSetting({ key: "autopilot_scan_interval_minutes", value: v });
               }}
             >
               <SelectTrigger className="w-32">
