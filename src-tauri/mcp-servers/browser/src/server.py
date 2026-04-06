@@ -41,6 +41,7 @@ from platform_utils import validate_browser_environment, get_platform_info
 from process_cleanup import process_cleanup
 from tool_timeout import with_timeout
 from captcha_detector import CaptchaDetector
+import captcha_llm_fallback
 from intervention import write_intervention_request
 import profile_manager as _pm
 
@@ -3170,10 +3171,22 @@ async def detect_captcha(instance_id: str) -> Dict[str, Any]:
 
     Returns:
         Dict with: detected (bool), captcha_type, selectors, is_blocking,
-        auto_solve_hint, details
+        auto_solve_hint, url_suspicious, details
     """
     tab = await browser_manager.get_tab(instance_id)
-    return await captcha_detector.detect(tab)
+    result = await captcha_detector.detect(tab)
+
+    # Layer 3: LLM vision fallback — only when URL looks suspicious but DOM/body
+    # patterns found nothing (rare case of fully custom challenge page).
+    if not result["detected"] and result.get("url_suspicious"):
+        if await captcha_llm_fallback.check_with_haiku(tab):
+            result["detected"] = True
+            result["captcha_type"] = "unknown_challenge"
+            result["is_blocking"] = True
+            result["auto_solve_hint"] = "unknown"
+            result["captcha_type_source"] = "llm_vision"
+
+    return result
 
 
 @section_tool("intervention")

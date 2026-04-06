@@ -27,6 +27,25 @@ import nodriver as uc
 
 
 # ---------------------------------------------------------------------------
+# Monkey-patch: nodriver 0.47 Cookie.from_json crashes on Chrome 131+
+# because Chrome removed the 'sameParty' field from CDP cookie responses.
+# The original code uses json['sameParty'] (hard access); we patch it to
+# use json.get('sameParty', False) so cookies parse without error.
+# ---------------------------------------------------------------------------
+try:
+    _orig_cookie_from_json = uc.cdp.network.Cookie.from_json.__func__
+
+    @classmethod  # type: ignore[misc]
+    def _patched_cookie_from_json(cls, json):
+        json.setdefault("sameParty", False)
+        return _orig_cookie_from_json(cls, json)
+
+    uc.cdp.network.Cookie.from_json = _patched_cookie_from_json
+except Exception:
+    pass  # If nodriver API changed, skip — the fix isn't needed
+
+
+# ---------------------------------------------------------------------------
 # Chrome launch-arg additions (complement the JS patches at C++ level)
 # ---------------------------------------------------------------------------
 
@@ -43,9 +62,7 @@ STEALTH_CHROME_ARGS: List[str] = [
     "--disable-ipc-flooding-protection",
     # Disable hang monitor that can kill unresponsive renderers
     "--disable-hang-monitor",
-    # Prevent renderer crashes on heavy anti-bot pages (CAPTCHA, etc.)
-    "--disable-gpu",
-    "--disable-software-rasterizer",
+    # Shared memory fallback for containers (harmless on desktop)
     "--disable-dev-shm-usage",
     # Increase shared memory limit for large pages
     "--disable-features=VizDisplayCompositor",
@@ -127,9 +144,16 @@ async def inject_stealth(tab: uc.core.tab.Tab) -> None:
     The script runs before any page script on every navigation in this tab,
     so patches cannot be detected or removed by the page itself.
 
+    IMPORTANT: Page.enable() must be called first — without it, the CDP
+    Page domain is inactive and addScriptToEvaluateOnNewDocument silently
+    registers scripts that never execute.
+
     A fresh random seed is generated per injection so each browser instance
     has a unique but session-stable fingerprint.
     """
+    # Activate the Page domain — required for addScriptToEvaluateOnNewDocument
+    await tab.send(uc.cdp.page.enable())
+
     script = _load_stealth_scripts()
     await tab.send(
         uc.cdp.page.add_script_to_evaluate_on_new_document(script)
