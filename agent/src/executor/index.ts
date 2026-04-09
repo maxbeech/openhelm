@@ -206,6 +206,57 @@ export class Executor {
     }
   }
 
+  /**
+   * Force-execute a specific queued run immediately, bypassing the pause guard.
+   * Used when the user clicks "Run Now Anyway" while the scheduler is paused.
+   * The scheduler stays paused; only this one run is executed.
+   * Returns true if the run was found in the queue and started, false otherwise.
+   */
+  forceRun(runId: string): boolean {
+    const item = jobQueue.dequeueWhere((i) => i.runId === runId);
+    if (!item) return false;
+
+    if (this.activeRuns.size >= this.maxConcurrency) {
+      // Concurrency limit reached — re-enqueue so it runs as soon as a slot opens
+      jobQueue.enqueue(item);
+      return false;
+    }
+
+    const profiles = this.getRequiredProfiles(item.jobId);
+    for (const p of profiles) {
+      this.profileLocks.set(p, item.runId);
+    }
+
+    this.executeRun(item).catch((err) => {
+      console.error(`[executor] unexpected error in forceRun:`, err);
+      captureAgentError(err, { runId: item.runId, jobId: item.jobId });
+      this.activeRuns.delete(item.runId);
+      this.releaseProfileLocks(item.runId);
+      try {
+        const current = getRun(item.runId);
+        if (current?.status === "running") {
+          const finishedAt = new Date().toISOString();
+          updateRun({ id: item.runId, status: "failed", finishedAt });
+          createRunLog({
+            runId: item.runId,
+            stream: "stderr",
+            text: "Run failed due to an internal executor error.",
+          });
+          emit("run.statusChanged", {
+            runId: item.runId,
+            status: "failed",
+            previousStatus: "running",
+            finishedAt,
+            exitCode: null,
+          });
+        }
+      } catch (cleanupErr) {
+        console.error(`[executor] cleanup failed for run ${item.runId}:`, cleanupErr);
+      }
+    });
+    return true;
+  }
+
   /** Cancel a run — removes from queue or aborts the process */
   cancelRun(runId: string): boolean {
     // Check if it's in the queue
@@ -654,8 +705,16 @@ export class Executor {
       console.error("[executor] MCP config generation error (non-fatal):", err);
     }
 
-    // Prepend MCP preambles and build system prompt additions
+    // Prepend MCP preambles and build system prompt additions.
+    // EXECUTION_SYSTEM_PROMPT is always appended — it prevents Claude from
+    // asking "Should I start?" instead of executing immediately.
     let appendSystemPrompt: string | undefined;
+    try {
+      const { EXECUTION_SYSTEM_PROMPT } = await import("../mcp-servers/mcp-config-builder.js");
+      appendSystemPrompt = EXECUTION_SYSTEM_PROMPT;
+    } catch (err) {
+      console.error("[executor] EXECUTION_SYSTEM_PROMPT import error (non-fatal):", err);
+    }
     if (mcpConfigPath) {
       const { BROWSER_MCP_PREAMBLE, BROWSER_CAPTCHA_PREAMBLE, BROWSER_PROFILE_PREAMBLE, DATA_TABLES_MCP_PREAMBLE, BROWSER_SYSTEM_PROMPT, buildBrowserCredentialsNotice } = await import("../mcp-servers/mcp-config-builder.js");
       // Data tables preamble (always available when MCP config exists)
@@ -663,8 +722,8 @@ export class Executor {
       // Browser MCP preamble + system prompt (only when browser venv is ready)
       if (hasBrowserMcp) {
         effectivePrompt = BROWSER_MCP_PREAMBLE + BROWSER_CAPTCHA_PREAMBLE + BROWSER_PROFILE_PREAMBLE + effectivePrompt;
-        // System-level instruction is far more authoritative than user-prompt preamble
-        appendSystemPrompt = BROWSER_SYSTEM_PROMPT;
+        // Append browser rule on top of the execution instruction
+        appendSystemPrompt = (appendSystemPrompt ? appendSystemPrompt + "\n\n" : "") + BROWSER_SYSTEM_PROMPT;
         // Always tell Claude which browser credentials are (or are NOT) loaded
         // for this run. This prevents hallucinating credential names.
         effectivePrompt = buildBrowserCredentialsNotice(resolvedBrowserCredentials) + effectivePrompt;

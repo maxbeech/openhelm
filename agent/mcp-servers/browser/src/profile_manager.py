@@ -150,13 +150,25 @@ def is_profile_locked(name: str) -> bool:
     lp = _lock_path(name)
     if not os.path.exists(lp):
         return False
-    # Stale lock detection: if lock file is older than 2 hours, treat as stale
+    # Stale lock detection: if lock file is older than 10 minutes, treat as stale.
+    # Also treat as stale if the PID recorded in the lock file is no longer alive.
     try:
         mtime = os.path.getmtime(lp)
-        if time.time() - mtime > 7200:
+        if time.time() - mtime > 600:
             os.remove(lp)
             return False
-    except OSError:
+        # Check if the locking process is still alive
+        with open(lp, "r") as f:
+            lock_data = json.load(f)
+        lock_pid = lock_data.get("pid")
+        if lock_pid:
+            try:
+                os.kill(lock_pid, 0)  # Signal 0 = alive check only
+            except (ProcessLookupError, PermissionError):
+                # Process is dead — stale lock
+                os.remove(lp)
+                return False
+    except (OSError, json.JSONDecodeError, KeyError):
         pass
     return True
 

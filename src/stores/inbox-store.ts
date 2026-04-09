@@ -54,6 +54,17 @@ interface InboxState {
   replyContext: { eventId: string; preview: string } | null;
   sending: boolean;
 
+  // Optimistic send tracking: temp event ID pending replacement by real event
+  pendingTempUserMessageId: string | null;
+
+  // Scroll signal: incremented to tell the timeline to scroll to Now
+  scrollToNowToken: number;
+
+  // Inbox conversation ID — used by the timeline to read streaming state from chat store
+  inboxConversationId: string | null;
+  // Whether the AI is currently processing a reply (loading state)
+  inboxAiResponding: boolean;
+
   // Unread tracking (frontend-only, persisted to localStorage)
   unreadCount: number;
   lastReadAt: string | null;
@@ -114,6 +125,10 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   tierLabels: ["All Events"],
   replyContext: null,
   sending: false,
+  pendingTempUserMessageId: null,
+  scrollToNowToken: 0,
+  inboxConversationId: null,
+  inboxAiResponding: false,
   unreadCount: 0,
   lastReadAt: getStoredLastReadAt(),
   topTierMinImportance: 0,
@@ -195,24 +210,70 @@ export const useInboxStore = create<InboxState>((set, get) => ({
 
   sendMessage: async (projectId, content) => {
     const { replyContext } = get();
-    set({ sending: true });
+    const now = new Date().toISOString();
+    const tempId = `temp-${Date.now()}`;
+
+    // Optimistic update: add user message immediately so it appears below Now
+    const tempEvent: InboxEvent = {
+      id: tempId,
+      projectId,
+      category: "chat",
+      eventType: "chat.user_message",
+      importance: 10,
+      title: content.length > 80 ? content.slice(0, 80) + "…" : content,
+      body: content,
+      sourceId: null,
+      sourceType: "message",
+      metadata: {},
+      conversationId: null,
+      replyToEventId: replyContext?.eventId ?? null,
+      status: "active",
+      resolvedAt: null,
+      eventAt: now,
+      createdAt: now,
+    };
+
+    set((s) => ({
+      sending: true,
+      inboxAiResponding: true,
+      pendingTempUserMessageId: tempId,
+      events: insertSorted(s.events, tempEvent),
+      scrollToNowToken: s.scrollToNowToken + 1,
+    }));
+
     try {
-      await api.sendInboxMessage({
+      const result = await api.sendInboxMessage({
         projectId,
         content,
         replyToEventId: replyContext?.eventId,
       });
-      set({ replyContext: null, sending: false });
+      set({ replyContext: null, sending: false, inboxConversationId: result.conversationId });
     } catch {
-      set({ sending: false });
+      // Roll back temp event on failure
+      set((s) => ({
+        sending: false,
+        inboxAiResponding: false,
+        pendingTempUserMessageId: null,
+        events: s.events.filter((e) => e.id !== tempId),
+      }));
     }
   },
 
   addEventToStore: (event) => {
     set((s) => {
-      const events = insertSorted(s.events, event);
+      // When the real user message arrives from the agent, replace the optimistic temp event
+      const tempId = s.pendingTempUserMessageId;
+      const removeTempEvent =
+        tempId !== null && event.eventType === "chat.user_message";
+      const base = removeTempEvent
+        ? s.events.filter((e) => e.id !== tempId)
+        : s.events;
+      const events = insertSorted(base, event);
+      const clearAiResponding = event.eventType === "chat.assistant_message";
       return {
         events,
+        pendingTempUserMessageId: removeTempEvent ? null : tempId,
+        inboxAiResponding: clearAiResponding ? false : s.inboxAiResponding,
         unreadCount: computeUnreadCount(events, s.lastReadAt, s.topTierMinImportance),
       };
     });

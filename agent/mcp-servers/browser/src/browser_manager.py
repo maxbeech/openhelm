@@ -194,12 +194,20 @@ class BrowserManager:
             f"| Background: {options.background} | Browser: {browser_type}"
         )
 
+        browser_args = merge_browser_args()
+        # Tag Chrome with this run's ID so the orphan-scan in
+        # process_cleanup can distinguish this run's browsers from
+        # those of other concurrent runs.
+        run_id = process_cleanup._run_id
+        if run_id:
+            browser_args.append(f"--openhelm-run={run_id}")
+
         config = uc.Config(
             headless=options.headless,
             user_data_dir=options.user_data_dir,
             sandbox=options.sandbox,
             browser_executable_path=browser_executable,
-            browser_args=merge_browser_args()
+            browser_args=browser_args
         )
 
         # --- Two-phase background launch (macOS only) ---
@@ -207,7 +215,10 @@ class BrowserManager:
             config, browser_executable, options
         )
 
-        browser = await uc.start(config=config)
+        try:
+            browser = await asyncio.wait_for(uc.start(config=config), timeout=30.0)
+        except asyncio.TimeoutError:
+            raise Exception("Browser failed to start within 30 seconds (port conflict or Chrome init hang)")
         tab = browser.main_tab
 
         # --- Process tracking ---
@@ -628,8 +639,9 @@ class BrowserManager:
             except (ProcessLookupError, PermissionError):
                 return False
 
-        # No process info available — assume alive and let reconnect attempt
-        return True
+        # No process info available — assume dead to avoid wasting time on
+        # reconnection attempts against a browser that may not exist.
+        return False
 
     async def get_tab(self, instance_id: str) -> Optional[Tab]:
         """

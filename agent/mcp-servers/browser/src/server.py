@@ -54,6 +54,8 @@ _credentials_file_path: Optional[str] = None  # set by --credentials-file arg
 # Track which profile name is associated with each browser instance (for lock cleanup)
 _instance_profiles: Dict[str, str] = {}  # instance_id → profile_name
 _run_id: Optional[str] = None  # set by --run-id arg (OpenHelm run context)
+# Track unresolved blocking CAPTCHAs per instance (set by auto-detect, cleared by request_user_help)
+_pending_captchas: Dict[str, Dict[str, Any]] = {}  # instance_id → captcha detection result
 # Default resource types to block on every spawn_browser call (set by --block-resources-default)
 _default_block_resources: List[str] = []
 
@@ -304,7 +306,7 @@ async def list_instances() -> List[Dict[str, Any]]:
     return result
 
 @section_tool("browser-management")
-async def close_instance(instance_id: str) -> bool:
+async def close_instance(instance_id: str) -> Dict[str, Any]:
     """
     Close a browser instance.
 
@@ -312,8 +314,19 @@ async def close_instance(instance_id: str) -> bool:
         instance_id (str): Browser instance ID.
 
     Returns:
-        bool: True if closed successfully.
+        Dict[str, Any]: Result with success flag and optional warning if a
+            CAPTCHA was unresolved.
     """
+    pending = _pending_captchas.pop(instance_id, None)
+    warning = None
+    if pending:
+        ctype = pending.get("captcha_type") or "unknown"
+        warning = (
+            f"WARNING: This browser had an unresolved CAPTCHA ({ctype}). "
+            "You should have called request_user_help before closing. "
+            "If you still need this page, spawn a new browser and navigate back."
+        )
+
     success = await browser_manager.close_instance(instance_id)
     if success:
         await network_interceptor.clear_instance_data(instance_id)
@@ -321,7 +334,10 @@ async def close_instance(instance_id: str) -> bool:
     profile_name = _instance_profiles.pop(instance_id, None)
     if profile_name:
         _pm.release_lock(profile_name)
-    return success
+    result: Dict[str, Any] = {"success": success}
+    if warning:
+        result["warning"] = warning
+    return result
 
 @section_tool("browser-management")
 async def get_instance_state(instance_id: str) -> Optional[Dict[str, Any]]:
@@ -338,6 +354,44 @@ async def get_instance_state(instance_id: str) -> Optional[Dict[str, Any]]:
     if state:
         return state.dict()
     return None
+
+
+async def _auto_detect_captcha(instance_id: str, tab) -> Optional[Dict[str, Any]]:
+    """Run layers 1-2 CAPTCHA detection after navigation (no LLM cost).
+
+    Returns the detection result dict if a blocking CAPTCHA is found, else None.
+    Updates _pending_captchas state for close_instance guard.
+    """
+    try:
+        result = await captcha_detector.detect(tab)
+    except Exception:
+        return None
+    if result.get("detected") and result.get("is_blocking"):
+        _pending_captchas[instance_id] = result
+        return result
+    # No blocking CAPTCHA — clear any stale pending state
+    _pending_captchas.pop(instance_id, None)
+    return None
+
+
+def _captcha_response_fields(instance_id: str, captcha_info: Dict[str, Any], url: str) -> Dict[str, Any]:
+    """Build the CAPTCHA fields to merge into a navigation response."""
+    ctype = captcha_info.get("captcha_type") or "CAPTCHA"
+    return {
+        "captcha_detected": True,
+        "captcha_type": ctype,
+        "is_blocking": True,
+        "auto_solve_hint": captcha_info.get("auto_solve_hint", "unknown"),
+        "captcha_action_required": (
+            f"CAPTCHA DETECTED on this page. You MUST call "
+            f"request_user_help(instance_id='{instance_id}', "
+            f"reason='Solve {ctype} on {url}') NOW. "
+            "Do NOT close the browser. Do NOT skip this step. "
+            "After calling request_user_help, poll with take_screenshot "
+            "every 30s for up to 15 minutes, outputting a status line each time."
+        ),
+    }
+
 
 @section_tool("browser-management")
 async def navigate(
@@ -362,6 +416,7 @@ async def navigate(
     """
     if isinstance(timeout, str):
         timeout = int(timeout)
+    timeout_s = timeout / 1000.0
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
         raise Exception(f"Instance not found: {instance_id}")
@@ -370,26 +425,31 @@ async def navigate(
             await tab.send(uc.cdp.network.set_extra_http_headers(
                 headers={"Referer": referrer}
             ))
-        await tab.get(url)
+        await asyncio.wait_for(tab.get(url), timeout=timeout_s)
         if wait_until == "domcontentloaded":
-            await tab.wait(uc.cdp.page.DomContentEventFired)
+            await asyncio.wait_for(tab.wait(uc.cdp.page.DomContentEventFired), timeout=timeout_s)
         elif wait_until == "networkidle":
-            await asyncio.sleep(2)
+            await asyncio.sleep(min(2, timeout_s))
         else:
-            await tab.wait(uc.cdp.page.LoadEventFired)
+            await asyncio.wait_for(tab.wait(uc.cdp.page.LoadEventFired), timeout=timeout_s)
         final_url = await tab.evaluate("window.location.href")
         title = await tab.evaluate("document.title")
         await browser_manager.update_instance_state(instance_id, final_url, title)
-        return {
+        response: Dict[str, Any] = {
             "url": final_url,
             "title": title,
             "success": True
         }
+        # Auto-detect blocking CAPTCHAs (layers 1-2 only, no LLM cost)
+        captcha_info = await _auto_detect_captcha(instance_id, tab)
+        if captcha_info:
+            response.update(_captcha_response_fields(instance_id, captcha_info, final_url))
+        return response
     except Exception as e:
         raise
 
 @section_tool("browser-management")
-async def go_back(instance_id: str) -> bool:
+async def go_back(instance_id: str) -> Dict[str, Any]:
     """
     Navigate back in history.
 
@@ -397,16 +457,22 @@ async def go_back(instance_id: str) -> bool:
         instance_id (str): Browser instance ID.
 
     Returns:
-        bool: True if navigation was successful.
+        Dict[str, Any]: Result with success flag and optional CAPTCHA info.
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
         raise Exception(f"Instance not found: {instance_id}")
     await tab.back()
-    return True
+    await asyncio.sleep(1)
+    response: Dict[str, Any] = {"success": True}
+    captcha_info = await _auto_detect_captcha(instance_id, tab)
+    if captcha_info:
+        url = await tab.evaluate("window.location.href")
+        response.update(_captcha_response_fields(instance_id, captcha_info, url))
+    return response
 
 @section_tool("browser-management")
-async def go_forward(instance_id: str) -> bool:
+async def go_forward(instance_id: str) -> Dict[str, Any]:
     """
     Navigate forward in history.
 
@@ -414,16 +480,22 @@ async def go_forward(instance_id: str) -> bool:
         instance_id (str): Browser instance ID.
 
     Returns:
-        bool: True if navigation was successful.
+        Dict[str, Any]: Result with success flag and optional CAPTCHA info.
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
         raise Exception(f"Instance not found: {instance_id}")
     await tab.forward()
-    return True
+    await asyncio.sleep(1)
+    response: Dict[str, Any] = {"success": True}
+    captcha_info = await _auto_detect_captcha(instance_id, tab)
+    if captcha_info:
+        url = await tab.evaluate("window.location.href")
+        response.update(_captcha_response_fields(instance_id, captcha_info, url))
+    return response
 
 @section_tool("browser-management")
-async def reload_page(instance_id: str, ignore_cache: bool = False) -> bool:
+async def reload_page(instance_id: str, ignore_cache: bool = False) -> Dict[str, Any]:
     """
     Reload the current page.
 
@@ -432,13 +504,19 @@ async def reload_page(instance_id: str, ignore_cache: bool = False) -> bool:
         ignore_cache (bool): Whether to ignore cache when reloading.
 
     Returns:
-        bool: True if reload was successful.
+        Dict[str, Any]: Result with success flag and optional CAPTCHA info.
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
         raise Exception(f"Instance not found: {instance_id}")
     await tab.reload()
-    return True
+    await asyncio.sleep(1)
+    response: Dict[str, Any] = {"success": True}
+    captcha_info = await _auto_detect_captcha(instance_id, tab)
+    if captcha_info:
+        url = await tab.evaluate("window.location.href")
+        response.update(_captcha_response_fields(instance_id, captcha_info, url))
+    return response
 
 @section_tool("element-interaction")
 async def query_elements(
@@ -764,8 +842,11 @@ async def take_screenshot(
     SCREENSHOT_TIMEOUT_S = 60
     MAX_IMAGE_WIDTH = 1280  # downscale wider images for token efficiency
     # Threshold for saving to file vs returning inline base64.
-    # Inline is cheaper than save-to-file-then-Read for medium images.
-    FILE_SAVE_TOKEN_THRESHOLD = 50000
+    # MCP framework rejects raw tool outputs above ~80k characters, which at
+    # 1.33 chars-per-byte * 4 chars-per-token ≈ 15k tokens for a 45KB image.
+    # Keep well below that so we always get a clean file-path JSON, not a
+    # framework error that confuses the agent.
+    FILE_SAVE_TOKEN_THRESHOLD = 8000
 
     if file_path:
         save_path = Path(file_path)
@@ -3219,6 +3300,8 @@ async def request_user_help(
     Returns:
         Dict with request_id, screenshot_path, and polling instructions
     """
+    # Mark CAPTCHA as handled so close_instance won't warn
+    _pending_captchas.pop(instance_id, None)
     return await write_intervention_request(
         run_id=_run_id,
         instance_id=instance_id,

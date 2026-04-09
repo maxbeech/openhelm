@@ -82,6 +82,18 @@ export function registerSchedulerHandlers() {
   });
 
   /**
+   * Force-execute a specific queued run immediately, bypassing the scheduler
+   * pause. Used when the user clicks "Run Now Anyway" while paused.
+   * The scheduler stays paused; only this run is executed right away.
+   */
+  registerHandler("runs.forceRun", (params) => {
+    const p = params as { runId: string };
+    if (!p?.runId) throw new Error("runId is required");
+    const started = executor.forceRun(p.runId);
+    return { started };
+  });
+
+  /**
    * Cancel a run.
    * If queued or deferred: removes from queue and marks cancelled.
    * If running: aborts the Claude Code process and marks cancelled.
@@ -131,6 +143,8 @@ export function registerSchedulerHandlers() {
     scheduler.start();
     console.error("[scheduler] resumed by user");
     emit("scheduler.statusChanged", { paused: false });
+    // Drain any runs that were queued while paused — don't wait for next tick
+    executor.processNext();
     return { paused: false };
   });
 

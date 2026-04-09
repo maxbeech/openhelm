@@ -1,4 +1,6 @@
 import { X, Reply, ZoomIn, ZoomOut } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useInboxStore } from "@/stores/inbox-store";
 import { InboxInput } from "./inbox-input";
 import { InboxTierSlider } from "./inbox-tier-slider";
@@ -18,8 +20,11 @@ export function InboxBottomBar({ projectId, onZoomLabelChange }: Props) {
       {replyContext && (
         <div className="flex items-center gap-2 border-b border-border bg-muted/30 px-4 py-1.5">
           <Reply className="size-3 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-            Replying to: {replyContext.preview}
+          <span className="min-w-0 flex-1 overflow-hidden text-xs text-muted-foreground">
+            <span className="font-medium">Replying to:</span>{" "}
+            <span className="inline [&>p]:inline [&>p]:m-0 [&>strong]:font-medium [&>em]:italic [&>code]:rounded [&>code]:bg-muted-foreground/20 [&>code]:px-0.5 [&>code]:text-[10px]">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{replyContext.preview}</ReactMarkdown>
+            </span>
           </span>
           <button
             onClick={() => setReplyContext(null)}

@@ -52,6 +52,7 @@ import { JobCreationSheet } from "./components/jobs/job-creation-sheet";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { NewProjectDialog } from "./components/shared/new-project-dialog";
 import { EditProjectDialog } from "./components/shared/edit-project-dialog";
+import { PausedRunToast } from "./components/shared/paused-run-toast";
 
 const SAILING_PHRASES = [
   "Pulling through the fairlead\u2026",
@@ -1028,6 +1029,7 @@ export default function App() {
           />
         );
       })()}
+      <PausedRunToast />
     </TooltipProvider>
     </AppErrorBoundary>
   );

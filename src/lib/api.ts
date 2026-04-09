@@ -308,6 +308,10 @@ export function cancelRun(params: CancelRunParams): Promise<{ cancelled: boolean
   return agentClient.request<{ cancelled: boolean }>("runs.cancel", params);
 }
 
+export function forceRunNow(runId: string): Promise<{ started: boolean }> {
+  return agentClient.request<{ started: boolean }>("runs.forceRun", { runId });
+}
+
 export function clearRunsByJob(params: ClearRunsByJobParams): Promise<{ cleared: number }> {
   return agentClient.request<{ cleared: number }>("runs.clearByJob", params);
 }

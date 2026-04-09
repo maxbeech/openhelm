@@ -1,9 +1,13 @@
 import { useRef, useMemo, useCallback, useLayoutEffect, useState, useEffect, Fragment } from "react";
 import { flushSync } from "react-dom";
 import { motion } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Loader2, ArrowDown, ArrowUp } from "lucide-react";
 import { useInboxStore } from "@/stores/inbox-store";
+import { useChatStore } from "@/stores/chat-store";
 import { usePinchZoom } from "@/hooks/use-pinch-zoom";
+import { AnimatedHelmLogo } from "@/components/chat/animated-helm-logo";
 import { InboxNowMarker } from "./inbox-now-marker";
 import { InboxUnreadMarker } from "./inbox-unread-marker";
 import { InboxTimeHeader } from "./inbox-time-header";
@@ -52,7 +56,20 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
     lastReadAt,
     topTierMinImportance,
     markReadUpTo,
+    scrollToNowToken,
+    inboxConversationId,
+    inboxAiResponding,
   } = useInboxStore();
+
+  // Read streaming state for the inbox conversation from the chat store
+  const inboxStreamingText = useChatStore(
+    (s) => (inboxConversationId ? (s.conversationStates[inboxConversationId]?.streamingText ?? "") : ""),
+  );
+  const inboxStatusText = useChatStore(
+    (s) => (inboxConversationId ? (s.conversationStates[inboxConversationId]?.statusText ?? null) : null),
+  );
+  const showInboxLoader = inboxAiResponding && !inboxStreamingText;
+  const showInboxStreaming = inboxStreamingText.length > 0;
 
   const { activeRuns } = useActiveRuns(projectId);
 
@@ -177,10 +194,11 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
   );
   usePinchZoom(containerRef, handleZoom);
 
-  // Filter events by tier threshold + search + category
+  // Filter events by tier threshold + search + category.
+  // Chat events (user messages + AI replies) always pass the importance filter
+  // so they remain visible regardless of the zoom level.
   const filterEvent = useCallback(
     (e: InboxEventType) => {
-      if (e.importance < tierThreshold) return false;
       if (filterCategory && e.category !== filterCategory) return false;
       if (searchQuery?.trim()) {
         const q = searchQuery.toLowerCase();
@@ -190,6 +208,7 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
         )
           return false;
       }
+      if (e.category !== "chat" && e.importance < tierThreshold) return false;
       return true;
     },
     [tierThreshold, filterCategory, searchQuery],
@@ -325,6 +344,15 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
     nowMarkerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
 
+  // Scroll to Now whenever a message is sent (scrollToNowToken increments)
+  useEffect(() => {
+    if (scrollToNowToken === 0) return;
+    requestAnimationFrame(() => {
+      nowMarkerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setNowVisible(true);
+    });
+  }, [scrollToNowToken]);
+
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -386,6 +414,33 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
           })}
         </div>
       ))}
+
+      {/* AI thinking / streaming indicator — shown just above the Now line while waiting for a response */}
+      {(showInboxLoader || showInboxStreaming) && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1, transition: { duration: 0.15 } }}
+          className="my-2 max-w-[85%]"
+        >
+          <div className="flex items-start gap-2">
+            <div className="mt-1 shrink-0">
+              <AnimatedHelmLogo animating={true} size={28} />
+            </div>
+            {showInboxStreaming ? (
+              <div className="rounded-xl bg-muted px-4 py-3 text-sm text-foreground opacity-80">
+                <div className="markdown-content break-words leading-relaxed [&>*:last-child]:inline">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{inboxStreamingText}</ReactMarkdown>
+                  <span className="inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-foreground/50" />
+                </div>
+              </div>
+            ) : inboxStatusText ? (
+              <div className="rounded-xl bg-muted px-4 py-3 text-sm text-muted-foreground">
+                {inboxStatusText}
+              </div>
+            ) : null}
+          </div>
+        </motion.div>
+      )}
 
       {/* Now marker */}
       <div ref={nowMarkerRef}>

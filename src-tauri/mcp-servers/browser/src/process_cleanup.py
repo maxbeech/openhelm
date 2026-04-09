@@ -281,12 +281,19 @@ class ProcessCleanup:
                                  f"Failed to kill process {pid} for {instance_id}: {e}")
             return False
     
-    def _find_nodriver_chrome_pids(self) -> List[int]:
+    def _find_nodriver_chrome_pids(self, own_only: bool = False) -> List[int]:
         """Find Chrome processes spawned by nodriver (uc_* temp user-data-dir).
 
         This is a safety-net that catches instances whose PID was tracked
         incorrectly (e.g. when find_pid_on_port returned the Python MCP
         server PID instead of the Chrome PID).
+
+        Args:
+            own_only: If True and a run_id is set, only return Chrome
+                processes that were launched by THIS run (identified by
+                the ``--openhelm-run=<run_id>`` Chrome arg).  This
+                prevents one run's cleanup from killing browsers owned
+                by other concurrent runs.
         """
         pids: List[int] = []
         try:
@@ -305,6 +312,12 @@ class ProcessCleanup:
                         continue
                     if "--remote-debugging-port" not in cmd_str:
                         continue
+                    # When own_only is set, only match processes tagged
+                    # with this run's unique marker arg.
+                    if own_only and self._run_id:
+                        marker = f"--openhelm-run={self._run_id}"
+                        if marker not in cmd_str:
+                            continue
                     pids.append(proc.info["pid"])
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
@@ -316,7 +329,13 @@ class ProcessCleanup:
         return pids
 
     def _cleanup_all_tracked(self):
-        """Clean up all tracked browser processes and any orphaned nodriver instances."""
+        """Clean up all tracked browser processes and this run's orphaned instances.
+
+        When a ``run_id`` is set (concurrent-run mode), the orphan scan is
+        scoped to only Chrome processes tagged with this run's marker arg
+        (``--openhelm-run=<run_id>``).  This prevents one run's exit from
+        killing Chrome instances that belong to other concurrent runs.
+        """
         killed_count = 0
 
         # 1. Kill tracked PIDs (if they are actually Chrome)
@@ -327,9 +346,10 @@ class ProcessCleanup:
                 if self._kill_process_by_pid(pid, instance_id):
                     killed_count += 1
 
-        # 2. Fallback: scan for any nodriver Chrome processes that were not
-        #    tracked correctly (e.g. PID file had the Python MCP server PID).
-        orphan_pids = self._find_nodriver_chrome_pids()
+        # 2. Fallback: scan for nodriver Chrome processes that were not
+        #    tracked correctly.  Use own_only=True so we never kill
+        #    browsers belonging to other concurrent runs.
+        orphan_pids = self._find_nodriver_chrome_pids(own_only=True)
         for pid in orphan_pids:
             if self._kill_process_by_pid(pid, "orphan-scan"):
                 killed_count += 1
@@ -354,12 +374,17 @@ class ProcessCleanup:
             debug_logger.log_warning("process_cleanup", "clear_pid_file", f"Failed to clear PID file: {e}")
     
     def kill_all_nodriver_chrome(self) -> int:
-        """Kill ALL nodriver Chrome processes on this machine.
+        """Kill this run's nodriver Chrome processes.
 
-        Called before spawning a new browser to ensure no stale
-        processes from previous runs interfere with port binding or
-        profile locking.  Also cleans up stale PID files from the
-        ``~/.openhelm/browser-pids/`` directory.
+        Called before spawning a new browser on retry to ensure no stale
+        processes from THIS run interfere with port binding or profile
+        locking.  Also cleans up stale PID files from the
+        ``~/.openhelm/browser-pids/`` directory (only files whose
+        processes are all dead).
+
+        When a ``run_id`` is set, the orphan scan is scoped to only
+        Chrome processes tagged with this run's marker arg so that
+        concurrent runs are never affected.
 
         Returns the number of processes killed.
         """
@@ -372,23 +397,25 @@ class ProcessCleanup:
         self.browser_processes.clear()
         self.tracked_pids.clear()
 
-        # 2. Kill orphans found via process scan
-        for pid in self._find_nodriver_chrome_pids():
+        # 2. Kill orphans found via process scan (scoped to own run)
+        for pid in self._find_nodriver_chrome_pids(own_only=True):
             if self._kill_process_by_pid(pid, "pre-spawn-cleanup"):
                 killed += 1
 
-        # 3. Clean stale PID files from other runs
+        # 3. Clean stale PID files from other runs (only if ALL their
+        #    processes are dead — never kill live processes from other runs)
         pid_dir = Path(os.path.expanduser("~/.openhelm/browser-pids"))
         if pid_dir.is_dir():
             for f in pid_dir.iterdir():
                 if f.suffix == ".json" and f != self.pid_file:
                     try:
                         data = json.loads(f.read_text())
+                        all_dead = True
                         for inst_id, pid in data.get("browser_processes", {}).items():
                             if psutil.pid_exists(pid):
-                                self._kill_process_by_pid(pid, f"stale-{inst_id}")
-                                killed += 1
-                        f.unlink(missing_ok=True)
+                                all_dead = False
+                        if all_dead:
+                            f.unlink(missing_ok=True)
                     except Exception:
                         f.unlink(missing_ok=True)
 

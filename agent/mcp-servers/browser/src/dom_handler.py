@@ -235,13 +235,24 @@ class DOMHandler:
             await element.focus()
             await humanized_sleep(80, 150) if humanize else await asyncio.sleep(0.1)
 
+            is_ce = await DOMHandler._is_contenteditable(tab, selector)
+
             if clear_first:
-                try:
-                    await element.apply("(elem) => { elem.value = ''; }")
-                except:
-                    await element.send_keys('\ue009' + 'a')
-                    await element.send_keys('\ue017')
+                if is_ce:
+                    await DOMHandler._clear_contenteditable(tab, selector)
+                else:
+                    try:
+                        await element.apply("(elem) => { elem.value = ''; }")
+                    except Exception:
+                        await DOMHandler._clear_contenteditable(tab, selector)
                 await humanized_sleep(80, 150) if humanize else await asyncio.sleep(0.1)
+
+            # For long text with humanization, use hybrid approach:
+            # type the first portion naturally, then paste the rest to avoid timeout.
+            HYBRID_THRESHOLD = 800  # chars — beyond this, switch to paste
+            TYPED_PREFIX_LEN = 200  # chars typed naturally before pasting
+
+            use_hybrid = humanize and len(text) > HYBRID_THRESHOLD
 
             if parse_newlines:
                 from nodriver import cdp
@@ -255,19 +266,30 @@ class DOMHandler:
                             await asyncio.sleep(delay_ms / 1000)
 
                     if i < len(lines) - 1:
-                        if shift_enter:
+                        if is_ce:
+                            # For contenteditable: dispatch real key events
+                            key_type = "rawKeyDown"
+                            modifiers = 1 if shift_enter else 0  # 1 = Shift
+                            await tab.send(cdp.input_.dispatch_key_event(
+                                key_type, key="Enter", code="Enter",
+                                modifiers=modifiers,
+                                windows_virtual_key_code=13
+                            ))
+                            await tab.send(cdp.input_.dispatch_key_event(
+                                "keyUp", key="Enter", code="Enter",
+                                modifiers=modifiers,
+                                windows_virtual_key_code=13
+                            ))
+                        elif shift_enter:
                             await element.apply('''(elem) => {
                                 const start = elem.selectionStart;
                                 const end = elem.selectionEnd;
                                 const value = elem.value;
                                 elem.value = value.substring(0, start) + '\\n' + value.substring(end);
                                 elem.selectionStart = elem.selectionEnd = start + 1;
-
                                 elem.dispatchEvent(new KeyboardEvent('keydown', {
-                                    key: 'Enter',
-                                    code: 'Enter',
-                                    shiftKey: true,
-                                    bubbles: true
+                                    key: 'Enter', code: 'Enter',
+                                    shiftKey: true, bubbles: true
                                 }));
                                 elem.dispatchEvent(new Event('input', { bubbles: true }));
                             }''')
@@ -278,17 +300,29 @@ class DOMHandler:
                                 const value = elem.value;
                                 elem.value = value.substring(0, start) + '\\n' + value.substring(end);
                                 elem.selectionStart = elem.selectionEnd = start + 1;
-
                                 elem.dispatchEvent(new KeyboardEvent('keydown', {
-                                    key: 'Enter',
-                                    code: 'Enter',
+                                    key: 'Enter', code: 'Enter',
                                     bubbles: true
                                 }));
                                 elem.dispatchEvent(new Event('input', { bubbles: true }));
                             }''')
                         await asyncio.sleep(delay_ms / 1000)
             else:
-                if humanize:
+                if use_hybrid:
+                    # Type first portion naturally, paste the rest
+                    typed_part = text[:TYPED_PREFIX_LEN]
+                    pasted_part = text[TYPED_PREFIX_LEN:]
+                    await humanized_type(tab, element, typed_part, base_delay_ms=delay_ms)
+                    await humanized_sleep(200, 400)
+                    # Paste remainder using execCommand or clipboard
+                    if is_ce:
+                        await DOMHandler._paste_into_contenteditable(
+                            tab, selector, pasted_part
+                        )
+                    else:
+                        from nodriver import cdp
+                        await tab.send(cdp.input_.insert_text(pasted_part))
+                elif humanize:
                     await humanized_type(tab, element, text, base_delay_ms=delay_ms)
                 else:
                     for char in text:
@@ -301,6 +335,69 @@ class DOMHandler:
             raise Exception(f"Failed to type text: {str(e)}")
 
     @staticmethod
+    async def _is_contenteditable(tab: Tab, selector: str) -> bool:
+        """Check if an element is a contenteditable rich text editor."""
+        result = await tab.evaluate(
+            '(() => {'
+            f'  const el = document.querySelector({json.dumps(selector)});'
+            '  return el && (el.contentEditable === "true" || el.isContentEditable);'
+            '})()'
+        )
+        return bool(result)
+
+    @staticmethod
+    async def _clear_contenteditable(tab: Tab, selector: str) -> None:
+        """Clear a contenteditable element using execCommand."""
+        await tab.evaluate(
+            '(() => {'
+            f'  const el = document.querySelector({json.dumps(selector)});'
+            '  if (el) { el.focus(); }'
+            '  document.execCommand("selectAll", false, null);'
+            '  document.execCommand("delete", false, null);'
+            '})()'
+        )
+        await asyncio.sleep(0.1)
+
+    @staticmethod
+    async def _paste_into_contenteditable(tab: Tab, selector: str, text: str) -> bool:
+        """
+        Paste text into a contenteditable element using execCommand with
+        clipboard fallback. execCommand('insertText') fires the InputEvent
+        that rich text frameworks (Lexical, ProseMirror, etc.) listen for.
+        """
+        from nodriver import cdp
+
+        # Primary: execCommand('insertText') — fires correct InputEvents
+        success = await tab.evaluate(
+            '(() => {'
+            f'  const el = document.querySelector({json.dumps(selector)});'
+            '  if (!el) return false;'
+            '  el.focus();'
+            f'  return document.execCommand("insertText", false, {json.dumps(text)});'
+            '})()'
+        )
+        if success:
+            return True
+
+        # Fallback: clipboard API + Ctrl+V for native paste flow
+        await tab.evaluate(
+            f'navigator.clipboard.writeText({json.dumps(text)})'
+        )
+        await asyncio.sleep(0.05)
+        # Cmd+V on macOS (modifier 4 = Meta)
+        modifier = 4  # Meta key for macOS
+        await tab.send(cdp.input_.dispatch_key_event(
+            "rawKeyDown", modifiers=modifier,
+            key="v", code="KeyV", windows_virtual_key_code=86
+        ))
+        await tab.send(cdp.input_.dispatch_key_event(
+            "keyUp", modifiers=modifier,
+            key="v", code="KeyV", windows_virtual_key_code=86
+        ))
+        await asyncio.sleep(0.1)
+        return True
+
+    @staticmethod
     async def paste_text(
         tab: Tab,
         selector: str,
@@ -308,8 +405,8 @@ class DOMHandler:
         clear_first: bool = True
     ) -> bool:
         """
-        Paste text instantly using nodriver's insert_text method.
-        This is much faster than typing character by character.
+        Paste text instantly. Handles both regular inputs and contenteditable
+        rich text editors (Lexical, ProseMirror, etc.).
 
         Args:
             tab (Tab): The browser tab object.
@@ -321,7 +418,7 @@ class DOMHandler:
             bool: True if pasting succeeded, False otherwise.
         """
         from nodriver import cdp
-        
+
         try:
             element = await tab.select(selector)
             if not element:
@@ -330,41 +427,25 @@ class DOMHandler:
             await element.focus()
             await asyncio.sleep(0.1)
 
+            is_ce = await DOMHandler._is_contenteditable(tab, selector)
+
             if clear_first:
-                try:
-                    await element.apply("(elem) => { elem.value = ''; }")
-                except:
-                    await tab.send(cdp.input_.dispatch_key_event(
-                        "rawKeyDown", 
-                        modifiers=2,  # Ctrl
-                        key="a",
-                        code="KeyA",
-                        windows_virtual_key_code=65
-                    ))
-                    await tab.send(cdp.input_.dispatch_key_event(
-                        "keyUp", 
-                        modifiers=2,  # Ctrl
-                        key="a",
-                        code="KeyA",
-                        windows_virtual_key_code=65
-                    ))
-                    await tab.send(cdp.input_.dispatch_key_event(
-                        "rawKeyDown",
-                        key="Delete",
-                        code="Delete",
-                        windows_virtual_key_code=46
-                    ))
-                    await tab.send(cdp.input_.dispatch_key_event(
-                        "keyUp",
-                        key="Delete", 
-                        code="Delete",
-                        windows_virtual_key_code=46
-                    ))
-                await asyncio.sleep(0.1)
+                if is_ce:
+                    await DOMHandler._clear_contenteditable(tab, selector)
+                else:
+                    try:
+                        await element.apply("(elem) => { elem.value = ''; }")
+                    except Exception:
+                        await DOMHandler._clear_contenteditable(tab, selector)
+                    await asyncio.sleep(0.1)
 
-            await tab.send(cdp.input_.insert_text(text))
-
-            return True
+            if is_ce:
+                return await DOMHandler._paste_into_contenteditable(
+                    tab, selector, text
+                )
+            else:
+                await tab.send(cdp.input_.insert_text(text))
+                return True
 
         except Exception as e:
             raise Exception(f"Failed to paste text: {str(e)}")
@@ -557,7 +638,17 @@ class DOMHandler:
                 serialized_args = ",".join(json.dumps(a) for a in args)
                 result = await tab.evaluate(f'(function() {{ {script} }})({serialized_args})')
             else:
-                result = await tab.evaluate(script)
+                try:
+                    result = await tab.evaluate(script)
+                except Exception as inner_e:
+                    # LLM-generated scripts often use `return` at top level, which is
+                    # invalid in bare eval context. Wrap in IIFE and retry — this also
+                    # gives each script its own scope, preventing variable redeclaration
+                    # errors across multiple sequential evaluate() calls on the same tab.
+                    if "Illegal return statement" in str(inner_e) or "SyntaxError" in str(inner_e):
+                        result = await tab.evaluate(f'(function() {{ {script} }})()')
+                    else:
+                        raise
 
             return result
 

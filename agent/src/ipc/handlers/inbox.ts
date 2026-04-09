@@ -76,11 +76,22 @@ export function registerInboxHandlers() {
     });
     emit("inbox.eventCreated", userEvent);
 
+    // When replying to a specific event, prepend its content so the AI has
+    // explicit context for references like "this" or "that" in the reply.
+    let messageContent = p.content;
+    if (p.replyToEventId) {
+      const referencedEvent = getInboxEvent(p.replyToEventId);
+      if (referencedEvent) {
+        const refContent = referencedEvent.body || referencedEvent.title;
+        messageContent = `[Replying to: "${refContent}"]\n\n${p.content}`;
+      }
+    }
+
     // Fire-and-forget: trigger the chat handler (AI will respond via chat.messageCreated → inbox bridge)
     setImmediate(() => {
       handleChatMessage(
         p.projectId,
-        p.content,
+        messageContent,
         p.context,
         undefined, // modelOverride
         undefined, // effort

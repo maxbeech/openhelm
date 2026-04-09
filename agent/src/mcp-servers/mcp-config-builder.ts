@@ -38,10 +38,15 @@ export const BROWSER_SYSTEM_PROMPT =
  * user intervention request with polling loop.
  */
 export const BROWSER_CAPTCHA_PREAMBLE =
-  "If you hit a CAPTCHA, call detect_captcha and follow auto_solve_hint. " +
-  "If unsolvable, call request_user_help and poll screenshots every 30s for up to 15 minutes. " +
-  "Output a brief status line each poll to prevent silence timeout. " +
-  "Do NOT close the browser instance while waiting — the user needs it open to solve the CAPTCHA.\n\n";
+  "CAPTCHA HANDLING (mandatory):\n" +
+  "- navigate(), go_back(), go_forward(), and reload_page() automatically detect CAPTCHAs. " +
+  "If the response contains captcha_detected=true, you MUST immediately call " +
+  "request_user_help with the reason from captcha_action_required. Do NOT close the browser.\n" +
+  "- After calling request_user_help, poll with take_screenshot every 30s for up to 15 minutes. " +
+  "Output a status line each poll to prevent silence timeout.\n" +
+  "- If a page looks wrong, empty, or shows 'Just a moment...', check the response for captcha_detected " +
+  "before giving up.\n" +
+  "- NEVER close a browser instance that has an unresolved CAPTCHA.\n\n";
 
 /**
  * Prepended to job prompts to instruct Claude on persistent profile usage
@@ -63,6 +68,26 @@ export const BROWSER_PROFILE_PREAMBLE =
  */
 export const DATA_TABLES_MCP_PREAMBLE =
   "Data tables are available via openhelm-data MCP tools. Check existing tables before creating new ones.\n\n";
+
+/**
+ * Injected as a system-level instruction on EVERY run via --append-system-prompt.
+ * Prevents Claude from asking clarifying questions instead of executing.
+ *
+ * Claude Code in --print mode sometimes summarises the task and asks
+ * "Should I start?" or "Would you like me to...?" before doing any work.
+ * This instruction eliminates that behaviour.
+ */
+export const EXECUTION_SYSTEM_PROMPT =
+  "EXECUTION MODE (mandatory, no exceptions): " +
+  "You are running in fully automated, non-interactive mode inside OpenHelm. " +
+  "Execute every step in the task immediately, starting from step 1. " +
+  "Do NOT ask the user for confirmation, approval, or clarification. " +
+  "Do NOT summarise the task back and ask 'Should I start?', 'Would you like me to...', " +
+  "'Shall I proceed?', or any similar question — just start executing. " +
+  "If something is ambiguous, make a reasonable choice and proceed. " +
+  "Only stop if you hit a genuine, unrecoverable blocker (e.g. missing credentials, " +
+  "inaccessible resource) — in that case, report the specific blocker and stop. " +
+  "There is no human watching this session, so questions will never be answered.";
 
 /**
  * Produce an explicit browser-credentials notice for the job prompt based on

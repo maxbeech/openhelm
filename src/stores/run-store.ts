@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import type { Run, RunStatus } from "@openhelm/shared";
 import * as api from "@/lib/api";
 import { friendlyError } from "@/lib/utils";
+import { usePausedRunToastStore } from "./paused-run-toast-store";
 
 interface RunState {
   runs: Run[];
@@ -52,6 +53,15 @@ export const useRunStore = create<RunState>((set) => ({
     try {
       const run = await api.triggerRun({ jobId });
       set((s) => ({ runs: [run, ...s.runs] }));
+
+      // If the scheduler is paused, the run is queued but won't execute yet.
+      // Show a toast so the user knows, with an option to force-run immediately.
+      api.getSchedulerStatus().then((status) => {
+        if (status.paused) {
+          usePausedRunToastStore.getState().showToast(run.id, jobId);
+        }
+      }).catch(() => { /* non-critical — ignore status check failure */ });
+
       return run;
     } catch (err) {
       set({ error: friendlyError(err, "Failed to trigger run") });
@@ -63,6 +73,11 @@ export const useRunStore = create<RunState>((set) => ({
     try {
       const run = await api.triggerRun({ jobId, parentRunId });
       set((s) => ({ runs: [run, ...s.runs] }));
+      api.getSchedulerStatus().then((status) => {
+        if (status.paused) {
+          usePausedRunToastStore.getState().showToast(run.id, jobId);
+        }
+      }).catch(() => { /* non-critical */ });
       return run;
     } catch (err) {
       set({ error: friendlyError(err, "Failed to retry run") });
