@@ -106,6 +106,7 @@ export function runClaudeCode(
     let capturedInputTokens: number | null = null;
     let capturedOutputTokens: number | null = null;
     let capturedRateLimitUtilization: number | null = null;
+    const toolStatsMap = new Map<string, { invocations: number; approxOutputTokens: number }>();
 
     const cleanup = () => {
       if (timeoutTimer) clearTimeout(timeoutTimer);
@@ -125,6 +126,13 @@ export function runClaudeCode(
         inputTokens: capturedInputTokens,
         outputTokens: capturedOutputTokens,
         rateLimitUtilization: capturedRateLimitUtilization,
+        toolStats: toolStatsMap.size > 0
+          ? Array.from(toolStatsMap.entries()).map(([toolName, s]) => ({
+              toolName,
+              invocations: s.invocations,
+              approxOutputTokens: s.approxOutputTokens,
+            }))
+          : undefined,
       });
     };
 
@@ -160,6 +168,19 @@ export function runClaudeCode(
             capturedOutputTokens = (capturedOutputTokens ?? 0) + parsed.outputTokens;
           }
         }
+        // Accumulate per-tool stats (invocations + approximate output tokens).
+        // Turns with no tools are attributed to "__reasoning__".
+        if (!parsed.isResult && parsed.toolNames !== undefined && parsed.outputTokens != null) {
+          const names = parsed.toolNames.length > 0 ? parsed.toolNames : ["__reasoning__"];
+          const outputShare = Math.round(parsed.outputTokens / names.length);
+          for (const name of names) {
+            const s = toolStatsMap.get(name) ?? { invocations: 0, approxOutputTokens: 0 };
+            s.invocations += parsed.toolNames.length > 0 ? 1 : 0;
+            s.approxOutputTokens += outputShare;
+            toolStatsMap.set(name, s);
+          }
+        }
+
         // Skip the result event text — it duplicates content already shown in
         // the assistant turn and is surfaced separately as the run summary.
         // EXCEPTION: error-results (is_error=true) carry the actual failure

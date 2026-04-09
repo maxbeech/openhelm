@@ -2,6 +2,7 @@ import { spawnSync } from "child_process";
 import { registerHandler } from "../handler.js";
 import * as runQueries from "../../db/queries/runs.js";
 import * as runLogQueries from "../../db/queries/run-logs.js";
+import * as toolStatsQueries from "../../db/queries/tool-stats.js";
 import { getJob } from "../../db/queries/jobs.js";
 import { getProject } from "../../db/queries/projects.js";
 import { getSetting } from "../../db/queries/settings.js";
@@ -12,6 +13,7 @@ import type {
   CreateRunLogParams,
   ListRunLogsParams,
   GetJobTokenStatsParams,
+  GetRunToolStatsParams,
 } from "@openhelm/shared";
 
 export function registerRunHandlers() {
@@ -94,6 +96,10 @@ export function registerRunHandlers() {
 
   registerHandler("runs.getTokenStats", (params) => {
     return runQueries.getJobTokenStats((params ?? {}) as GetJobTokenStatsParams);
+  });
+
+  registerHandler("runs.getToolStats", (params) => {
+    return toolStatsQueries.getRunToolStats((params ?? {}) as GetRunToolStatsParams);
   });
 }
 

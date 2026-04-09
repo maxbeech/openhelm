@@ -41,6 +41,8 @@ export interface ParsedLogEntry {
   outputTokens?: number;
   /** API rate-limit utilization (0.0–1.0) from a rate_limit_event */
   rateLimitUtilization?: number;
+  /** Tool names from tool_use blocks in this assistant turn (empty array = pure text turn) */
+  toolNames?: string[];
 }
 
 /**
@@ -119,12 +121,14 @@ export function parseStreamLine(line: string): ParsedLogEntry | null {
     }
 
     const parts: string[] = [];
+    const toolNames: string[] = [];
 
     for (const block of content) {
       if (block.type === "text" && block.text) {
         parts.push(block.text);
       } else if (block.type === "tool_use") {
         parts.push(`[Tool: ${block.name}]`);
+        toolNames.push(block.name);
       } else if (block.type === "tool_result") {
         const resultText = extractToolResultText(block.content);
         if (resultText) {
@@ -139,6 +143,7 @@ export function parseStreamLine(line: string): ParsedLogEntry | null {
       isResult: false,
       inputTokens: usage?.input_tokens,
       outputTokens: usage?.output_tokens,
+      toolNames: type === "assistant" ? toolNames : undefined,
     };
   }
 

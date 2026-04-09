@@ -67,6 +67,8 @@ import type {
   ClearRunsByJobParams,
   GetJobTokenStatsParams,
   JobTokenStat,
+  GetRunToolStatsParams,
+  RunToolStat,
   SchedulerStatus,
   ListDashboardItemsParams,
   ResolveDashboardItemParams,
@@ -318,6 +320,10 @@ export function clearRunsByJob(params: ClearRunsByJobParams): Promise<{ cleared:
 
 export function getJobTokenStats(params?: GetJobTokenStatsParams): Promise<JobTokenStat[]> {
   return agentClient.request<JobTokenStat[]>("runs.getTokenStats", params ?? {});
+}
+
+export function getRunToolStats(params?: GetRunToolStatsParams): Promise<RunToolStat[]> {
+  return agentClient.request<RunToolStat[]>("runs.getToolStats", params ?? {});
 }
 
 export function openRunInTerminal(runId: string): Promise<{ opened: boolean }> {

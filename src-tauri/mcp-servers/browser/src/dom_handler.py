@@ -2,8 +2,10 @@
 
 import asyncio
 import json
+import re
 import time
-from typing import List, Optional, Dict, Any
+from math import ceil
+from typing import List, Optional, Dict, Any, Tuple
 
 from nodriver import Tab, Element
 from models import ElementInfo, ElementAction
@@ -162,43 +164,443 @@ class DOMHandler:
         humanize: bool = True,
     ) -> bool:
         """
-        Click an element with smart retry logic.
+        Click an element with multi-strategy finding and retry logic.
+
+        Tries CSS selector, XPath, text search, and shadow DOM piercing
+        in cascade. Retries up to 3 times with backoff, scrolling down
+        between retries to trigger lazy-loaded content.
 
         Args:
-            tab (Tab): The browser tab object.
-            selector (str): CSS selector for the element.
-            text_match (Optional[str]): Match element by text content.
-            timeout (int): Timeout in milliseconds.
-            humanize (bool): Use human-like mouse movement and timing (default True).
+            tab: The browser tab object.
+            selector: CSS selector or XPath for the element.
+            text_match: Match element by text content instead of selector.
+            timeout: Timeout in milliseconds.
+            humanize: Use human-like mouse movement and timing.
 
         Returns:
-            bool: True if click succeeded, False otherwise.
+            True if click succeeded.
+
+        Raises:
+            Exception with diagnostic info including nearby clickable
+            elements and suggested alternative selectors.
         """
+        element, diagnostics = await DOMHandler._find_element_robust(
+            tab, selector, text_match, timeout
+        )
+
+        if not element:
+            # Gather nearby clickable elements for diagnostics
+            nearby = await DOMHandler._find_nearby_elements(tab)
+            error_msg = DOMHandler._format_click_error(
+                selector, text_match, diagnostics, nearby
+            )
+            raise Exception(error_msg)
+
+        # Pre-interaction: scroll into view + visibility check
+        ready, reason = await DOMHandler._prepare_for_interaction(tab, element)
+        if not ready:
+            debug_logger.log_warning(
+                "DOMHandler", "click_element",
+                f"Element may not be interactive: {reason}"
+            )
+
+        # Execute click
         try:
-            element = None
-
-            if text_match:
-                element = await tab.find(text_match, best_match=True)
-            else:
-                element = await tab.select(selector, timeout=timeout/1000)
-
-            if not element:
-                raise Exception(f"Element not found: {selector}")
-
             if humanize:
                 await humanized_click(tab, element)
             else:
                 await element.scroll_into_view()
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.3)
                 try:
                     await element.click()
                 except Exception:
                     await element.mouse_click()
-
             return True
+        except Exception as e:
+            raise Exception(f"Click execution failed after finding element: {e}")
+
+    # ------------------------------------------------------------------
+    # Private: multi-strategy element finding with retry
+    # ------------------------------------------------------------------
+    @staticmethod
+    async def _find_element_robust(
+        tab: Tab,
+        selector: str,
+        text_match: Optional[str] = None,
+        timeout: int = 10000,
+        max_retries: int = 3,
+    ) -> Tuple[Optional[Element], Dict[str, Any]]:
+        """Try multiple strategies to find an element, with retry.
+
+        Cascade per attempt:
+          1. CSS selector (or XPath if starts with //)
+          2. Converted XPath (if input was CSS)
+          3. Text-based search
+          4. Shadow DOM piercing via JS
+
+        Between retries, scrolls down one viewport to trigger lazy-load.
+
+        Returns (element_or_None, diagnostics_dict).
+        """
+        per_phase_timeout = min(timeout / 1000, 3.0)
+        diagnostics: Dict[str, Any] = {"strategies": [], "retries": 0}
+        backoff = [0.5, 1.0, 2.0]
+
+        # Split comma-separated selectors for XPath conversion
+        selector_parts = [s.strip() for s in selector.split(",")]
+
+        for attempt in range(max_retries):
+            diagnostics["retries"] = attempt
+
+            # --- Strategy 1: Direct selector (CSS or XPath) ---
+            try:
+                if selector.startswith("//"):
+                    elements = await tab.xpath(selector)
+                    element = elements[0] if elements else None
+                else:
+                    element = await tab.select(
+                        selector, timeout=per_phase_timeout
+                    )
+                if element:
+                    diagnostics["strategies"].append(
+                        {"method": "css/xpath", "result": "found"}
+                    )
+                    return element, diagnostics
+            except Exception:
+                pass
+            diagnostics["strategies"].append(
+                {"method": "css/xpath", "result": "not found"}
+            )
+
+            # --- Strategy 2: Convert CSS to XPath and try ---
+            if not selector.startswith("//"):
+                for part in selector_parts:
+                    xpath = DOMHandler._css_selector_to_xpath(part)
+                    if xpath:
+                        try:
+                            elements = await tab.xpath(xpath)
+                            if elements:
+                                diagnostics["strategies"].append(
+                                    {"method": "xpath-converted",
+                                     "result": "found", "xpath": xpath}
+                                )
+                                return elements[0], diagnostics
+                        except Exception:
+                            pass
+                diagnostics["strategies"].append(
+                    {"method": "xpath-converted", "result": "not found"}
+                )
+
+            # --- Strategy 3: Text-based search ---
+            search_text = text_match
+            if not search_text:
+                # Extract text hint from selector (e.g. aria-label value)
+                search_text = DOMHandler._extract_text_hint(selector)
+            if search_text:
+                try:
+                    element = await tab.find(
+                        search_text, best_match=True
+                    )
+                    if element:
+                        diagnostics["strategies"].append(
+                            {"method": "text", "result": "found",
+                             "text": search_text}
+                        )
+                        return element, diagnostics
+                except Exception:
+                    pass
+                diagnostics["strategies"].append(
+                    {"method": "text", "result": "not found",
+                     "text": search_text}
+                )
+
+            # --- Strategy 4: Shadow DOM piercing via JS ---
+            try:
+                found_in_shadow = await tab.evaluate(f"""(() => {{
+                    function findInShadow(root, sel) {{
+                        try {{
+                            let el = root.querySelector(sel);
+                            if (el) return true;
+                        }} catch(e) {{}}
+                        const all = root.querySelectorAll('*');
+                        for (const node of all) {{
+                            if (node.shadowRoot) {{
+                                if (findInShadow(node.shadowRoot, sel)) return true;
+                            }}
+                        }}
+                        return false;
+                    }}
+                    if (!findInShadow(document, {json.dumps(selector)})) return null;
+                    // Tag it for retrieval
+                    function tagInShadow(root, sel) {{
+                        try {{
+                            let el = root.querySelector(sel);
+                            if (el) {{ el.setAttribute('data-oh-found', '1'); return true; }}
+                        }} catch(e) {{}}
+                        const all = root.querySelectorAll('*');
+                        for (const node of all) {{
+                            if (node.shadowRoot) {{
+                                if (tagInShadow(node.shadowRoot, sel)) return true;
+                            }}
+                        }}
+                        return false;
+                    }}
+                    tagInShadow(document, {json.dumps(selector)});
+                    return true;
+                }})()""")
+
+                if found_in_shadow:
+                    try:
+                        element = await tab.select(
+                            '[data-oh-found="1"]', timeout=2
+                        )
+                        # Clean up tag
+                        await tab.evaluate(
+                            "document.querySelector('[data-oh-found]')"
+                            "?.removeAttribute('data-oh-found')"
+                        )
+                        if element:
+                            diagnostics["strategies"].append(
+                                {"method": "shadow-dom", "result": "found"}
+                            )
+                            return element, diagnostics
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            diagnostics["strategies"].append(
+                {"method": "shadow-dom", "result": "not found"}
+            )
+
+            # --- Retry: scroll down one viewport to trigger lazy-load ---
+            if attempt < max_retries - 1:
+                try:
+                    await tab.evaluate(
+                        "window.scrollBy({top: window.innerHeight, "
+                        "behavior: 'instant'})"
+                    )
+                    await asyncio.sleep(backoff[attempt])
+                except Exception:
+                    pass
+
+        return None, diagnostics
+
+    @staticmethod
+    def _css_selector_to_xpath(selector: str) -> Optional[str]:
+        """Best-effort conversion of common CSS selectors to XPath."""
+        s = selector.strip()
+        if not s or s.startswith("//"):
+            return None  # Already XPath or empty
+
+        # tag[attr="val"]
+        m = re.match(r'^(\w+)?\[(\w[\w-]*)="([^"]+)"\]$', s)
+        if m:
+            tag = m.group(1) or "*"
+            return f'//{tag}[@{m.group(2)}="{m.group(3)}"]'
+
+        # tag[attr*="val"] (contains)
+        m = re.match(r'^(\w+)?\[(\w[\w-]*)\*="([^"]+)"\]$', s)
+        if m:
+            tag = m.group(1) or "*"
+            return f'//{tag}[contains(@{m.group(2)}, "{m.group(3)}")]'
+
+        # .classname
+        m = re.match(r'^\.([a-zA-Z_][\w-]*)$', s)
+        if m:
+            return f'//*[contains(@class, "{m.group(1)}")]'
+
+        # #id
+        m = re.match(r'^#([a-zA-Z_][\w-]*)$', s)
+        if m:
+            return f'//*[@id="{m.group(1)}"]'
+
+        # tag.classname
+        m = re.match(r'^(\w+)\.([a-zA-Z_][\w-]*)$', s)
+        if m:
+            return f'//{m.group(1)}[contains(@class, "{m.group(2)}")]'
+
+        return None
+
+    @staticmethod
+    def _extract_text_hint(selector: str) -> Optional[str]:
+        """Extract a text hint from a CSS selector for text-based search.
+
+        E.g., 'button[aria-label="Back"]' -> 'Back'
+        """
+        # Match aria-label="..." or title="..." or placeholder="..."
+        m = re.search(
+            r'(?:aria-label|title|placeholder|alt)\s*[*~|^$]?=\s*"([^"]+)"',
+            selector
+        )
+        if m:
+            return m.group(1)
+
+        # Match data-testid="..." (less useful but worth trying)
+        m = re.search(r'data-testid\s*[*~|^$]?=\s*"([^"]+)"', selector)
+        if m:
+            return m.group(1)
+
+        return None
+
+    # ------------------------------------------------------------------
+    # Private: pre-interaction preparation
+    # ------------------------------------------------------------------
+    @staticmethod
+    async def _prepare_for_interaction(
+        tab: Tab,
+        element: Element,
+        timeout: float = 2.0,
+    ) -> Tuple[bool, str]:
+        """Ensure element is visible, in viewport, and interactive.
+
+        Returns (ready, reason) where reason explains any issue.
+        """
+        try:
+            # Scroll into view
+            try:
+                await element.scroll_into_view()
+            except Exception:
+                pass
+
+            # Check visibility (poll up to timeout)
+            polls = max(1, int(timeout / 0.5))
+            for _ in range(polls):
+                try:
+                    is_visible = await element.apply("""(elem) => {
+                        var s = window.getComputedStyle(elem);
+                        return s.display !== 'none' &&
+                               s.visibility !== 'hidden' &&
+                               s.opacity !== '0' &&
+                               s.pointerEvents !== 'none';
+                    }""")
+                    if is_visible:
+                        break
+                except Exception:
+                    break
+                await asyncio.sleep(0.5)
+            else:
+                return False, "Element not visible after waiting"
+
+            # Check for overlay (element not covered by another element)
+            try:
+                pos = await element.get_position()
+                if pos:
+                    cx = pos.x + pos.width / 2
+                    cy = pos.y + pos.height / 2
+                    is_on_top = await tab.evaluate(f"""(() => {{
+                        var el = document.elementFromPoint({cx}, {cy});
+                        if (!el) return true;
+                        var target = document.querySelector(
+                            '[data-oh-check]'
+                        );
+                        return !target || target.contains(el) ||
+                               el.contains(target);
+                    }})()""")
+                    if not is_on_top:
+                        return False, (
+                            f"Element may be covered by overlay at "
+                            f"({int(cx)}, {int(cy)})"
+                        )
+            except Exception:
+                pass  # Non-fatal — proceed anyway
+
+            # Brief settle delay
+            await humanized_sleep(50, 150)
+            return True, "ready"
 
         except Exception as e:
-            raise Exception(f"Failed to click element: {str(e)}")
+            return False, f"Preparation error: {e}"
+
+    # ------------------------------------------------------------------
+    # Private: nearby element discovery for diagnostics
+    # ------------------------------------------------------------------
+    @staticmethod
+    async def _find_nearby_elements(tab: Tab) -> List[Dict[str, str]]:
+        """Find clickable elements on the page for error diagnostics."""
+        try:
+            result = await tab.evaluate("""(() => {
+                var sels = 'button, a, [role="button"], input[type="submit"],'
+                         + ' input[type="button"], [tabindex="0"]';
+                var elems = document.querySelectorAll(sels);
+                var out = [];
+                for (var i = 0; i < elems.length && out.length < 8; i++) {
+                    var el = elems[i];
+                    var s = window.getComputedStyle(el);
+                    if (s.display === 'none' || s.visibility === 'hidden') continue;
+                    var r = el.getBoundingClientRect();
+                    if (r.width === 0 || r.height === 0) continue;
+                    var text = (el.textContent || '').trim().substring(0, 80);
+                    var label = el.getAttribute('aria-label') || '';
+                    var tag = el.tagName.toLowerCase();
+                    out.push({
+                        tag: tag,
+                        text: text,
+                        aria_label: label,
+                        x: Math.round(r.x),
+                        y: Math.round(r.y)
+                    });
+                }
+                return out;
+            })()""")
+            return result if isinstance(result, list) else []
+        except Exception:
+            return []
+
+    @staticmethod
+    def _format_click_error(
+        selector: str,
+        text_match: Optional[str],
+        diagnostics: Dict[str, Any],
+        nearby: List[Dict[str, str]],
+    ) -> str:
+        """Format a rich error message for failed click attempts."""
+        lines = [f"Failed to click '{selector}'"]
+        if text_match:
+            lines[0] += f" (text_match='{text_match}')"
+        lines[0] += ":"
+
+        # Strategies tried
+        for s in diagnostics.get("strategies", []):
+            method = s.get("method", "?")
+            result = s.get("result", "?")
+            extra = ""
+            if "xpath" in s:
+                extra = f" ({s['xpath']})"
+            elif "text" in s:
+                extra = f" ('{s['text']}')"
+            lines.append(f"  - {method}: {result}{extra}")
+
+        lines.append(f"  Retries: {diagnostics.get('retries', 0)}")
+
+        # Nearby clickable elements
+        if nearby:
+            lines.append("  Nearby clickable elements:")
+            for i, el in enumerate(nearby[:5], 1):
+                text = el.get("text", "")
+                label = el.get("aria_label", "")
+                tag = el.get("tag", "?")
+                display = label or text
+                if display:
+                    display = f' "{display}"'
+                pos = f"at ({el.get('x', '?')}, {el.get('y', '?')})"
+                lines.append(f"    {i}. <{tag}>{display} {pos}")
+
+            # Suggest best alternative
+            best = nearby[0] if nearby else None
+            if best:
+                label = best.get("aria_label")
+                text = best.get("text", "")
+                if label:
+                    lines.append(
+                        f'  Suggestion: Try selector=\'[aria-label="{label}"]\''
+                    )
+                elif text:
+                    short = text[:50]
+                    lines.append(
+                        f"  Suggestion: Try text_match=\"{short}\""
+                    )
+
+        return "\n".join(lines)
 
     @staticmethod
     async def type_text(
@@ -710,24 +1112,42 @@ class DOMHandler:
         tab: Tab,
         direction: str = "down",
         amount: int = 500,
-        smooth: bool = True
-    ) -> bool:
+        smooth: bool = True,
+        percent: Optional[float] = None,
+        wait_for_content: bool = False,
+        timeout_ms: int = 3000,
+    ) -> Dict[str, Any]:
         """
-        Scroll the page in specified direction.
+        Scroll the page and return scroll position metrics.
 
         Args:
-            tab (Tab): The browser tab object.
-            direction (str): Direction to scroll ('down', 'up', 'right', 'left', 'top', 'bottom').
-            amount (int): Amount to scroll in pixels.
-            smooth (bool): Use smooth scrolling.
+            tab: The browser tab object.
+            direction: Direction ('down', 'up', 'right', 'left', 'top', 'bottom').
+            amount: Pixels to scroll (ignored when percent is set).
+            smooth: Use smooth scrolling.
+            percent: Scroll to this percentage of the page (0-100).
+            wait_for_content: Wait for lazy-loaded content after scrolling.
+            timeout_ms: Max time to wait for lazy content (ms).
 
         Returns:
-            bool: True if scroll succeeded, False otherwise.
+            Dict with scroll metrics: success, before/after positions,
+            position_percent, at_top, at_bottom, content_grew, pages_remaining.
         """
         try:
+            # Capture metrics before scrolling
+            before = await tab.evaluate("""(() => ({
+                scroll_top: Math.round(window.scrollY),
+                scroll_height: document.body.scrollHeight,
+                viewport_height: window.innerHeight
+            }))()""")
+
             behavior = "'smooth'" if smooth else "'instant'"
 
-            if direction == "down":
+            if percent is not None:
+                # Percentage-based scrolling
+                target = f"Math.round(document.body.scrollHeight * {percent} / 100)"
+                script = f"window.scrollTo({{top: {target}, behavior: {behavior}}})"
+            elif direction == "down":
                 script = f"window.scrollBy({{top: {amount}, left: 0, behavior: {behavior}}})"
             elif direction == "up":
                 script = f"window.scrollBy({{top: -{amount}, left: 0, behavior: {behavior}}})"
@@ -745,7 +1165,44 @@ class DOMHandler:
             await tab.evaluate(script)
             await asyncio.sleep(0.5 if smooth else 0.1)
 
-            return True
+            # Optionally wait for lazy-loaded content
+            content_grew = False
+            if wait_for_content:
+                pre_height = await tab.evaluate("document.body.scrollHeight")
+                elapsed = 0
+                poll_interval = 0.2
+                while elapsed * 1000 < timeout_ms:
+                    await asyncio.sleep(poll_interval)
+                    elapsed += poll_interval
+                    cur_height = await tab.evaluate("document.body.scrollHeight")
+                    if cur_height > pre_height:
+                        content_grew = True
+                        await asyncio.sleep(0.3)  # Let it settle
+                        break
+
+            # Capture metrics after scrolling
+            after = await tab.evaluate("""(() => ({
+                scroll_top: Math.round(window.scrollY),
+                scroll_height: document.body.scrollHeight,
+                viewport_height: window.innerHeight
+            }))()""")
+
+            sh = max(after["scroll_height"], 1)
+            vh = after["viewport_height"]
+            st = after["scroll_top"]
+            pct = round(st / max(sh - vh, 1) * 100, 1) if sh > vh else 0
+            remaining = max(0, ceil((sh - st - vh) / max(vh, 1)))
+
+            return {
+                "success": True,
+                "before": before,
+                "after": after,
+                "position_percent": min(pct, 100),
+                "at_top": st <= 1,
+                "at_bottom": st + vh >= sh - 1,
+                "content_grew": content_grew,
+                "pages_remaining": remaining,
+            }
 
         except Exception as e:
             raise Exception(f"Failed to scroll page: {str(e)}")

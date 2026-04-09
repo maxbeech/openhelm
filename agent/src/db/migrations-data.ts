@@ -42,6 +42,7 @@ import sql0037 from "./migrations/0037_rename_captain_to_autopilot.sql";
 import sql0038 from "./migrations/0038_archive_stuck_and_rebrand.sql";
 import sql0039 from "./migrations/0039_reconcile_row_counts.sql";
 import sql0040 from "./migrations/0040_fix_run_credentials_check.sql";
+import sql0041 from "./migrations/0041_add_run_tool_stats.sql";
 
 export interface MigrationEntry {
   idx: number;
@@ -91,4 +92,5 @@ export const MIGRATIONS: MigrationEntry[] = [
   { idx: 38, tag: "0038_archive_stuck_and_rebrand", sql: sql0038 },
   { idx: 39, tag: "0039_reconcile_row_counts", sql: sql0039 },
   { idx: 40, tag: "0040_fix_run_credentials_check", sql: sql0040 },
+  { idx: 41, tag: "0041_add_run_tool_stats", sql: sql0041 },
 ];

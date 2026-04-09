@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Token-efficient page understanding (`get_page_digest`)**: New tool uses CDP Accessibility tree to produce a compact semantic digest of any web page at ~5-15K tokens (vs 188K+ for raw HTML or 25K per screenshot). Returns an annotated outline with headings, links, buttons, form fields, and their states. Supports lazy-load triggering and configurable token budget.
+- **DOM search & scroll (`find_on_page`)**: Search the page for text, CSS selectors, or XPath using CDP `DOM.performSearch`. Auto-scrolls to the match and returns a `selector_hint` for use with `click_element`. Eliminates screenshot-scroll-screenshot cycles for locating elements.
+- **Role-based element search (`find_by_role`)**: Find elements by accessible role and name using CDP `Accessibility.queryAXTree` (e.g., find button named "Submit"). Auto-scrolls to match.
+- **Smart scroll metrics**: `scroll_page` now returns position metrics (percent scrolled, at_top/at_bottom, pages_remaining, content_grew) so the AI agent knows where it is on the page. Supports percent-based scrolling and `wait_for_content` for lazy-loaded pages.
+- **Screenshot optimization**: New `grayscale`, `max_width`, `quality`, and `region` parameters on `take_screenshot`. Region screenshots capture only a specific area (useful after `find_on_page`). Grayscale reduces size ~30-40% for text-heavy pages.
+
+### Fixed
+- **Reliable element clicking**: `click_element` now uses a multi-strategy cascade (CSS, XPath conversion, text search, shadow DOM piercing) with up to 3 retries and exponential backoff. Scrolls between retries to trigger lazy-loaded content. Pre-interaction preparation ensures elements are visible and not covered by overlays. Rich diagnostic error messages list nearby clickable elements and suggest alternative selectors.
+
 ## [0.8.0] - 2026-04-05
 
 ### Added

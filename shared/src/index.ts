@@ -406,6 +406,20 @@ export interface GetJobTokenStatsParams {
   to?: string;   // ISO datetime (exclusive)
 }
 
+/** Per-tool invocation & approximate token usage aggregation */
+export interface RunToolStat {
+  toolName: string;
+  invocations: number;
+  approxOutputTokens: number;
+}
+
+export interface GetRunToolStatsParams {
+  projectId?: string;
+  jobIds?: string[];
+  from?: string; // ISO datetime (inclusive)
+  to?: string;   // ISO datetime (exclusive)
+}
+
 // RunLogs
 export interface CreateRunLogParams {
   runId: string;
@@ -664,6 +678,8 @@ export interface ClaudeCodeRunResult {
   outputTokens: number | null;
   /** API rate-limit utilization (0.0–1.0) from the last rate_limit_event, or null if none received */
   rateLimitUtilization: number | null;
+  /** Per-tool invocation counts and approximate output token attribution */
+  toolStats?: RunToolStat[];
 }
 
 // ─── Scheduler & Executor Types ───

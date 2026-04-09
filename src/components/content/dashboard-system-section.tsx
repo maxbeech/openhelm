@@ -2,6 +2,7 @@ import { Activity, ChevronDown, ChevronUp, RefreshCw, PlayCircle } from "lucide-
 import { ClaudeUsageWidgets } from "@/components/shared/claude-usage-widgets";
 import { ClaudeUsageChart } from "@/components/shared/claude-usage-chart";
 import { TokensChart } from "@/components/shared/tokens-chart";
+import { ToolUsageChart } from "@/components/shared/tool-usage-chart";
 import { RunOutcomesChart } from "@/components/shared/run-outcomes-chart";
 import { RunStatusBadge } from "@/components/shared/status-badge";
 import { formatTokenCount, formatRelativeTime } from "@/lib/format";
@@ -88,6 +89,10 @@ export function DashboardSystemSection({
           <div>
             <h4 className="mb-3 text-xs font-semibold text-muted-foreground">Token Usage</h4>
             <TokensChart projectId={activeProjectId ?? undefined} />
+          </div>
+          <div>
+            <h4 className="mb-3 text-xs font-semibold text-muted-foreground">Tool Usage</h4>
+            <ToolUsageChart projectId={activeProjectId ?? undefined} />
           </div>
         </div>
       )}

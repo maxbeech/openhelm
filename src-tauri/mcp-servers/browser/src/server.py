@@ -21,6 +21,7 @@ from cdp_element_cloner import CDPElementCloner
 from cdp_function_executor import CDPFunctionExecutor
 from comprehensive_element_cloner import comprehensive_element_cloner
 from debug_logger import debug_logger
+from accessibility_handler import AccessibilityHandler
 from dom_handler import DOMHandler
 from element_cloner import element_cloner
 from file_based_element_cloner import file_based_element_cloner
@@ -179,6 +180,7 @@ mcp = FastMCP(
 browser_manager = BrowserManager()
 network_interceptor = NetworkInterceptor()
 dom_handler = DOMHandler()
+accessibility_handler = AccessibilityHandler()
 cdp_function_executor = CDPFunctionExecutor()
 captcha_detector = CaptchaDetector()
 
@@ -730,26 +732,34 @@ async def scroll_page(
     instance_id: str,
     direction: str = "down",
     amount: int = 500,
-    smooth: bool = True
-) -> bool:
+    smooth: bool = True,
+    percent: Optional[float] = None,
+    wait_for_content: bool = False,
+    timeout_ms: int = 3000,
+) -> Dict[str, Any]:
     """
-    Scroll the page.
+    Scroll the page and return scroll position metrics.
 
     Args:
         instance_id (str): Browser instance ID.
         direction (str): 'down', 'up', 'left', 'right', 'top', or 'bottom'.
-        amount (int): Pixels to scroll (ignored for 'top' and 'bottom').
+        amount (int): Pixels to scroll (ignored for 'top', 'bottom', or when percent is set).
         smooth (bool): Use smooth scrolling.
+        percent (Optional[float]): Scroll to this percentage of page (0-100). Overrides direction/amount.
+        wait_for_content (bool): Wait for lazy-loaded content after scrolling.
+        timeout_ms (int): Max time to wait for lazy content in ms (default 3000).
 
     Returns:
-        bool: True if scrolled successfully.
+        Dict with scroll metrics: success, before/after positions, position_percent, at_top, at_bottom, content_grew, pages_remaining.
     """
     if isinstance(amount, str):
         amount = int(amount)
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
         raise Exception(f"Instance not found: {instance_id}")
-    return await dom_handler.scroll_page(tab, direction, amount, smooth)
+    return await dom_handler.scroll_page(
+        tab, direction, amount, smooth, percent, wait_for_content, timeout_ms
+    )
 
 @section_tool("element-interaction")
 async def execute_script(
@@ -804,19 +814,126 @@ async def get_page_content(
     if not tab:
         raise Exception(f"Instance not found: {instance_id}")
     content = await dom_handler.get_page_content(tab, include_frames)
-    
+
     return response_handler.handle_response(
-        content, 
-        "page_content", 
+        content,
+        "page_content",
         {"instance_id": instance_id, "include_frames": include_frames}
     )
+
+
+# ── Page Understanding ─────────────────────────────────────────────────
+# Token-efficient page comprehension via CDP Accessibility tree and DOM search.
+# These tools are invisible to websites (internal CDP APIs, no JS side effects).
+
+@section_tool("page-understanding")
+async def get_page_digest(
+    instance_id: str,
+    max_tokens: int = 15000,
+    trigger_lazy_load: bool = False,
+    include_links: bool = True,
+) -> Dict[str, Any]:
+    """
+    Get a compact, semantic digest of the current page using the accessibility tree.
+
+    This is dramatically more token-efficient than get_page_content or take_screenshot.
+    Typical output: 5-15K tokens vs 188K+ for raw HTML or 25K per screenshot.
+    Use this as the PRIMARY tool for understanding what is on a page.
+
+    The digest shows page structure with roles (headings, links, buttons, text,
+    form fields) in an indented outline format. Interactive elements show their
+    accessible names and states.
+
+    Args:
+        instance_id (str): Browser instance ID.
+        max_tokens (int): Approximate token budget for the digest (default 15000).
+        trigger_lazy_load (bool): Scroll through page first to force lazy content into DOM.
+        include_links (bool): Include link href targets in output.
+
+    Returns:
+        Dict with: digest (str), url, title, node_count, estimated_tokens, truncated, scroll_position.
+    """
+    tab = await browser_manager.get_tab(instance_id)
+    if not tab:
+        raise Exception(f"Instance not found: {instance_id}")
+    return await accessibility_handler.get_page_digest(
+        tab, max_tokens, trigger_lazy_load, include_links
+    )
+
+@section_tool("page-understanding")
+async def find_on_page(
+    instance_id: str,
+    query: str,
+    scroll_to: bool = True,
+    match_index: int = 0,
+) -> Dict[str, Any]:
+    """
+    Search the page for text or selectors and optionally scroll to the match.
+
+    Uses CDP DOM.performSearch — searches text content, attributes, CSS selectors,
+    and XPath. Invisible to websites.
+
+    Returns a selector_hint that can be passed directly to click_element or type_text.
+
+    Args:
+        instance_id (str): Browser instance ID.
+        query (str): Text, CSS selector, or XPath to search for.
+        scroll_to (bool): Auto-scroll the found element into view (default True).
+        match_index (int): Which match to target, 0-based (default 0).
+
+    Returns:
+        Dict with: found (bool), total_matches, match_index, position, scrolled_to, selector_hint, context_text.
+    """
+    tab = await browser_manager.get_tab(instance_id)
+    if not tab:
+        raise Exception(f"Instance not found: {instance_id}")
+    return await accessibility_handler.find_on_page(tab, query, scroll_to, match_index)
+
+@section_tool("page-understanding")
+async def find_by_role(
+    instance_id: str,
+    role: Optional[str] = None,
+    name: Optional[str] = None,
+    scroll_to: bool = True,
+    match_index: int = 0,
+) -> Dict[str, Any]:
+    """
+    Find elements by their accessible role and/or name.
+
+    Uses CDP Accessibility.queryAXTree — invisible to websites. Useful for
+    finding buttons, links, text fields, etc. by their visible label.
+
+    Examples:
+        find_by_role(role="button", name="Submit")  -> find Submit button
+        find_by_role(role="textbox", name="Add a comment")  -> find comment input
+        find_by_role(role="link")  -> find all links
+
+    Args:
+        instance_id (str): Browser instance ID.
+        role (Optional[str]): ARIA role (e.g. "button", "link", "textbox", "heading").
+        name (Optional[str]): Accessible name to match (e.g. "Submit", "Reply").
+        scroll_to (bool): Auto-scroll the match into view (default True).
+        match_index (int): Which match to scroll to, 0-based (default 0).
+
+    Returns:
+        Dict with: found (bool), total_matches, matches list [{role, name, backend_node_id}], scrolled_to.
+    """
+    tab = await browser_manager.get_tab(instance_id)
+    if not tab:
+        raise Exception(f"Instance not found: {instance_id}")
+    return await accessibility_handler.find_by_role(tab, role, name, scroll_to, match_index)
+
 
 @section_tool("element-interaction")
 async def take_screenshot(
     instance_id: str,
     full_page: bool = False,
     format: str = "jpeg",
-    file_path: Optional[str] = None
+    file_path: Optional[str] = None,
+    grayscale: bool = False,
+    max_width: int = 1280,
+    quality: int = 55,
+    region: Optional[Dict[str, float]] = None,
 ) -> Union[str, Dict[str, Any]]:
     """
     Take a screenshot of the page.
@@ -826,6 +943,10 @@ async def take_screenshot(
         full_page (bool): Capture full page (not just viewport).
         format (str): Image format ('png' or 'jpeg'). Defaults to jpeg for token efficiency.
         file_path (Optional[str]): Optional file path to save screenshot to.
+        grayscale (bool): Convert to grayscale for ~30-40% smaller images on text-heavy pages.
+        max_width (int): Max image width in pixels (default 1280). Use 800 or 640 for scanning.
+        quality (int): JPEG quality 1-100 (default 55). Lower = smaller but blurrier.
+        region (Optional[Dict]): Capture a specific region: {"x": float, "y": float, "width": float, "height": float}. Useful after find_on_page to screenshot only the area around a found element.
 
     Returns:
         Union[str, Dict]: File path if file_path provided, otherwise optimized base64 data or file info dict.
@@ -837,15 +958,7 @@ async def take_screenshot(
     if not tab:
         raise Exception(f"Instance not found: {instance_id}")
 
-    # Hard timeout for the CDP screenshot call — prevents indefinite hangs on
-    # complex pages (e.g. Notion with heavy dynamic rendering).
     SCREENSHOT_TIMEOUT_S = 60
-    MAX_IMAGE_WIDTH = 1280  # downscale wider images for token efficiency
-    # Threshold for saving to file vs returning inline base64.
-    # MCP framework rejects raw tool outputs above ~80k characters, which at
-    # 1.33 chars-per-byte * 4 chars-per-token ≈ 15k tokens for a 45KB image.
-    # Keep well below that so we always get a clean file-path JSON, not a
-    # framework error that confuses the agent.
     FILE_SAVE_TOKEN_THRESHOLD = 8000
 
     if file_path:
@@ -857,66 +970,116 @@ async def take_screenshot(
             raise Exception(f"Screenshot timed out after {SCREENSHOT_TIMEOUT_S}s — page may be too complex or still loading")
         return f"Screenshot saved. AI agents should use the Read tool to view this image: {str(save_path.absolute())}"
 
-    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
-        tmp_path = Path(tmp_file.name)
+    # Region screenshot via CDP (bypasses save_screenshot for precise clipping)
+    if region:
+        try:
+            clip = uc.cdp.page.Viewport(
+                x=float(region.get("x", 0)),
+                y=float(region.get("y", 0)),
+                width=float(region.get("width", 800)),
+                height=float(region.get("height", 600)),
+                scale=1.0,
+            )
+            fmt = "jpeg" if format.lower() == "jpeg" else "png"
+            screenshot_data = await asyncio.wait_for(
+                tab.send(uc.cdp.page.capture_screenshot(
+                    format_=fmt,
+                    quality=quality if fmt == "jpeg" else None,
+                    clip=clip,
+                )),
+                timeout=SCREENSHOT_TIMEOUT_S,
+            )
+            import base64 as b64_mod
+            raw_bytes = b64_mod.b64decode(screenshot_data)
+            img = Image.open(io.BytesIO(raw_bytes))
+        except asyncio.TimeoutError:
+            raise Exception(f"Region screenshot timed out after {SCREENSHOT_TIMEOUT_S}s")
+        except Exception as e:
+            raise Exception(f"Region screenshot failed: {e}")
+    else:
+        # Standard screenshot via save_screenshot
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+            tmp_path = Path(tmp_file.name)
+
+        try:
+            try:
+                await asyncio.wait_for(tab.save_screenshot(tmp_path), timeout=SCREENSHOT_TIMEOUT_S)
+            except asyncio.TimeoutError:
+                raise Exception(f"Screenshot timed out after {SCREENSHOT_TIMEOUT_S}s — page may be too complex or still loading")
+            img = Image.open(tmp_path)
+        except Exception:
+            if tmp_path.exists():
+                os.unlink(tmp_path)
+            raise
 
     try:
-        try:
-            await asyncio.wait_for(tab.save_screenshot(tmp_path), timeout=SCREENSHOT_TIMEOUT_S)
-        except asyncio.TimeoutError:
-            raise Exception(f"Screenshot timed out after {SCREENSHOT_TIMEOUT_S}s — page may be too complex or still loading")
+        # Downscale images wider than max_width for token efficiency
+        if img.width > max_width:
+            scale = max_width / img.width
+            new_size = (max_width, int(img.height * scale))
+            img = img.resize(new_size, Image.LANCZOS)
 
-        with Image.open(tmp_path) as img:
-            # Downscale images wider than MAX_IMAGE_WIDTH for token efficiency.
-            if img.width > MAX_IMAGE_WIDTH:
-                scale = MAX_IMAGE_WIDTH / img.width
-                new_size = (MAX_IMAGE_WIDTH, int(img.height * scale))
-                img = img.resize(new_size, Image.LANCZOS)
+        # Grayscale conversion for text-heavy pages (~30-40% smaller)
+        if grayscale:
+            img = img.convert('L')
 
-            # Convert to RGB for JPEG (handles RGBA/LA/P modes)
-            save_format = format.lower()
-            if save_format == 'jpeg' or img.mode in ('RGBA', 'LA', 'P'):
-                background = Image.new('RGB', img.size, (255, 255, 255))
-                if img.mode == 'P':
-                    img = img.convert('RGBA')
-                background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+        # Convert to RGB for JPEG (handles RGBA/LA/P/L modes)
+        save_format = format.lower()
+        if save_format == 'jpeg' or img.mode in ('RGBA', 'LA', 'P'):
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            if img.mode == 'L':
+                img = img.convert('RGB')
+            elif img.mode in ('RGBA', 'LA'):
+                background.paste(img, mask=img.split()[-1])
                 img = background
+        elif img.mode == 'L' and save_format != 'jpeg':
+            pass  # PNG supports L mode natively
 
-            output_buffer = io.BytesIO()
+        output_buffer = io.BytesIO()
 
-            if save_format == 'jpeg':
-                img.save(output_buffer, format='JPEG', quality=55, optimize=True)
-            else:
-                img.save(output_buffer, format='PNG', optimize=True)
+        if save_format == 'jpeg':
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            img.save(output_buffer, format='JPEG', quality=quality, optimize=True)
+        else:
+            img.save(output_buffer, format='PNG', optimize=True)
 
-            compressed_bytes = output_buffer.getvalue()
+        compressed_bytes = output_buffer.getvalue()
 
-            base64_size = len(compressed_bytes) * 1.33
-            estimated_tokens = int(base64_size / 4)
+        base64_size = len(compressed_bytes) * 1.33
+        estimated_tokens = int(base64_size / 4)
 
-            if estimated_tokens > FILE_SAVE_TOKEN_THRESHOLD:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                screenshot_filename = f"screenshot_{timestamp}_{instance_id[:8]}.{save_format}"
-                screenshot_path = response_handler.clone_dir / screenshot_filename
+        if estimated_tokens > FILE_SAVE_TOKEN_THRESHOLD:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            screenshot_filename = f"screenshot_{timestamp}_{instance_id[:8]}.{save_format}"
+            screenshot_path = response_handler.clone_dir / screenshot_filename
 
-                with open(screenshot_path, 'wb') as f:
-                    f.write(compressed_bytes)
+            with open(screenshot_path, 'wb') as f:
+                f.write(compressed_bytes)
 
-                file_size_kb = len(compressed_bytes) / 1024
-                return {
-                    "file_path": str(screenshot_path),
-                    "filename": screenshot_filename,
-                    "file_size_kb": round(file_size_kb, 2),
-                    "estimated_tokens": estimated_tokens,
-                    "reason": "Screenshot too large, automatically saved to file",
-                    "message": f"Screenshot saved. AI agents should use the Read tool to view this image: {str(screenshot_path)}"
-                }
+            file_size_kb = len(compressed_bytes) / 1024
+            return {
+                "file_path": str(screenshot_path),
+                "filename": screenshot_filename,
+                "file_size_kb": round(file_size_kb, 2),
+                "estimated_tokens": estimated_tokens,
+                "reason": "Screenshot too large, automatically saved to file",
+                "message": f"Screenshot saved. AI agents should use the Read tool to view this image: {str(screenshot_path)}"
+            }
 
-            return base64.b64encode(compressed_bytes).decode('utf-8')
+        return base64.b64encode(compressed_bytes).decode('utf-8')
 
     finally:
-        if tmp_path.exists():
-            os.unlink(tmp_path)
+        img.close()
+        # Clean up temp file if we used the non-region path
+        if not region:
+            try:
+                if tmp_path.exists():
+                    os.unlink(tmp_path)
+            except Exception:
+                pass
 
 
 @section_tool("network-debugging")
@@ -3354,6 +3517,8 @@ if __name__ == "__main__":
                       help="Disable CAPTCHA detection and intervention tools")
     parser.add_argument("--disable-profiles", action="store_true",
                       help="Disable profile management tools")
+    parser.add_argument("--disable-page-understanding", action="store_true",
+                      help="Disable page digest, find_on_page, and find_by_role tools")
 
     parser.add_argument("--block-resources-default", type=str, default=None,
                       help="Comma-separated resource types to block by default on every spawn_browser call (e.g. 'font,media,image')")
@@ -3380,6 +3545,7 @@ if __name__ == "__main__":
         print("  dynamic-hooks: AI-powered network hook system (12 tools)")
         print("  credentials: Secure browser credential injection (4 tools)")
         print("  profiles: Named persistent Chrome profile management (3 tools)")
+        print("  page-understanding: Token-efficient page digest and element search (3 tools)")
         print("  intervention: CAPTCHA detection and user intervention (2 tools)")
         print("\nUse --disable-<section-name> to disable specific sections")
         print("Use --minimal to enable only core functionality")
@@ -3419,6 +3585,8 @@ if __name__ == "__main__":
         DISABLED_SECTIONS.add("intervention")
     if args.disable_profiles:
         DISABLED_SECTIONS.add("profiles")
+    if args.disable_page_understanding:
+        DISABLED_SECTIONS.add("page-understanding")
 
     if args.block_resources_default:
         _default_block_resources[:] = [r.strip() for r in args.block_resources_default.split(',') if r.strip()]

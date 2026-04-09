@@ -118,6 +118,18 @@ export const runs = sqliteTable("runs", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
+/** Per-tool invocation stats captured from each run's stream-json output */
+export const runToolStats = sqliteTable("run_tool_stats", {
+  runId: text("run_id")
+    .notNull()
+    .references(() => runs.id, { onDelete: "cascade" }),
+  toolName: text("tool_name").notNull(),
+  invocations: integer("invocations").notNull().default(0),
+  approxOutputTokens: integer("approx_output_tokens").notNull().default(0),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.runId, t.toolName] }),
+}));
+
 /** A conversation thread for the AI chat sidebar (multiple per project supported) */
 export const conversations = sqliteTable("conversations", {
   id: text("id").primaryKey(),

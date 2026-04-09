@@ -15,6 +15,7 @@ import {
   type RunnerConfig,
 } from "../claude-code/runner.js";
 import { updateRun, getRun, listRuns, snapshotRunCorrectionNote } from "../db/queries/runs.js";
+import { insertRunToolStats } from "../db/queries/tool-stats.js";
 import {
   getJob,
   updateJobNextFireAt,
@@ -26,7 +27,7 @@ import { triagePermanentFailure } from "./failure-triage.js";
 import { handleInteractiveDetected } from "./hitl-handler.js";
 import { createDashboardItem } from "../db/queries/dashboard-items.js";
 import { getProject } from "../db/queries/projects.js";
-import { createRunLog, hasTokenLimitError } from "../db/queries/run-logs.js";
+import { createRunLog, hasTokenLimitError, hasMcpToolMissingError } from "../db/queries/run-logs.js";
 import { getSetting, deleteSetting } from "../db/queries/settings.js";
 import { computeNextFireAt } from "../scheduler/schedule.js";
 import { emit } from "../ipc/emitter.js";
@@ -978,6 +979,15 @@ export class Executor {
       outputTokens: result.outputTokens ?? undefined,
     });
 
+    // Persist per-tool invocation stats (invocation counts + approx output tokens)
+    if (result.toolStats && result.toolStats.length > 0) {
+      try {
+        insertRunToolStats(runId, result.toolStats);
+      } catch (err) {
+        console.error(`[executor] failed to insert tool stats for run ${runId}:`, err);
+      }
+    }
+
     console.error(`[executor] run ${runId} finished: ${finalStatus} (exit=${result.exitCode ?? "n/a"})`);
     emit("run.statusChanged", {
       runId,
@@ -1028,6 +1038,16 @@ export class Executor {
       // MCP failure — create alert but still allow self-correction
       if (isMcpError(stderrText)) {
         handleMcpFailure(runId, job.id, job.projectId, stderrText.slice(-300));
+      } else if (hasMcpToolMissingError(runId)) {
+        // MCP tool-missing — Claude reported "No such tool available" in its
+        // response text (stdout), meaning the MCP server was configured but
+        // failed to start or timed out during initialization.
+        handleMcpFailure(
+          runId,
+          job.id,
+          job.projectId,
+          'Claude reported "No such tool available" for an MCP tool — the MCP server likely failed to start or timed out during initialization.',
+        );
       }
 
       // Build structured failure signal

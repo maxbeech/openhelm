@@ -92,6 +92,32 @@ export function hasTokenLimitError(runId: string): boolean {
   return row != null;
 }
 
+/**
+ * Detect whether a run's logs contain "No such tool available: mcp__*".
+ * This indicates an MCP server was configured but failed to start or timed
+ * out during Claude Code's initialization handshake. The error appears in
+ * Claude's stdout response text (not stderr), so we check both streams.
+ * The pattern is specific enough to avoid false positives.
+ */
+export function hasMcpToolMissingError(runId: string): boolean {
+  const db = getDb();
+  const row = db
+    .select({ id: runLogs.id })
+    .from(runLogs)
+    .where(
+      and(
+        eq(runLogs.runId, runId),
+        or(
+          like(runLogs.text, "%No such tool available: mcp__%"),
+          like(runLogs.text, "%no such tool available: mcp__%"),
+        ),
+      ),
+    )
+    .limit(1)
+    .get();
+  return row != null;
+}
+
 export function deleteRunLogs(runId: string): boolean {
   const db = getDb();
   const result = db.delete(runLogs).where(eq(runLogs.runId, runId)).run();

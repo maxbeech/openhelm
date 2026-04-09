@@ -26,6 +26,19 @@ export function isMcpError(stderr: string): boolean {
 }
 
 /**
+ * MCP tool-missing pattern — matches when Claude reports a tool is unavailable.
+ * This appears in stdout (assistant response text), not stderr, when an MCP
+ * server was configured but failed to start or timed out during initialization.
+ */
+const MCP_TOOL_MISSING_PATTERN =
+  /no such tool available:\s*mcp__/i;
+
+/** Test whether text indicates an MCP tool was missing (server failed to start). */
+export function isMcpToolMissing(text: string): boolean {
+  return MCP_TOOL_MISSING_PATTERN.test(text);
+}
+
+/**
  * Check if there is already an open mcp_unavailable dashboard item for a job.
  */
 function hasOpenMcpAlert(jobId: string): boolean {
