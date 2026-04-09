@@ -59,6 +59,7 @@ class AgentClient {
   private readyPromise: Promise<void>;
   private connected = false;
   private unlisten: (() => void) | null = null;
+  private starting = false; // guards against double-start during async startTauri()
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private consecutiveHeartbeatMisses = 0;
   private recoveryTimer: ReturnType<typeof setInterval> | null = null;
@@ -71,18 +72,23 @@ class AgentClient {
 
   /** Start listening for sidecar / SSE events */
   async start() {
-    if (this.unlisten) return;
-
-    if (isTauriContext()) {
-      await this.startTauri();
-    } else {
-      this.startSse();
+    if (this.unlisten || this.starting) return;
+    this.starting = true;
+    try {
+      if (isTauriContext()) {
+        await this.startTauri();
+      } else {
+        this.startSse();
+      }
+    } finally {
+      this.starting = false;
     }
   }
 
   /** Stop listening */
   stop() {
     this.stopHeartbeat();
+    this.starting = false;
     if (this.unlisten) {
       this.unlisten();
       this.unlisten = null;

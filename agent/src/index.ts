@@ -22,6 +22,7 @@ import { cleanupOrphanedConfigs } from "./mcp-servers/mcp-config-builder.js";
 import { cleanupOrphanedBrowserCredentials } from "./credentials/browser-credentials.js";
 import { cleanupOrphanedBrowserPids } from "./mcp-servers/browser-cleanup.js";
 import { preWarmEmbedder } from "./memory/embeddings.js";
+import { preWarmWhisper } from "./voice/index.js";
 
 // Injected at build time by esbuild define — see agent/scripts/build.mjs
 declare const __OPENHELM_VERSION__: string;
@@ -138,6 +139,11 @@ console.error(`[agent] ready, listening for IPC on stdin (${elapsed()})`);
 
 // 5c. Pre-warm embedding model so first chat message doesn't pay load cost
 preWarmEmbedder();
+
+// 5d. Pre-warm whisper model if voice is enabled (non-blocking)
+preWarmWhisper().catch((err) => {
+  console.error("[agent] whisper pre-warm failed (non-fatal):", err);
+});
 
 // 6. Auto-detect Claude Code CLI in background (non-blocking)
 detectClaudeCode()

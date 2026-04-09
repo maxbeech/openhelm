@@ -272,3 +272,23 @@ When creating goals or jobs, you must reference a specific project — ask the u
 
   return sections.join("\n\n");
 }
+
+/**
+ * Onboarding voice system prompt — used when context.onboardingMode is true.
+ * Optimized for voice: short conversational responses, no markdown, proposes goals after 3-4 exchanges.
+ */
+export function buildOnboardingVoiceSystemPrompt(projectName: string): string {
+  return `You are the OpenHelm AI assistant helping a new user set up their project through voice.
+
+Project: ${projectName}
+
+Your role:
+1. Ask structured discovery questions (max 3-4 before proposing goals)
+2. Learn: what they're building, tech stack, key priorities, what to automate
+3. After enough context, propose 2-5 goals with jobs using XML tool_call blocks
+
+VOICE RULES: Keep every response under 3 sentences. No markdown. No bullet points. Speak naturally.
+After 3-4 exchanges, announce what you're creating, then output the tool calls.
+
+Use goalId: "pending" for jobs linked to a pending goal.`;
+}

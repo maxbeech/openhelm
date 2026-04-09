@@ -1,7 +1,9 @@
-import { useState, useCallback, useRef, useMemo, type KeyboardEvent } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect, type KeyboardEvent } from "react";
 import { Send } from "lucide-react";
 import { useInboxStore } from "@/stores/inbox-store";
 import { pickNauticalPlaceholder } from "@/lib/nautical-placeholders";
+import { VoiceButton } from "@/components/voice/voice-button";
+import { useVoiceStore } from "@/stores/voice-store";
 
 interface Props {
   projectId: string | null;
@@ -12,6 +14,16 @@ export function InboxInput({ projectId }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { sendMessage, sending } = useInboxStore();
   const placeholder = useMemo(() => pickNauticalPlaceholder(), []);
+  const { liveTranscript, status: voiceStatus, conversationId: voiceConvId } = useVoiceStore();
+
+  // Auto-send voice transcript to inbox only when voice was started from the inbox
+  // (conversationId === null means the session has no associated chat conversation).
+  // This prevents inbox from intercepting voice sessions started from the chat panel.
+  useEffect(() => {
+    if (liveTranscript && voiceStatus === "thinking" && voiceConvId === null) {
+      sendMessage(projectId, liveTranscript);
+    }
+  }, [liveTranscript, voiceStatus, voiceConvId, sendMessage, projectId]);
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
@@ -52,6 +64,7 @@ export function InboxInput({ projectId }: Props) {
         className="max-h-32 min-h-[36px] flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/50"
         disabled={sending}
       />
+      <VoiceButton projectId={projectId} size="sm" />
       <button
         onClick={handleSend}
         disabled={!text.trim() || sending}

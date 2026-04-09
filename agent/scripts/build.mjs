@@ -18,7 +18,7 @@ const options = {
   target: "node20",
   format: "cjs",
   outfile: "dist/agent.js",
-  external: ["better-sqlite3", "@xenova/transformers", "onnxruntime-node", "sharp"],
+  external: ["better-sqlite3", "@xenova/transformers", "onnxruntime-node", "sharp", "smart-whisper"],
   loader: { ".sql": "text" },
   banner: {
     // CJS format: shebang only — require() is available natively so no createRequire needed.
@@ -106,8 +106,8 @@ function copyNativeModules() {
   const rootNodeModules = resolve(__dirname, "..", "..", "node_modules");
   const destDir = resolve(__dirname, "..", "..", "src-tauri", "bundled-node-modules");
 
-  // Packages needed at runtime by better-sqlite3
-  const packages = ["better-sqlite3", "bindings", "file-uri-to-path"];
+  // Packages needed at runtime by better-sqlite3 and smart-whisper
+  const packages = ["better-sqlite3", "bindings", "file-uri-to-path", "smart-whisper"];
 
   for (const pkg of packages) {
     const src = resolve(rootNodeModules, pkg);

@@ -5,6 +5,7 @@ import { UsageTypeStep } from "./steps/usage-type-step";
 import { EmailStep } from "./steps/email-step";
 import { ClaudeCodeStep } from "./steps/claude-code-step";
 import { ProjectStep } from "./steps/project-step";
+import { VoiceProjectSetupStep } from "./steps/voice-project-setup-step";
 import { AutopilotStep } from "./steps/autopilot-step";
 import { PaymentStep } from "./steps/payment-step";
 import { CompleteStep } from "./steps/complete-step";
@@ -21,6 +22,7 @@ const STEP_LABELS = [
   "Usage",
   "Claude Code",
   "Project",
+  "Voice Setup",
   "Autopilot",
   "Payment",
   "Complete",
@@ -45,9 +47,10 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const progress = ((step + 1) / totalSteps) * 100;
   const currentLabel = STEP_LABELS[Math.min(step, STEP_LABELS.length - 1)];
 
-  // Last "in-progress" step index (before the complete step)
-  const lastMiddleStep = requiresPayment ? 7 : 6;
-  const isComplete = requiresPayment ? step === 8 : step === 7 && !requiresPayment;
+  // Last "in-progress" step index (before the complete step).
+  // Step indices: 0=Welcome,1=Perms,2=Email,3=Usage,4=ClaudeCode,5=Project,6=VoiceSetup,7=Autopilot,8=Payment,9=Complete
+  const lastMiddleStep = requiresPayment ? 8 : 7;
+  const isComplete = requiresPayment ? step === 9 : step === 8 && !requiresPayment;
 
   const next = () =>
     setStep((s) => {
@@ -82,11 +85,15 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
   const handleProjectNext = (id: string) => {
     setProjectId(id);
-    next(); // → autopilot step
+    next(); // → voice setup step (step 6)
+  };
+
+  const handleVoiceNext = () => {
+    next(); // → autopilot step (step 7)
   };
 
   const handleAutopilotNext = () => {
-    next(); // → payment (step 7) when required, or → complete (step 7) otherwise
+    next(); // → payment (step 8) when required, or → complete (step 8) otherwise
   };
 
   const handleComplete = (autoUpdate: boolean) => {
@@ -150,17 +157,24 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             }}
           />
         )}
-        {step === 6 && <AutopilotStep onNext={handleAutopilotNext} />}
-        {step === 7 && requiresPayment && (
+        {step === 6 && (
+          <VoiceProjectSetupStep
+            projectId={projectId}
+            onNext={handleVoiceNext}
+            onSkip={handleVoiceNext}
+          />
+        )}
+        {step === 7 && <AutopilotStep onNext={handleAutopilotNext} />}
+        {step === 8 && requiresPayment && (
           <PaymentStep
             email={userEmail}
             employeeCount={employeeCount}
             onNext={next}
           />
         )}
-        {step === 8 && <CompleteStep onComplete={handleComplete} />}
-        {/* When payment not required, step 7 = complete */}
-        {step === 7 && !requiresPayment && (
+        {step === 9 && <CompleteStep onComplete={handleComplete} />}
+        {/* When payment not required, step 8 = complete */}
+        {step === 8 && !requiresPayment && (
           <CompleteStep onComplete={handleComplete} />
         )}
       </div>

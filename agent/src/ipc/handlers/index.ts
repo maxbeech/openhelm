@@ -20,6 +20,7 @@ import { registerTargetHandlers } from "./targets.js";
 import { registerVisualizationHandlers } from "./visualizations.js";
 import { registerUsageHandlers } from "./usage.js";
 import { registerInboxHandlers } from "./inbox.js";
+import { registerVoiceHandlers } from "./voice.js";
 /** Register all domain IPC handlers */
 export function registerAllHandlers() {
   registerProjectHandlers();
@@ -44,4 +45,5 @@ export function registerAllHandlers() {
   registerVisualizationHandlers();
   registerUsageHandlers();
   registerInboxHandlers();
+  registerVoiceHandlers();
 }

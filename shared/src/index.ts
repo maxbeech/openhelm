@@ -245,7 +245,11 @@ export type SettingKey =
   | "inbox_backfill_v2"
   | "low_token_mode"
   | "claude_weekly_reset_dow"
-  | "claude_weekly_reset_hour";
+  | "claude_weekly_reset_hour"
+  | "voice_enabled"
+  | "voice_tts_engine"
+  | "voice_interaction_mode"
+  | "voice_selected_voice";
 
 export interface Setting {
   key: SettingKey;
@@ -1628,4 +1632,94 @@ export interface ListFutureInboxEventsParams {
 
 // Re-export tiering utilities so they're accessible from @openhelm/shared
 export { computeTierBoundaries, getTierForImportance } from "./inbox-tiering.js";
+
+// ─── Voice Types ───
+
+export type VoiceStatus =
+  | "idle"
+  | "listening"
+  | "transcribing"
+  | "thinking"
+  | "speaking"
+  | "awaiting-approval";
+
+export type TtsEngine = "piper" | "kokoro" | "coqui-xtts";
+export type VoiceInteractionMode = "conversation" | "push-to-talk";
+
+// IPC Method Params
+
+export interface StartVoiceParams {
+  projectId: string | null;
+  conversationId?: string;
+  mode?: VoiceInteractionMode;
+}
+
+export interface VoiceAudioChunkParams {
+  sessionId: string;
+  /** Base64-encoded PCM Float32 at 16kHz mono */
+  chunk: string;
+  sequenceNum: number;
+}
+
+export interface StopVoiceParams {
+  sessionId: string;
+}
+
+export interface CancelVoiceParams {
+  sessionId: string;
+}
+
+export interface VoiceApproveParams {
+  sessionId: string;
+  messageId: string;
+  decision: "approve" | "reject";
+}
+
+export interface GetVoiceSettingsResult {
+  ttsEngine: TtsEngine;
+  interactionMode: VoiceInteractionMode;
+  selectedVoice: string;
+  enabled: boolean;
+}
+
+export interface UpdateVoiceSettingsParams {
+  ttsEngine?: TtsEngine;
+  voiceId?: string;
+  interactionMode?: VoiceInteractionMode;
+}
+
+// IPC Events
+
+export interface VoiceStatusEvent {
+  sessionId: string;
+  status: VoiceStatus;
+}
+
+export interface VoiceTranscriptEvent {
+  sessionId: string;
+  text: string;
+  interim: boolean;
+}
+
+export interface VoiceTtsChunkEvent {
+  sessionId: string;
+  /** Base64-encoded PCM Float32 */
+  chunk: string;
+  sampleRate: number;
+  sequenceNum: number;
+  final: boolean;
+}
+
+export interface VoiceActionPendingEvent {
+  sessionId: string;
+  messageId: string;
+  actions: PendingAction[];
+  spokenSummary: string;
+}
+
+export interface VoiceErrorEvent {
+  sessionId: string;
+  error: string;
+  recoverable: boolean;
+}
 export type { TierConfig, TierResult } from "./inbox-tiering.js";

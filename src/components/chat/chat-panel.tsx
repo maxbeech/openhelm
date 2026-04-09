@@ -145,6 +145,8 @@ export function ChatPanel({ projectId }: ChatPanelProps) {
         onSend={handleSend}
         onCancel={activeConversationId ? () => cancelMessage(projectId, activeConversationId).catch(() => {}) : undefined}
         disabled={sending}
+        projectId={projectId}
+        conversationId={activeConversationId}
       />
     </motion.div>
   );

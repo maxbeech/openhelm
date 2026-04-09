@@ -12,18 +12,21 @@ import {
   type ChatEffortValue,
   type ChatPermissionModeValue,
 } from "@/stores/chat-store";
+import { VoiceButton } from "@/components/voice/voice-button";
 
 interface ChatInputProps {
   onSend: (content: string) => void;
   onCancel?: () => void;
   disabled?: boolean;
+  projectId?: string | null;
+  conversationId?: string | null;
 }
 
 export interface ChatInputHandle {
   focus: () => void;
 }
 
-export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput({ onSend, onCancel, disabled }, ref) {
+export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput({ onSend, onCancel, disabled, projectId, conversationId }, ref) {
   const [value, setValue] = useState("");
   const placeholder = useMemo(() => pickNauticalPlaceholder(), []);
   const [configOpen, setConfigOpen] = useState(false);
@@ -108,6 +111,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           rows={1}
           disabled={disabled}
           className="max-h-32 min-h-[36px] flex-1 resize-none text-sm"
+        />
+        <VoiceButton
+          projectId={projectId ?? null}
+          conversationId={conversationId}
+          size="sm"
         />
         {disabled ? (
           <Button

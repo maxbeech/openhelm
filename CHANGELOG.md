@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Voice Chat (Local Mode)** — Plan 13a: full bidirectional voice chat using a local STT→LLM→TTS pipeline
+  - `agent/src/voice/` module: VoiceSession orchestrator, VAD silence detection, sentence splitter for streaming TTS, Whisper STT via `smart-whisper`, Piper TTS subprocess manager, audio utilities
+  - Frontend: `VoiceButton`, `VoiceWaveform`, `VoiceSettings` components; `voice-store` Zustand store; `AudioCapture` and `AudioPlayback` utilities
+  - Mic button added to ChatInput and InboxInput
+  - New onboarding step 6 (Voice Project Setup): conversational voice-based project setup during onboarding
+  - Microphone permission row added to onboarding Permissions step
+  - IPC: `voice.start`, `voice.audioChunk`, `voice.stop`, `voice.cancel`, `voice.approve`, `voice.getSettings`, `voice.updateSettings`
+  - Events: `voice.status`, `voice.transcript`, `voice.ttsChunk`, `voice.actionPending`, `voice.error`
+  - Whisper model pre-warm at startup (non-blocking, skips if voice disabled)
+  - Provider abstraction designed for future Plan 13b Cloud voice (OpenAI Realtime)
+  - TTS engine selector: Piper (default, ships with app), Kokoro, Coqui XTTS v2 (Phase 3)
+  - Conversation mode (VAD-triggered) and push-to-talk mode
+  - Barge-in: speaking during TTS playback interrupts immediately
+  - Voice-optimized onboarding system prompt variant
+
 ## [0.8.0] - 2026-04-05
 
 ### Added
