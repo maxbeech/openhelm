@@ -98,11 +98,19 @@ export function listInboxEvents(params: ListInboxEventsParams = {}): InboxEvent[
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-  const rows = db
+  let query = db
     .select()
     .from(inboxEvents)
-    .where(whereClause)
-    .orderBy(isForward ? [asc(inboxEvents.eventAt), asc(inboxEvents.id)] : [desc(inboxEvents.eventAt), desc(inboxEvents.id)])
+    .where(whereClause);
+
+  // Apply ordering based on direction
+  if (isForward) {
+    query = query.orderBy(asc(inboxEvents.eventAt), asc(inboxEvents.id));
+  } else {
+    query = query.orderBy(desc(inboxEvents.eventAt), desc(inboxEvents.id));
+  }
+
+  const rows = query
     .limit(limit)
     .all()
     .map(rowToInboxEvent);
