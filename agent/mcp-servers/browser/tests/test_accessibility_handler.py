@@ -255,14 +255,16 @@ class TestExtractTextHint:
 class TestScrollPageReturn:
     def test_returns_dict_with_metrics(self):
         import asyncio
+        import json
         from dom_handler import DOMHandler
 
         async def _run():
             tab = AsyncMock()
+            # scroll_page now uses JSON.stringify, so evaluate returns JSON strings
             tab.evaluate = AsyncMock(side_effect=[
-                {"scroll_top": 0, "scroll_height": 5000, "viewport_height": 720},
+                json.dumps({"scroll_top": 0, "scroll_height": 5000, "viewport_height": 720}),
                 None,  # scroll execution
-                {"scroll_top": 500, "scroll_height": 5000, "viewport_height": 720},
+                json.dumps({"scroll_top": 500, "scroll_height": 5000, "viewport_height": 720}),
             ])
             return await DOMHandler.scroll_page(tab, direction="down", amount=500)
 
@@ -278,14 +280,15 @@ class TestScrollPageReturn:
 
     def test_percent_scroll(self):
         import asyncio
+        import json
         from dom_handler import DOMHandler
 
         async def _run():
             tab = AsyncMock()
             tab.evaluate = AsyncMock(side_effect=[
-                {"scroll_top": 0, "scroll_height": 5000, "viewport_height": 720},
+                json.dumps({"scroll_top": 0, "scroll_height": 5000, "viewport_height": 720}),
                 None,
-                {"scroll_top": 2500, "scroll_height": 5000, "viewport_height": 720},
+                json.dumps({"scroll_top": 2500, "scroll_height": 5000, "viewport_height": 720}),
             ])
             return await DOMHandler.scroll_page(tab, percent=50)
 
@@ -304,3 +307,203 @@ class TestToolTimeoutConfig:
         assert "get_page_digest" in EXTENDED_TIMEOUT_TOOLS
         assert "find_on_page" in EXTENDED_TIMEOUT_TOOLS
         assert "find_by_role" in EXTENDED_TIMEOUT_TOOLS
+
+
+# ---------------------------------------------------------------------------
+# Tests: CDP hang protection — the primary fix for the Reddit hang bug
+# ---------------------------------------------------------------------------
+
+class TestCdpHangProtection:
+    """Verify that unresponsive CDP calls fail fast with useful errors
+    instead of hanging until the 120s MCP tool timeout fires."""
+
+    def test_find_by_role_total_timeout_wrapper_exists(self):
+        """find_by_role must enforce a total timeout budget shorter
+        than the 120s MCP tool timeout so hangs produce a fast,
+        actionable error message."""
+        from accessibility_handler import _FN_TOTAL_TIMEOUT_S
+        assert _FN_TOTAL_TIMEOUT_S < 120
+        assert _FN_TOTAL_TIMEOUT_S >= 10  # Not unreasonably aggressive
+
+    def test_cdp_helper_wraps_with_timeout(self):
+        """The _cdp helper must apply asyncio.wait_for so every CDP
+        call is individually bounded."""
+        import asyncio
+        from accessibility_handler import _cdp, _CDP_CALL_TIMEOUT_S
+
+        async def _run():
+            tab = MagicMock()
+            # Simulate a hanging CDP call — tab.send never completes
+            never = asyncio.Future()
+            tab.send = MagicMock(return_value=never)
+            try:
+                await _cdp(tab, "fake_command", timeout_s=0.1)
+                return "no_timeout"
+            except asyncio.TimeoutError:
+                return "timed_out"
+
+        assert asyncio.run(_run()) == "timed_out"
+        assert _CDP_CALL_TIMEOUT_S > 0
+
+    def test_get_page_digest_uses_fast_path_by_default(self):
+        """Default mode must be 'fast' (JS extraction), not 'semantic'
+        (CDP AX tree) — the AX tree is too slow on Reddit."""
+        import asyncio
+        import inspect
+        # Verify the default parameter value
+        sig = inspect.signature(AccessibilityHandler.get_page_digest)
+        assert sig.parameters["mode"].default == "fast"
+
+    def test_js_fast_digest_returns_mode_fast(self):
+        """The fast JS path must tag its output with mode='fast' so
+        callers can tell which path produced the digest."""
+        import asyncio
+        import json
+        from accessibility_handler import _js_fast_digest
+
+        async def _run():
+            tab = MagicMock()
+            # Mock tab.evaluate to return a plausible JSON result
+            fake_js_output = json.dumps({
+                "lines": [
+                    '[heading-1] "Welcome"',
+                    '[link] "Sign in" -> /login',
+                    '[button] "Submit"',
+                ],
+                "scanned": 150,
+                "budget_exceeded": False,
+                "chars": 80,
+            })
+            tab.evaluate = MagicMock(return_value=asyncio.sleep(0, result=fake_js_output))
+            return await _js_fast_digest(
+                tab,
+                title="Test",
+                url="https://example.com",
+                scroll_info={"scrollTop": 0, "scrollHeight": 1000, "viewportHeight": 720},
+                max_tokens=15000,
+            )
+
+        result = asyncio.run(_run())
+        assert result["mode"] == "fast"
+        assert result["node_count"] == 3
+        assert "[heading-1]" in result["digest"]
+        assert "[link]" in result["digest"]
+        assert "[button]" in result["digest"]
+
+    def test_find_by_role_fails_fast_on_enable_hang(self):
+        """If accessibility.enable() hangs, find_by_role must raise
+        a fast error — not block the full 120s MCP timeout."""
+        import asyncio
+        import time
+
+        async def _run():
+            tab = MagicMock()
+            # Make every tab.send hang forever
+            tab.send = MagicMock(return_value=asyncio.Future())
+
+            start = time.monotonic()
+            try:
+                # Patch to a tiny total timeout for test speed
+                with patch(
+                    "accessibility_handler._FN_TOTAL_TIMEOUT_S", 0.5
+                ), patch(
+                    "accessibility_handler._CDP_CALL_TIMEOUT_S", 0.2
+                ):
+                    await AccessibilityHandler.find_by_role(
+                        tab, role="button", name="Submit"
+                    )
+                return ("no_error", time.monotonic() - start)
+            except Exception as e:
+                return (str(e), time.monotonic() - start)
+
+        result, elapsed = asyncio.run(_run())
+        # Must fail (not hang) and must fail within a few seconds
+        assert "timed out" in result.lower() or "hung" in result.lower()
+        assert elapsed < 5, f"find_by_role took {elapsed}s to fail"
+
+
+# ---------------------------------------------------------------------------
+# find_on_page JS-first rewrite (Round 4, Run 33c3ef25 regression)
+#
+# The old CDP DOM.performSearch path either failed with "DOM agent is not
+# enabled" or returned matches with all useful fields (selector_hint,
+# position, scrolled_to) null. The rewrite runs a single JS evaluate that
+# must ALWAYS return a usable selector_hint when it finds a match.
+# ---------------------------------------------------------------------------
+
+
+class TestFindOnPageJsFirst:
+    def test_find_on_page_returns_usable_selector_hint_on_match(self):
+        import asyncio
+        import json as _json
+
+        payload = _json.dumps({
+            "found": True,
+            "total_matches": 3,
+            "match_index": 0,
+            "scrolled_to": True,
+            "selector_hint": '[data-oh-find="1"]',
+            "context_text": "Join the conversation",
+            "position": {"x": 100, "y": 400, "width": 480, "height": 48},
+            "tag": "button",
+            "is_visible": True,
+        })
+        tab = MagicMock()
+        tab.evaluate = AsyncMock(return_value=payload)
+        result = asyncio.run(
+            AccessibilityHandler.find_on_page(tab, "Join the conversation")
+        )
+        assert result["found"] is True
+        # selector_hint MUST be populated — this is the key regression fix.
+        assert result["selector_hint"] is not None
+        assert result["selector_hint"] == '[data-oh-find="1"]'
+        assert result["position"] is not None
+        assert result["scrolled_to"] is True
+        # Single evaluate call — no CDP DOM.performSearch fallback dance.
+        assert tab.evaluate.await_count == 1
+
+    def test_find_on_page_returns_not_found_on_empty_result(self):
+        import asyncio
+        import json as _json
+
+        payload = _json.dumps({
+            "found": False,
+            "total_matches": 0,
+            "query": "nonsense-that-does-not-exist",
+        })
+        tab = MagicMock()
+        tab.evaluate = AsyncMock(return_value=payload)
+        result = asyncio.run(
+            AccessibilityHandler.find_on_page(tab, "nonsense-that-does-not-exist")
+        )
+        assert result["found"] is False
+        assert result["total_matches"] == 0
+
+    def test_find_on_page_tolerates_unparseable_eval_result(self):
+        """If the JS eval somehow returns non-JSON, the tool must
+        degrade to a not-found response instead of raising."""
+        import asyncio
+        tab = MagicMock()
+        tab.evaluate = AsyncMock(return_value="garbage {not json")
+        result = asyncio.run(
+            AccessibilityHandler.find_on_page(tab, "anything")
+        )
+        assert result["found"] is False
+        assert "error" in result or result["total_matches"] == 0
+
+    def test_find_on_page_does_not_use_cdp_dom_perform_search(self):
+        """Confirms the rewrite is JS-first: no tab.send calls should be
+        made by find_on_page (the old path called DOM.performSearch via
+        tab.send)."""
+        import asyncio
+        import json as _json
+        tab = MagicMock()
+        tab.evaluate = AsyncMock(return_value=_json.dumps({
+            "found": True, "total_matches": 1, "match_index": 0,
+            "selector_hint": "#x", "scrolled_to": True,
+            "position": {"x": 0, "y": 0, "width": 10, "height": 10},
+            "context_text": "x", "tag": "div", "is_visible": True,
+        }))
+        tab.send = AsyncMock()
+        asyncio.run(AccessibilityHandler.find_on_page(tab, "#x"))
+        assert tab.send.await_count == 0

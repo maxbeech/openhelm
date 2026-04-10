@@ -21,7 +21,7 @@ export function buildDataTableSection(scored: ScoredDataTable[]): string {
     "## Available Data Tables",
     "",
     "The following data tables are available in this project. " +
-      "Use the openhelm-data MCP tools to query or modify them.",
+      "Use the openhelm_data MCP tools to query or modify them.",
     "",
   ];
 

@@ -456,6 +456,7 @@ export default function App() {
     [updateInboxEvent],
   );
   useAgentEvent("inbox.eventCreated", handleInboxEventCreated);
+  useAgentEvent("inbox.eventUpdated", handleInboxEventResolved);
   useAgentEvent("inbox.eventResolved", handleInboxEventResolved);
 
   // Autopilot failure handler
@@ -608,14 +609,20 @@ export default function App() {
           if (onboardingFlag?.value !== "true") {
             api.setSetting({ key: "onboarding_complete", value: "true" }).catch(() => {});
           }
-          const saved = await api.getSetting("active_project");
-          const savedId = saved?.value;
-          const activeProj = projectsList.find((p) => p.id === savedId);
-          // Use saved project, or if only one project exists default to it
-          // instead of "All Projects"
-          setActiveProjectId(
-            activeProj?.id ?? (projectsList.length === 1 ? projectsList[0].id : null),
-          );
+          const saved = await api.getSetting("active_project").catch(() => null);
+          // savedValue: undefined = never set, "" = user chose "All Projects", "<id>" = specific project
+          const savedValue = saved?.value;
+          if (savedValue === undefined) {
+            // No preference stored yet — auto-select when only one project exists
+            setActiveProjectId(projectsList.length === 1 ? projectsList[0].id : null);
+          } else if (!savedValue) {
+            // User explicitly chose "All Projects"
+            setActiveProjectId(null);
+          } else {
+            // Specific project — find it (fall back to All Projects if deleted)
+            const activeProj = projectsList.find((p) => p.id === savedValue);
+            setActiveProjectId(activeProj?.id ?? null);
+          }
           const savedGroupOrder = await api.getSetting("sidebar_project_group_order").catch(() => null);
           if (savedGroupOrder?.value) {
             try { setProjectGroupOrder(JSON.parse(savedGroupOrder.value)); } catch { /* ignore */ }
@@ -672,11 +679,10 @@ export default function App() {
     fetchDashboardCount(activeProjectId ?? undefined);
     // Fetch conversations (threads) for this project — also loads messages for the active thread
     fetchConversations(activeProjectId);
-    if (activeProjectId) {
-      api
-        .setSetting({ key: "active_project", value: activeProjectId })
-        .catch(() => {});
-    }
+    // Always persist selection — "" means "All Projects", an ID means a specific project
+    api
+      .setSetting({ key: "active_project", value: activeProjectId ?? "" })
+      .catch(() => {});
   }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns, fetchConversations, fetchMemories, fetchMemoryCount, fetchCredentialCount, fetchDataTableCount, fetchDashboardItems, fetchDashboardCount]);
 
   // Notification permission is now requested during onboarding (Permissions step)

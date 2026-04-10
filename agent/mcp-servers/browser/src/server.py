@@ -102,6 +102,93 @@ def section_tool(section: str):
             return func
     return decorator
 
+async def _reconcile_profile_locks() -> List[str]:
+    """Release profile locks whose owning browser instance is no longer alive.
+
+    The `_instance_profiles` mapping is updated by `spawn_browser` /
+    `close_instance`, but `browser_manager.cleanup_inactive()` (the 5-minute
+    idle reaper) closes instances **without** going through our tool's
+    `close_instance`, so its entries here become orphaned and the profile
+    lock is never released. The next `spawn_browser` then fails with
+    "Profile 'default' is already in use by another task" forever — even
+    though nothing is actually using it.
+
+    This function is the authoritative reconciler: any entry in
+    `_instance_profiles` whose instance_id is no longer in
+    `browser_manager._instances` has its lock released and its mapping
+    dropped. Safe to call anywhere; O(profiles) and cheap.
+    """
+    try:
+        live_instances = await browser_manager.list_instances()
+    except Exception as e:
+        debug_logger.log_warning(
+            "server", "reconcile_profile_locks",
+            f"Could not list instances during reconcile: {e}"
+        )
+        return []
+    live_ids = {inst.instance_id for inst in live_instances}
+    orphaned = [
+        (iid, pname)
+        for iid, pname in list(_instance_profiles.items())
+        if iid not in live_ids
+    ]
+    released: List[str] = []
+    for iid, pname in orphaned:
+        _instance_profiles.pop(iid, None)
+        try:
+            _pm.release_lock(pname)
+            released.append(pname)
+            debug_logger.log_info(
+                "server", "reconcile_profile_locks",
+                f"Released orphaned lock on profile '{pname}' "
+                f"(instance {iid} no longer active)"
+            )
+        except Exception as e:
+            debug_logger.log_warning(
+                "server", "reconcile_profile_locks",
+                f"Failed to release lock for orphaned instance {iid}: {e}"
+            )
+    return released
+
+
+def _cleanup_stale_chrome_singletons(user_data_dir: Optional[str]) -> None:
+    """Remove Chrome's Singleton* files from a user-data dir if we're about
+    to spawn into it and no live instance is using it.
+
+    When Chrome crashes (SIGKILL, OOM, kernel panic) or when nodriver's
+    process cleanup races a spawn retry, Chrome leaves behind `SingletonLock`,
+    `SingletonSocket`, and `SingletonCookie` — symlinks/files in the
+    user-data-dir that signal "another Chrome owns this dir." The next
+    Chrome spawn into that same dir refuses to launch, and nodriver
+    surfaces the failure as the cryptic "Failed to connect to browser
+    — one of the causes could be when you are running as root" error
+    we saw in Run c2225fd1.
+
+    Caller is expected to have already acquired the profile lock, so no
+    live instance should be using this dir.
+    """
+    if not user_data_dir:
+        return
+    if not os.path.isdir(user_data_dir):
+        return
+    for name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
+        p = os.path.join(user_data_dir, name)
+        try:
+            # Use lexists + unlink because SingletonLock is a symlink and
+            # os.path.exists follows it (the target usually doesn't exist).
+            if os.path.lexists(p):
+                os.unlink(p)
+                debug_logger.log_info(
+                    "server", "cleanup_singletons",
+                    f"Removed stale Chrome singleton: {p}"
+                )
+        except OSError as e:
+            debug_logger.log_warning(
+                "server", "cleanup_singletons",
+                f"Failed to remove {p}: {e}"
+            )
+
+
 async def _idle_cleanup_loop():
     """Periodically close browser instances that have been idle too long.
 
@@ -114,6 +201,16 @@ async def _idle_cleanup_loop():
             await browser_manager.cleanup_inactive()
         except Exception as e:
             debug_logger.log_warning("server", "idle_cleanup", f"Idle cleanup error: {e}")
+        # Always reconcile profile locks after the idle sweep — the idle
+        # reaper closes instances through `browser_manager.close_instance`
+        # directly, which does NOT know about our profile-lock mapping.
+        try:
+            await _reconcile_profile_locks()
+        except Exception as e:
+            debug_logger.log_warning(
+                "server", "idle_cleanup",
+                f"Profile lock reconcile error: {e}"
+            )
 
 
 @asynccontextmanager
@@ -197,9 +294,22 @@ async def spawn_browser(
     profile: Optional[str] = None,
     sandbox: Optional[Any] = None,
     background: bool = True,
+    # --- Ignored/deprecated aliases (absorb common LLM hallucinations) ---
+    # Agents occasionally pass kwargs like `instance_id="session_name"` or
+    # `name="foo"` thinking they can choose the returned id. These are not
+    # real parameters — silently accept and ignore them instead of failing
+    # with a Pydantic validation error that wastes a tool call.
+    instance_id: Optional[str] = None,
+    session_name: Optional[str] = None,
+    name: Optional[str] = None,
+    id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Spawn a new browser instance.
+
+    NOTE: The returned `instance_id` is assigned by this tool. Do NOT pass
+    `instance_id` (or `name`/`session_name`/`id`) as input — they are ignored.
+    To keep a persistent session, pass `profile="<name>"`.
 
     Args:
         headless (bool): Run in headless mode.
@@ -210,25 +320,67 @@ async def spawn_browser(
         block_resources (List[str]): List of resource types to block (e.g., ['image', 'font', 'stylesheet']).
         extra_headers (Dict[str, str]): Additional HTTP headers.
         user_data_dir (Optional[str]): Path to user data directory for persistent sessions.
-        profile (Optional[str]): Named profile for persistent sessions (e.g. "default", "xcom"). Overrides user_data_dir. Sessions and cookies persist across runs.
+        profile (Optional[str]): Named profile for persistent sessions (e.g. "default", "xcom", "reddit"). Overrides user_data_dir. Sessions and cookies persist across runs. If neither `profile` nor `user_data_dir` is provided, falls back to `profile="default"` so cookies/session state persist across spawns — this is what you almost always want, since a fresh ephemeral profile trips bot detection instantly on Reddit/Twitter/Cloudflare-protected sites.
         sandbox (Optional[Any]): Enable browser sandbox. Accepts bool, string ('true'/'false'), int (1/0), or None for auto-detect.
         background (bool): Launch in background without stealing focus (macOS only, default True).
 
     Returns:
         Dict[str, Any]: Instance information including instance_id.
     """
+    # Absorb hallucinated kwargs — warn once in stderr so the agent's
+    # mistake is visible in logs without breaking the run.
+    _ignored_aliases = {
+        "instance_id": instance_id,
+        "session_name": session_name,
+        "name": name,
+        "id": id,
+    }
+    _ignored_supplied = {k: v for k, v in _ignored_aliases.items() if v is not None}
+    if _ignored_supplied:
+        print(
+            f"[spawn_browser] ignoring unsupported kwargs {list(_ignored_supplied.keys())} "
+            f"(the returned instance_id is always auto-generated; use `profile=` "
+            f"for persistent sessions)",
+            file=sys.stderr,
+        )
+
     profile_name = None
     try:
         from platform_utils import is_running_as_root, is_running_in_container
+
+        # If neither a named profile nor a raw user_data_dir was supplied,
+        # fall back to the "default" profile. A truly ephemeral profile
+        # (fresh Chrome user dir every spawn) is almost never what the
+        # caller wants — Reddit/Twitter/Cloudflare flag fresh profiles
+        # instantly, and HN/Notion sessions are lost between runs.
+        # Callers who explicitly want an ephemeral profile can pass
+        # `user_data_dir=""` (empty string) to signal that intent.
+        if not profile and user_data_dir is None:
+            profile = "default"
+        elif user_data_dir == "":
+            # Explicit opt-out: caller wants a true ephemeral profile.
+            user_data_dir = None
 
         # Resolve named profile to user_data_dir
         if profile:
             profile_name = profile
             if not _pm.profile_exists(profile):
                 _pm.create_profile(profile, notes="Auto-created on first use")
+            # Reap any lock whose "owning" instance no longer exists. This
+            # turns "Profile 'default' is already in use" from a fatal
+            # error into a self-healing no-op in the common case where the
+            # prior browser was auto-closed by the idle reaper but the
+            # lock file remained.
+            await _reconcile_profile_locks()
             _pm.acquire_lock(profile)
             user_data_dir = _pm.get_profile_path(profile)
             _pm.touch_last_used(profile)
+            # Now that we hold the lock and no live instance can be using
+            # this dir, clear any orphaned Chrome Singleton* files from a
+            # previous crashed Chrome. Without this, the spawn below may
+            # fail with "Failed to connect to browser" because Chrome
+            # refuses to launch into a dir that looks "already owned."
+            _cleanup_stale_chrome_singletons(user_data_dir)
 
         if sandbox is None:
             sandbox = not (is_running_as_root() or is_running_in_container())
@@ -399,22 +551,34 @@ def _captcha_response_fields(instance_id: str, captcha_info: Dict[str, Any], url
 async def navigate(
     instance_id: str,
     url: str,
-    wait_until: str = "load",
-    timeout: int = 30000,
+    wait_until: str = "domcontentloaded",
+    timeout: int = 20000,
     referrer: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Navigate to a URL.
 
+    Default `wait_until` is "domcontentloaded" because heavy SPAs (Reddit,
+    X, Discord) often never fire the full `load` event — tracker pixels
+    and analytics keep requests pending indefinitely. DOM content fired
+    is sufficient for interacting with the page.
+
     Args:
         instance_id (str): Browser instance ID.
         url (str): URL to navigate to.
-        wait_until (str): Wait condition - 'load', 'domcontentloaded', or 'networkidle'.
-        timeout (int): Navigation timeout in milliseconds.
+        wait_until (str): Wait condition:
+            - 'domcontentloaded' (default): DOM parsed, fast and reliable.
+            - 'load': full load event including subresources (unreliable on SPAs).
+            - 'networkidle': fixed 2s wait after navigation.
+            - 'none': issue Page.navigate and return immediately (no wait).
+        timeout (int): Navigation timeout in milliseconds (default 20000).
         referrer (Optional[str]): Referrer URL.
 
     Returns:
-        Dict[str, Any]: Navigation result with final URL and title.
+        Dict[str, Any]: Navigation result with final URL and title. On
+        timeout the page may still be loading — we return what we have
+        rather than raising, so the caller can proceed to interact with
+        the DOM (which is usually ready by the time the timeout fires).
     """
     if isinstance(timeout, str):
         timeout = int(timeout)
@@ -422,33 +586,113 @@ async def navigate(
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
         raise Exception(f"Instance not found: {instance_id}")
+
+    if referrer:
+        try:
+            await asyncio.wait_for(
+                tab.send(uc.cdp.network.set_extra_http_headers(
+                    headers={"Referer": referrer}
+                )),
+                timeout=3,
+            )
+        except asyncio.TimeoutError:
+            pass  # Non-fatal
+
+    # Kick off navigation. Use raw CDP Page.navigate so we have full
+    # control over cancellation — tab.get() has been observed to hang
+    # past its wait_for timeout on Reddit.
+    navigation_started = False
     try:
-        if referrer:
-            await tab.send(uc.cdp.network.set_extra_http_headers(
-                headers={"Referer": referrer}
-            ))
-        await asyncio.wait_for(tab.get(url), timeout=timeout_s)
-        if wait_until == "domcontentloaded":
-            await asyncio.wait_for(tab.wait(uc.cdp.page.DomContentEventFired), timeout=timeout_s)
+        await asyncio.wait_for(
+            tab.send(uc.cdp.page.navigate(url=url)),
+            timeout=min(timeout_s, 10),
+        )
+        navigation_started = True
+    except asyncio.TimeoutError:
+        debug_logger.log_warning(
+            "server", "navigate",
+            f"Page.navigate CDP call timed out for {url} — page may still proceed"
+        )
+
+    # Wait for the requested readiness signal. Each branch is shielded
+    # by its OWN wait_for so a hung event waiter cannot exceed the
+    # total timeout budget.
+    wait_budget = max(timeout_s - 2, 3)
+    try:
+        if wait_until == "none":
+            pass
+        elif wait_until == "domcontentloaded":
+            try:
+                await asyncio.wait_for(
+                    tab.wait(uc.cdp.page.DomContentEventFired),
+                    timeout=wait_budget,
+                )
+            except asyncio.TimeoutError:
+                debug_logger.log_warning(
+                    "server", "navigate",
+                    f"DomContentEventFired timeout after {wait_budget}s — "
+                    f"continuing anyway, DOM may already be usable"
+                )
         elif wait_until == "networkidle":
-            await asyncio.sleep(min(2, timeout_s))
+            await asyncio.sleep(min(2, wait_budget))
+        elif wait_until == "load":
+            # Legacy mode. On SPAs the load event often never fires —
+            # we still obey a strict timeout so we never hang.
+            try:
+                await asyncio.wait_for(
+                    tab.wait(uc.cdp.page.LoadEventFired),
+                    timeout=wait_budget,
+                )
+            except asyncio.TimeoutError:
+                debug_logger.log_warning(
+                    "server", "navigate",
+                    f"LoadEventFired timeout after {wait_budget}s — "
+                    f"SPA may never fire load event, continuing anyway"
+                )
         else:
-            await asyncio.wait_for(tab.wait(uc.cdp.page.LoadEventFired), timeout=timeout_s)
-        final_url = await tab.evaluate("window.location.href")
-        title = await tab.evaluate("document.title")
-        await browser_manager.update_instance_state(instance_id, final_url, title)
-        response: Dict[str, Any] = {
-            "url": final_url,
-            "title": title,
-            "success": True
-        }
-        # Auto-detect blocking CAPTCHAs (layers 1-2 only, no LLM cost)
-        captcha_info = await _auto_detect_captcha(instance_id, tab)
+            raise Exception(
+                f"Invalid wait_until: {wait_until}. "
+                "Use 'domcontentloaded', 'load', 'networkidle', or 'none'."
+            )
+    except Exception as e:
+        # Don't raise — we want to return control to the caller even if
+        # the wait failed, since the DOM is usually interactable anyway.
+        debug_logger.log_warning("server", "navigate", f"Wait error (non-fatal): {e}")
+
+    # Best-effort current URL + title. If the page is still stuck, these
+    # may return the old values — that's fine.
+    try:
+        final_url = await asyncio.wait_for(
+            tab.evaluate("window.location.href"), timeout=3
+        )
+    except (asyncio.TimeoutError, Exception):
+        final_url = url
+    try:
+        title = await asyncio.wait_for(
+            tab.evaluate("document.title"), timeout=3
+        )
+    except (asyncio.TimeoutError, Exception):
+        title = ""
+
+    await browser_manager.update_instance_state(instance_id, final_url, title)
+    response: Dict[str, Any] = {
+        "url": final_url,
+        "title": title,
+        "success": navigation_started,
+    }
+    # Auto-detect blocking CAPTCHAs (layers 1-2 only, no LLM cost)
+    try:
+        captcha_info = await asyncio.wait_for(
+            _auto_detect_captcha(instance_id, tab), timeout=5
+        )
         if captcha_info:
             response.update(_captcha_response_fields(instance_id, captcha_info, final_url))
-        return response
-    except Exception as e:
-        raise
+    except (asyncio.TimeoutError, Exception) as e:
+        debug_logger.log_warning(
+            "server", "navigate",
+            f"CAPTCHA detection skipped (non-fatal): {e}"
+        )
+    return response
 
 @section_tool("browser-management")
 async def go_back(instance_id: str) -> Dict[str, Any]:
@@ -598,13 +842,20 @@ async def type_text(
     delay_ms: int = 50,
     parse_newlines: bool = False,
     shift_enter: bool = False
-) -> bool:
+) -> Dict[str, Any]:
     """
-    Type text into an input field.
+    Type text into an input field and verify the result.
+
+    Returns a verification dict (NOT a bare bool). Always check
+    `success`/`verified` and any `warnings` before assuming the text
+    reached the intended field — a union selector can silently resolve
+    to the wrong element (e.g. a search box).
 
     Args:
         instance_id (str): Browser instance ID.
-        selector (str): CSS selector or XPath.
+        selector (str): CSS selector or XPath. Comma-separated unions are
+            resolved to the best writable target (contenteditable >
+            textarea > non-search input).
         text (str): Text to type.
         clear_first (bool): Clear field before typing.
         delay_ms (int): Delay between keystrokes in milliseconds.
@@ -612,7 +863,8 @@ async def type_text(
         shift_enter (bool): If True, use Shift+Enter instead of Enter (for chat apps).
 
     Returns:
-        bool: True if typed successfully.
+        Dict with keys: success, verified, expected_chars, inserted_chars,
+        field_preview, resolved_target, warnings.
     """
     if isinstance(delay_ms, str):
         delay_ms = int(delay_ms)
@@ -627,18 +879,28 @@ async def paste_text(
     selector: str,
     text: str,
     clear_first: bool = True
-) -> bool:
+) -> Dict[str, Any]:
     """
-    Paste text instantly into an input field.
+    Paste text instantly into an input field and verify the result.
+
+    Returns a verification dict (NOT a bare bool). Always check
+    `success`/`verified` and any `warnings` — historic runs have shown
+    that a naive comma-separated selector will silently land on a
+    search input, and rich-text editors (Lexical/ProseMirror) can
+    swallow execCommand calls without error.
 
     Args:
         instance_id (str): Browser instance ID.
-        selector (str): CSS selector or XPath.
+        selector (str): CSS selector. Comma-separated unions are
+            resolved to the best writable target (contenteditable >
+            textarea > non-search input). Search inputs are rejected
+            for long text.
         text (str): Text to paste.
         clear_first (bool): Clear field before pasting.
 
     Returns:
-        bool: True if pasted successfully.
+        Dict with keys: success, verified, expected_chars, inserted_chars,
+        field_preview, resolved_target, warnings.
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
@@ -832,32 +1094,38 @@ async def get_page_digest(
     max_tokens: int = 15000,
     trigger_lazy_load: bool = False,
     include_links: bool = True,
+    mode: str = "fast",
 ) -> Dict[str, Any]:
     """
-    Get a compact, semantic digest of the current page using the accessibility tree.
+    Get a compact, semantic digest of the current page.
 
     This is dramatically more token-efficient than get_page_content or take_screenshot.
     Typical output: 5-15K tokens vs 188K+ for raw HTML or 25K per screenshot.
     Use this as the PRIMARY tool for understanding what is on a page.
 
-    The digest shows page structure with roles (headings, links, buttons, text,
-    form fields) in an indented outline format. Interactive elements show their
-    accessible names and states.
+    Two modes:
+      - "fast" (default): narrow JavaScript DOM scan with a 4s hard budget.
+        Works reliably on heavy SPAs (Reddit, X, Discord). Covers headings,
+        links, buttons, form fields, and article snippets in/near the viewport.
+      - "semantic": CDP Accessibility tree — richer role metadata but slow
+        or hangs on some pages. Use only when "fast" output is insufficient.
 
     Args:
         instance_id (str): Browser instance ID.
         max_tokens (int): Approximate token budget for the digest (default 15000).
         trigger_lazy_load (bool): Scroll through page first to force lazy content into DOM.
         include_links (bool): Include link href targets in output.
+        mode (str): "fast" (default) or "semantic".
 
     Returns:
-        Dict with: digest (str), url, title, node_count, estimated_tokens, truncated, scroll_position.
+        Dict with: digest (str), url, title, node_count, estimated_tokens,
+        truncated, scroll_position, mode.
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
         raise Exception(f"Instance not found: {instance_id}")
     return await accessibility_handler.get_page_digest(
-        tab, max_tokens, trigger_lazy_load, include_links
+        tab, max_tokens, trigger_lazy_load, include_links, mode
     )
 
 @section_tool("page-understanding")

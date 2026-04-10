@@ -1124,7 +1124,15 @@ describe("Executor browser MCP preamble", () => {
 
   it("prepends browser MCP preamble when venv is ready", async () => {
     mockIsVenvReady.mockReturnValue(true);
-    mockWriteMcpConfigFile.mockReturnValue("/tmp/run-test.json");
+    // Use a real temp file — the executor pre-flights the config path with
+    // fsExists() after writeMcpConfigFile returns (Phase 6 hardening).
+    const { writeFileSync, mkdtempSync } = await import("fs");
+    const { join: pathJoin } = await import("path");
+    const { tmpdir } = await import("os");
+    const tmpDir = mkdtempSync(pathJoin(tmpdir(), "oh-mcp-config-"));
+    const tmpConfigPath = pathJoin(tmpDir, "run-test.json");
+    writeFileSync(tmpConfigPath, "{}");
+    mockWriteMcpConfigFile.mockReturnValue(tmpConfigPath);
 
     let capturedPrompt = "";
     const captureRunner = async (config: RunnerConfig) => {
@@ -1312,5 +1320,195 @@ describe("Outcome assessment", () => {
     }
 
     expect(updated!.status).toBe("succeeded");
+  });
+});
+
+describe("Executor MCP tool-missing auto-retry", () => {
+  /**
+   * Round 6 fix (2026-04-10): when a run fails because Claude Code reported
+   * "No such tool available: mcp__..." — i.e. an MCP server (usually the
+   * Python browser MCP) failed to register its tools in time — we auto-retry
+   * the run exactly once by enqueuing a fresh manual run with parentRunId set.
+   * LLM-driven self-correction is bypassed because it cannot help here (the
+   * session has no tools to work with).
+   */
+
+  /** Runner that writes the MCP tool-missing string to stdout then exits 0. */
+  function mockMcpMissingRunner(): (
+    config: RunnerConfig,
+    signal?: AbortSignal,
+  ) => Promise<ClaudeCodeRunResult> {
+    return async (config) => {
+      config.onLogChunk(
+        "stdout",
+        "Error: No such tool available: mcp__openhelm_browser__spawn_browser",
+      );
+      return { exitCode: 0, timedOut: false, killed: false };
+    };
+  }
+
+  it("enqueues a fresh retry when Claude reports 'No such tool available: mcp__'", async () => {
+    const job = createJob({
+      projectId,
+      name: "MCP Flake Job",
+      prompt: "spawn a browser",
+      scheduleType: "once",
+      scheduleConfig: { fireAt: new Date().toISOString() },
+    });
+    const run = createRun({ jobId: job.id, triggerSource: "manual" });
+
+    queue.enqueue({
+      runId: run.id,
+      jobId: job.id,
+      priority: 0,
+      enqueuedAt: Date.now(),
+    });
+
+    const executor = new Executor(mockMcpMissingRunner());
+    executor.processNext();
+
+    // Wait for the failure + retry enqueue path
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      const updated = getRun(run.id);
+      if (updated?.status === "failed" || updated?.status === "succeeded") break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    // The parent run is failed
+    const parent = getRun(run.id);
+    expect(parent!.status).toBe("failed");
+
+    // A retry run was created referencing the failed run as parent
+    const retries = listRuns({ jobId: job.id }).filter(
+      (r) => r.parentRunId === run.id,
+    );
+    expect(retries).toHaveLength(1);
+    expect(retries[0].triggerSource).toBe("manual");
+    // The retry has an informative breadcrumb stderr log
+    const retryLogs = listRunLogs({ runId: retries[0].id });
+    const breadcrumb = retryLogs.find((l) =>
+      l.text.includes("did not register its tools in time"),
+    );
+    expect(breadcrumb).toBeDefined();
+  });
+
+  it("force-runs the retry even when scheduler_paused is true", async () => {
+    // This is the regression test for Run d92edd14: the first fix enqueued
+    // the retry correctly but processNext() short-circuits on scheduler_paused,
+    // so the retry got stuck in "queued" forever. The fix uses forceRun to
+    // bypass the pause guard, matching the "Run Now Anyway" button.
+    setSetting("scheduler_paused", "true");
+    try {
+      const job = createJob({
+        projectId,
+        name: "MCP Flake Under Pause",
+        prompt: "spawn a browser",
+        scheduleType: "once",
+        scheduleConfig: { fireAt: new Date().toISOString() },
+      });
+
+      // First call: MCP flake (stdout contains 'No such tool available').
+      // Second call (the retry): succeeds cleanly.
+      let callCount = 0;
+      const flakyThenSuccess = async (
+        config: RunnerConfig,
+      ): Promise<ClaudeCodeRunResult> => {
+        callCount++;
+        if (callCount === 1) {
+          config.onLogChunk(
+            "stdout",
+            "Error: No such tool available: mcp__openhelm_browser__spawn_browser",
+          );
+          return { exitCode: 0, timedOut: false, killed: false };
+        }
+        config.onLogChunk("stdout", "retry success");
+        return { exitCode: 0, timedOut: false, killed: false };
+      };
+
+      const run = createRun({ jobId: job.id, triggerSource: "manual" });
+      queue.enqueue({
+        runId: run.id,
+        jobId: job.id,
+        priority: 0,
+        enqueuedAt: Date.now(),
+      });
+
+      const executor = new Executor(flakyThenSuccess);
+      // forceRun bypasses the scheduler pause, so the ORIGINAL run still
+      // needs to get started somehow with the pause on. Use forceRun here too.
+      executor.forceRun(run.id);
+
+      // Wait until both runs complete (original fails, retry succeeds)
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        const retries = listRuns({ jobId: job.id }).filter(
+          (r) => r.parentRunId === run.id,
+        );
+        if (retries.length === 1 && retries[0].status === "succeeded") break;
+        await new Promise((r) => setTimeout(r, 30));
+      }
+
+      // Both runs should have been executed — callCount === 2 proves the
+      // retry actually ran, not just got enqueued.
+      expect(callCount).toBe(2);
+      const parent = getRun(run.id);
+      expect(parent!.status).toBe("failed");
+      const retries = listRuns({ jobId: job.id }).filter(
+        (r) => r.parentRunId === run.id,
+      );
+      expect(retries).toHaveLength(1);
+      expect(retries[0].status).toBe("succeeded");
+    } finally {
+      // Clean up the paused flag so it doesn't leak into other tests
+      setSetting("scheduler_paused", "false");
+    }
+  });
+
+  it("does NOT retry again if the failing run is itself an MCP retry", async () => {
+    const job = createJob({
+      projectId,
+      name: "MCP Loop Guard Job",
+      prompt: "spawn a browser",
+      scheduleType: "once",
+      scheduleConfig: { fireAt: new Date().toISOString() },
+    });
+    // Original run (doesn't need to be in a terminal state for this test —
+    // we only care that a retry run with parentRunId is processed and does
+    // not spawn a grandchild retry)
+    const parent = createRun({ jobId: job.id, triggerSource: "manual" });
+    // Retry run (has parentRunId) — this is what's running now and will fail
+    const retry = createRun({
+      jobId: job.id,
+      triggerSource: "manual",
+      parentRunId: parent.id,
+    });
+
+    queue.enqueue({
+      runId: retry.id,
+      jobId: job.id,
+      priority: 0,
+      enqueuedAt: Date.now(),
+    });
+
+    const executor = new Executor(mockMcpMissingRunner());
+    executor.processNext();
+
+    // Wait for the retry to fail
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      const updated = getRun(retry.id);
+      if (updated?.status === "failed" || updated?.status === "succeeded") break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    const finalRetry = getRun(retry.id);
+    expect(finalRetry!.status).toBe("failed");
+
+    // Exactly one run has retry.id as parent would be a loop — assert zero.
+    const grandchildren = listRuns({ jobId: job.id }).filter(
+      (r) => r.parentRunId === retry.id,
+    );
+    expect(grandchildren).toHaveLength(0);
   });
 });

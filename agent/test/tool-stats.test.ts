@@ -100,12 +100,12 @@ describe("tool stats queries", () => {
     });
 
     createRunWithTools(job2.id, [
-      { toolName: "mcp__openhelm-browser__navigate", invocations: 10, approxOutputTokens: 500 },
+      { toolName: "mcp__openhelm_browser__navigate", invocations: 10, approxOutputTokens: 500 },
     ]);
 
     const stats = getRunToolStats({ jobIds: [job2.id] });
     expect(stats.length).toBe(1);
-    expect(stats[0].toolName).toBe("mcp__openhelm-browser__navigate");
+    expect(stats[0].toolName).toBe("mcp__openhelm_browser__navigate");
     expect(stats[0].invocations).toBe(10);
   });
 

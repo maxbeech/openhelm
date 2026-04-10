@@ -87,6 +87,16 @@ export function runClaudeCode(
     // but unset CLAUDECODE so jobs aren't blocked by nested session detection.
     const env = { ...process.env, ...config.additionalEnv };
     delete env.CLAUDECODE;
+    // Give bundled MCP servers (openhelm_browser in particular) a generous
+    // cold-start budget. The Python browser MCP imports nodriver + stealth
+    // patches + ~15 local modules and on a cold start can take 15–25s. Claude
+    // Code's default MCP init timeout is tight enough that we occasionally
+    // see "No such tool available: mcp__openhelm_browser__*" on the very
+    // first run after the app is launched (see Phase 6 / Round 6 notes in
+    // docs/browser/efficiency-improvements.md). Only set these when the
+    // caller hasn't explicitly overridden them.
+    if (!env.MCP_TIMEOUT) env.MCP_TIMEOUT = "60000";
+    if (!env.MCP_TOOL_TIMEOUT) env.MCP_TOOL_TIMEOUT = "120000";
 
     const child = spawn(config.binaryPath, args, {
       cwd: config.workingDirectory,
@@ -282,7 +292,7 @@ function buildArgs(config: RunnerConfig): string[] {
     args.push("--resume", config.resumeSessionId);
   }
 
-  // Add bundled MCP servers (openhelm-browser, openhelm-data) via --mcp-config.
+  // Add bundled MCP servers (openhelm_browser, openhelm_data) via --mcp-config.
   // This ADDS them on top of the user's global (~/.claude.json) and project-level
   // (.mcp.json) servers — Claude Code merges them automatically.
   if (config.mcpConfigPath) {

@@ -243,6 +243,8 @@ export type SettingKey =
   | "autopilot_investigation_cooldowns"
   | "inbox_backfill_complete"
   | "inbox_backfill_v2"
+  | "inbox_backfill_v3"
+  | "inbox_backfill_v4"
   | "low_token_mode"
   | "claude_weekly_reset_dow"
   | "claude_weekly_reset_hour";

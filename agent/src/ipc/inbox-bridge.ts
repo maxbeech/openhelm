@@ -3,13 +3,14 @@
  * Called synchronously from emit() — must never throw or block.
  */
 
-import { eq as drizzleEq, gte as drizzleGte, and as drizzleAnd, inArray as drizzleInArray } from "drizzle-orm";
-import { createInboxEvent, resolveInboxEventBySource, upsertConversationThreadEvent, hasInboxEventForSource } from "../db/queries/inbox-events.js";
+import { eq as drizzleEq, gte as drizzleGte, and as drizzleAnd, inArray as drizzleInArray, or as drizzleOr, isNull as drizzleIsNull, sql as drizzleSql } from "drizzle-orm";
+import { createInboxEvent, resolveInboxEventBySource, upsertConversationThreadEvent, hasInboxEventForSource, upsertRunEvent } from "../db/queries/inbox-events.js";
 import { getJob } from "../db/queries/jobs.js";
+import { getRun } from "../db/queries/runs.js";
 import { getConversation } from "../db/queries/conversations.js";
 import { getSetting, setSetting } from "../db/queries/settings.js";
 import { getDb } from "../db/init.js";
-import { runs as runsTable, jobs as jobsTable, dashboardItems as dashboardItemsTable } from "../db/schema.js";
+import { runs as runsTable, jobs as jobsTable, dashboardItems as dashboardItemsTable, inboxEvents as inboxEventsTable } from "../db/schema.js";
 import { getBaseImportance, computeImportance } from "./inbox-scoring.js";
 import { emit } from "./emitter.js";
 import type { CreateInboxEventParams, InboxEvent } from "@openhelm/shared";
@@ -36,6 +37,25 @@ function tryCreate(params: CreateInboxEventParams): void {
   }
 }
 
+/** Upsert a run event — updates the existing "started" entry when a run completes
+ *  so the inbox shows one row per run rather than a "started" + "completed" pair.
+ *  Emits inbox.eventUpdated when updating, inbox.eventCreated when inserting.
+ */
+function tryUpsertRun(params: CreateInboxEventParams & { sourceId: string }): void {
+  try {
+    const { event, wasUpdated } = upsertRunEvent(params);
+    if (wasUpdated) {
+      if (emitting) return;
+      emitting = true;
+      try { emit("inbox.eventUpdated", event); } finally { emitting = false; }
+    } else {
+      emitInboxEvent(event);
+    }
+  } catch (err) {
+    process.stderr.write(`[inbox-bridge] upsert run failed: ${err}\n`);
+  }
+}
+
 // ─── Event Handlers ───
 
 type HandlerFn = (data: Record<string, unknown>) => void;
@@ -44,9 +64,13 @@ const EVENT_HANDLERS: Record<string, HandlerFn> = {
   "run.statusChanged": (data) => {
     const status = data.status as string;
     const runId = data.runId as string;
-    const jobId = data.jobId as string;
+    // jobId is often absent from executor emits — fall back to the run record
+    let jobId = data.jobId as string | undefined;
+    if (!jobId && runId) {
+      const run = getRun(runId);
+      jobId = run?.jobId ?? undefined;
+    }
     // Look up job from DB when name/project aren't in the event payload.
-    // Most emitters only send {runId, status, jobId}, so we fetch the rest here.
     const job = jobId ? getJob(jobId) : null;
     const jobName = (data.jobName as string) || job?.name || "Job";
     const projectId = (data.projectId as string) || job?.projectId || "";
@@ -70,12 +94,16 @@ const EVENT_HANDLERS: Record<string, HandlerFn> = {
       const scoringKey = `run.completed.${status}`;
       const base = getBaseImportance(scoringKey);
       const importance = computeImportance(base, { triggerSource, jobSource });
-      tryCreate({
+      const label = status === "succeeded" ? "completed"
+        : status === "permanent_failure" ? "permanently failed"
+        : status;
+      // Upsert: update the existing "started" event so the inbox shows one row per run
+      tryUpsertRun({
         projectId,
         category: "run",
-        eventType: `run.completed`,
+        eventType: "run.completed",
         importance,
-        title: `${jobName} ${status === "succeeded" ? "completed" : status === "permanent_failure" ? "permanently failed" : status}`,
+        title: `${jobName} ${label}`,
         body: data.summary as string | undefined,
         sourceId: runId,
         sourceType: "run",
@@ -360,12 +388,14 @@ const EVENT_HANDLERS: Record<string, HandlerFn> = {
 /**
  * Backfill inbox_events from historic data on first startup.
  * Inserts events for runs and open dashboard items from the last 90 days.
- * Guarded by the `inbox_backfill_v2` settings key — runs only once per version.
+ * v4 adds a repair step for run events that were created with empty projectId
+ * (caused by executor omitting jobId from run.statusChanged events).
+ * Guarded by the versioned settings key — runs only once per version.
  */
 export function runBackfillIfNeeded(): void {
   try {
     // Use versioned key so we can re-run backfill after fixing bugs
-    if (getSetting("inbox_backfill_v3")) return;
+    if (getSetting("inbox_backfill_v4")) return;
 
     const db = getDb();
     const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
@@ -462,9 +492,40 @@ export function runBackfillIfNeeded(): void {
       });
     }
 
-    setSetting("inbox_backfill_v3", new Date().toISOString());
+    // Repair existing run inbox events that were created with empty/null projectId
+    // (caused by executor emitting run.statusChanged without jobId).
+    const orphanedRunEvents = db
+      .select({ id: inboxEventsTable.id, sourceId: inboxEventsTable.sourceId })
+      .from(inboxEventsTable)
+      .where(
+        drizzleAnd(
+          drizzleEq(inboxEventsTable.sourceType, "run"),
+          drizzleOr(
+            drizzleIsNull(inboxEventsTable.projectId),
+            drizzleEq(inboxEventsTable.projectId, ""),
+          ),
+          drizzleSql`${inboxEventsTable.sourceId} IS NOT NULL`,
+        ),
+      )
+      .all();
+
+    let repairedCount = 0;
+    for (const ev of orphanedRunEvents) {
+      if (!ev.sourceId) continue;
+      const run = getRun(ev.sourceId);
+      if (!run?.jobId) continue;
+      const job = getJob(run.jobId);
+      if (!job?.projectId) continue;
+      db.update(inboxEventsTable)
+        .set({ projectId: job.projectId })
+        .where(drizzleEq(inboxEventsTable.id, ev.id))
+        .run();
+      repairedCount++;
+    }
+
+    setSetting("inbox_backfill_v4", new Date().toISOString());
     process.stderr.write(
-      `[inbox-bridge] backfill complete: ${historicRuns.length} runs, ${openItems.length} alerts\n`,
+      `[inbox-bridge] backfill complete: ${historicRuns.length} runs, ${openItems.length} alerts, ${repairedCount} repaired\n`,
     );
   } catch (err) {
     process.stderr.write(`[inbox-bridge] backfill error (non-fatal): ${err}\n`);

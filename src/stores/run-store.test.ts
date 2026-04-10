@@ -25,6 +25,7 @@ describe("RunStore", () => {
       loading: false,
       error: null,
     });
+    vi.mocked(api.getSchedulerStatus).mockResolvedValue({ paused: false });
   });
 
   it("updates run status by ID", () => {

@@ -35,10 +35,12 @@ const BAR_COLORS = [
 /** Shorten MCP-style tool names for readability */
 function shortenToolName(name: string): string {
   if (name === "__reasoning__") return "Reasoning";
-  // mcp__openhelm-browser__navigate → browser:navigate
-  const mcpMatch = name.match(/^mcp__([^_]+(?:-[^_]+)*)__(.+)$/);
+  // mcp__openhelm_browser__navigate → browser:navigate
+  // mcp__openhelm-browser__navigate → browser:navigate (legacy, historical stats)
+  // Lazy-match the server name up to the first `__` delimiter.
+  const mcpMatch = name.match(/^mcp__(.+?)__(.+)$/);
   if (mcpMatch) {
-    const server = mcpMatch[1].replace("openhelm-", "");
+    const server = mcpMatch[1].replace(/^openhelm[-_]/, "");
     return `${server}:${mcpMatch[2]}`;
   }
   // Built-in tools like Read, Write, Bash — keep as-is

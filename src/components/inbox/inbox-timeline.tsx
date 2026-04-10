@@ -43,6 +43,10 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
   const [nowAboveViewport, setNowAboveViewport] = useState(false);
   const prevScrollHeight = useRef(0);
   const hasScrolledToUnread = useRef(false);
+  // Captured scroll position from back/forward navigation (cleared on mount read)
+  const pendingScrollRef = useRef<number | null>(null);
+  // Becomes true once loading goes true — ensures we apply restore AFTER fetchInitial finishes
+  const fetchStartedRef = useRef(false);
 
   const {
     events,
@@ -73,9 +77,22 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
 
   const { activeRuns } = useActiveRuns(projectId);
 
-  // Reset initial scroll flag when project changes so we re-scroll on next load
+  // On mount: grab any pending scroll-restore position set by back/forward navigation.
+  // We read it here (once) so we own the value — the store is cleared immediately,
+  // but we won't actually scroll until fetchInitial has completed (see below).
+  useEffect(() => {
+    const { pendingScrollTop, setPendingScrollTop } = useInboxStore.getState();
+    if (pendingScrollTop !== null) {
+      pendingScrollRef.current = pendingScrollTop;
+      setPendingScrollTop(null);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset scroll flags when the project filter changes (new project = fresh scroll-to-now)
   useEffect(() => {
     hasScrolledToUnread.current = false;
+    fetchStartedRef.current = false;
+    pendingScrollRef.current = null;
   }, [projectId]);
 
   // Pinch-to-zoom: continuous smooth zoom between tier stops.
@@ -237,21 +254,38 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
   const dateGroups = useMemo(() => groupEventsByDate(visibleEvents), [visibleEvents]);
   const futureDateGroups = useMemo(() => groupEventsByDate(visibleFutureEvents), [visibleFutureEvents]);
 
-  // On initial load, restore a pending nav scroll position (back/forward) or
-  // scroll to the unread marker (if any) otherwise to Now.
-  // Also depends on `events` so we wait until events are populated — avoids
-  // the race where loading=false but events=[] on first render.
+  // Track when fetchInitial starts (loading goes true) so we know the DOM is
+  // being refreshed. We only apply a scroll restore AFTER that cycle completes.
+  useEffect(() => {
+    if (loading) fetchStartedRef.current = true;
+  }, [loading]);
+
+  // Restore scroll position from back/forward navigation, or scroll to
+  // unread/Now on first load.
+  // The pendingScrollRef is applied only after fetchInitial completes (i.e. after
+  // loading has gone true then false) so the DOM is fully populated at the correct
+  // height before we set scrollTop. Without this, the browser clamps scrollTop to a
+  // smaller value when content hasn't fully loaded yet, landing "higher" than expected.
   useEffect(() => {
     if (loading || events.length === 0 || hasScrolledToUnread.current) return;
+
+    const scrollTarget = pendingScrollRef.current;
+    if (scrollTarget !== null && !fetchStartedRef.current) {
+      // fetchInitial hasn't started yet — wait for the loading cycle to complete
+      // so we apply the position to the final DOM rather than stale content.
+      return;
+    }
+
     hasScrolledToUnread.current = true;
 
-    const { pendingScrollTop, setPendingScrollTop } = useInboxStore.getState();
-    if (pendingScrollTop !== null) {
-      // Consumed — clear before scrolling so subsequent mounts behave normally.
-      setPendingScrollTop(null);
+    if (scrollTarget !== null) {
+      pendingScrollRef.current = null;
+      // Double rAF: first frame commits the render, second ensures layout is measured
       requestAnimationFrame(() => {
-        const container = containerRef.current;
-        if (container) container.scrollTop = pendingScrollTop;
+        requestAnimationFrame(() => {
+          const container = containerRef.current;
+          if (container) container.scrollTop = scrollTarget;
+        });
       });
     } else {
       requestAnimationFrame(() => {

@@ -102,7 +102,7 @@ export function listInboxEvents(params: ListInboxEventsParams = {}): InboxEvent[
     .select()
     .from(inboxEvents)
     .where(whereClause)
-    .orderBy(isForward ? asc(inboxEvents.eventAt) : desc(inboxEvents.eventAt))
+    .orderBy(isForward ? [asc(inboxEvents.eventAt), asc(inboxEvents.id)] : [desc(inboxEvents.eventAt), desc(inboxEvents.id)])
     .limit(limit)
     .all()
     .map(rowToInboxEvent);
@@ -200,6 +200,52 @@ export function upsertConversationThreadEvent(params: CreateInboxEventParams): I
     }
     return createInboxEvent(params);
   });
+}
+
+/**
+ * Upsert a run inbox event — if an active event already exists for this runId
+ * (e.g. a "run.started" event), update it in-place so the inbox shows a single
+ * entry that transitions from "running" to "completed/failed/cancelled" rather
+ * than creating a second duplicate entry.
+ * Returns the event and whether it was an update (true) or a create (false).
+ */
+export function upsertRunEvent(
+  params: CreateInboxEventParams & { sourceId: string },
+): { event: InboxEvent; wasUpdated: boolean } {
+  const db = getDb();
+  const existing = db
+    .select({ id: inboxEvents.id })
+    .from(inboxEvents)
+    .where(
+      and(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        eq(inboxEvents.sourceType, "run" as any),
+        eq(inboxEvents.sourceId, params.sourceId),
+        eq(inboxEvents.status, "active"),
+      ),
+    )
+    .get();
+
+  if (existing) {
+    const row = db
+      .update(inboxEvents)
+      .set({
+        eventType: params.eventType,
+        importance: params.importance,
+        title: params.title,
+        body: params.body ?? null,
+        metadata: JSON.stringify(params.metadata ?? {}),
+        // projectId updated in case it was previously empty (backfill edge-case)
+        ...(params.projectId ? { projectId: params.projectId } : {}),
+      })
+      .where(eq(inboxEvents.id, existing.id))
+      .returning()
+      .get();
+    return { event: rowToInboxEvent(row), wasUpdated: true };
+  }
+
+  const event = createInboxEvent(params);
+  return { event, wasUpdated: false };
 }
 
 /** Check if an inbox event already exists for a given source (used for backfill dedup) */

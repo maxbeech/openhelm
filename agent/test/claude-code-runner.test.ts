@@ -248,7 +248,7 @@ describe("runClaudeCode", () => {
     const config = mockConfig({
       binaryPath: "/bin/echo",
       prompt: "test",
-      appendSystemPrompt: "Use openhelm-browser for all browser tasks.",
+      appendSystemPrompt: "Use openhelm_browser for all browser tasks.",
       onLogChunk,
     });
 
@@ -258,7 +258,7 @@ describe("runClaudeCode", () => {
     );
     const output = stdoutCalls.map(([, text]: [string, string]) => text).join(" ");
     expect(output).toContain("--append-system-prompt");
-    expect(output).toContain("Use openhelm-browser for all browser tasks.");
+    expect(output).toContain("Use openhelm_browser for all browser tasks.");
   });
 });
 

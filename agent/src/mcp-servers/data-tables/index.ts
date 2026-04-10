@@ -70,7 +70,7 @@ function handleMessage(raw: string): void {
       sendResponse(id, {
         protocolVersion: "2024-11-05",
         capabilities: { tools: {} },
-        serverInfo: { name: "openhelm-data", version: "1.0.0" },
+        serverInfo: { name: "openhelm_data", version: "1.0.0" },
       });
       break;
 

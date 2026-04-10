@@ -14,7 +14,7 @@ import {
   runClaudeCode,
   type RunnerConfig,
 } from "../claude-code/runner.js";
-import { updateRun, getRun, listRuns, snapshotRunCorrectionNote } from "../db/queries/runs.js";
+import { updateRun, getRun, listRuns, snapshotRunCorrectionNote, createRun } from "../db/queries/runs.js";
 import { insertRunToolStats } from "../db/queries/tool-stats.js";
 import {
   getJob,
@@ -695,12 +695,21 @@ export class Executor {
     } catch { /* browser setup not available — non-fatal */ }
 
     try {
-      // Write MCP config with bundled servers (openhelm-browser + openhelm-data).
+      // Write MCP config with bundled servers (openhelm_browser + openhelm_data).
       // Passed via --mcp-config to ADD on top of the user's existing MCP environment.
       const { writeMcpConfigFile } = await import("../mcp-servers/mcp-config-builder.js");
+      const { existsSync: fsExists } = await import("fs");
       mcpConfigPath = writeMcpConfigFile(runId, hasBrowserMcp ? browserCredentialsFilePath : undefined, job.projectId) ?? undefined;
       if (mcpConfigPath) {
-        console.error(`[executor] MCP config written for run ${runId}`);
+        // Pre-flight check: verify the config file exists and is readable.
+        // This catches race conditions where cleanup or filesystem issues
+        // cause "No such tool available" errors that waste entire runs.
+        if (fsExists(mcpConfigPath)) {
+          console.error(`[executor] MCP config written and verified for run ${runId}`);
+        } else {
+          console.error(`[executor] WARNING: MCP config file missing after write: ${mcpConfigPath}`);
+          mcpConfigPath = undefined;
+        }
       }
     } catch (err) {
       console.error("[executor] MCP config generation error (non-fatal):", err);
@@ -945,19 +954,38 @@ export class Executor {
     } else if (result.exitCode === 0) {
       finalStatus = "succeeded";
 
-      // Outcome verification: LLM checks if the mission was actually accomplished
-      try {
-        outcomeAssessment = await assessOutcome(runId, job.prompt);
-        if (outcomeAssessment && !outcomeAssessment.accomplished && outcomeAssessment.confidence !== "low") {
-          finalStatus = "failed";
-          createRunLog({
-            runId,
-            stream: "stderr",
-            text: `Mission not accomplished (${outcomeAssessment.confidence} confidence): ${outcomeAssessment.reason}`,
-          });
+      // MCP tool-missing forces a failure regardless of exit code. Claude
+      // Code will happily exit 0 even when it gave up because an MCP server
+      // (usually openhelm_browser) never registered its tools — the assistant
+      // just writes "No such tool available: mcp__..." and moves on. Without
+      // this check the run would be marked succeeded and the Round 6 auto-
+      // retry below would never trigger. See docs/browser/efficiency-improvements.md
+      // "Round 6 Fixes".
+      if (hasMcpToolMissingError(runId)) {
+        finalStatus = "failed";
+        createRunLog({
+          runId,
+          stream: "stderr",
+          text:
+            "Run exited cleanly but Claude reported 'No such tool available: mcp__...' — " +
+            "an MCP server failed to register its tools during Claude Code's initialization " +
+            "handshake. Treating as a failed run so it can be auto-retried.",
+        });
+      } else {
+        // Outcome verification: LLM checks if the mission was actually accomplished
+        try {
+          outcomeAssessment = await assessOutcome(runId, job.prompt);
+          if (outcomeAssessment && !outcomeAssessment.accomplished && outcomeAssessment.confidence !== "low") {
+            finalStatus = "failed";
+            createRunLog({
+              runId,
+              stream: "stderr",
+              text: `Mission not accomplished (${outcomeAssessment.confidence} confidence): ${outcomeAssessment.reason}`,
+            });
+          }
+        } catch {
+          // Assessment failure → keep "succeeded" (optimistic fallback)
         }
-      } catch {
-        // Assessment failure → keep "succeeded" (optimistic fallback)
       }
     } else {
       finalStatus = "failed";
@@ -1041,13 +1069,77 @@ export class Executor {
       } else if (hasMcpToolMissingError(runId)) {
         // MCP tool-missing — Claude reported "No such tool available" in its
         // response text (stdout), meaning the MCP server was configured but
-        // failed to start or timed out during initialization.
+        // failed to start or timed out during Claude Code's initialization
+        // handshake. This is almost always transient: the Python browser MCP
+        // takes 15–25s to import nodriver/stealth patches on a cold start and
+        // occasionally overruns whatever MCP init budget Claude Code is using
+        // that session. Retrying with a fresh process fixes it ~every time,
+        // and LLM-driven self-correction cannot help here (the session will
+        // still have no tools) — so bypass self-correction and enqueue a
+        // short auto-retry. Bounded to a single retry per lineage: if the
+        // current run itself is already a retry (has a parentRunId), we
+        // fall through to normal failure handling to prevent infinite loops.
         handleMcpFailure(
           runId,
           job.id,
           job.projectId,
-          'Claude reported "No such tool available" for an MCP tool — the MCP server likely failed to start or timed out during initialization.',
+          'Claude reported "No such tool available" for an MCP tool — the MCP server likely failed to start or timed out during initialization. Auto-retrying once.',
         );
+        const currentRun = getRun(runId);
+        const alreadyRetry = currentRun?.parentRunId != null;
+        if (!alreadyRetry) {
+          try {
+            const retryRun = createRun({
+              jobId: job.id,
+              triggerSource: "manual",
+              parentRunId: runId,
+            });
+            createRunLog({
+              runId: retryRun.id,
+              stream: "stderr",
+              text:
+                "Auto-retry of run " +
+                runId +
+                " — previous attempt failed because an MCP server (likely openhelm_browser) " +
+                "did not register its tools in time. Spawning a fresh Claude Code process.",
+            });
+            jobQueue.enqueue({
+              runId: retryRun.id,
+              jobId: job.id,
+              priority: 0, // ahead of scheduled runs
+              enqueuedAt: Date.now(),
+            });
+            console.error(
+              `[executor] auto-retry enqueued for MCP tool-missing: ${runId} → ${retryRun.id}`,
+            );
+            // The active slot + profile locks are already released in the
+            // caller's finally block. We CANNOT rely on the caller's
+            // processNext() to pick this up, because `processNext()`
+            // short-circuits when `scheduler_paused=true`, and the scheduler
+            // is often paused when these failures happen (auth-monitor /
+            // cli-error-monitor pause it on other failures, or the user
+            // paused it manually). The retry is logically a continuation of
+            // an in-flight run, not a new scheduled job, so bypass the pause
+            // guard via forceRun — same semantics as the "Run Now Anyway"
+            // button. forceRun dequeues by runId, checks concurrency, and
+            // calls executeRun directly.
+            const started = this.forceRun(retryRun.id);
+            if (!started) {
+              console.error(
+                `[executor] forceRun failed to start MCP retry ${retryRun.id} — ` +
+                `retry will wait for scheduler resume or concurrency slot`,
+              );
+            }
+            return;
+          } catch (err) {
+            console.error(`[executor] failed to enqueue MCP auto-retry for ${runId}:`, err);
+            // Fall through to normal failure handling
+          }
+        } else {
+          console.error(
+            `[executor] MCP tool-missing on a run that is already a retry (${runId}) — not retrying again`,
+          );
+        }
       }
 
       // Build structured failure signal
