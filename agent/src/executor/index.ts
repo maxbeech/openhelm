@@ -275,9 +275,20 @@ export class Executor {
     const controller = this.activeRuns.get(runId);
     if (controller) {
       this.activeRuns.delete(runId);
+      this.releaseProfileLocks(runId);
       controller.abort();
       if (isPowerManagementEnabled()) {
         onRunFinished();
+      }
+      // Update run status and emit IPC event to notify UI
+      const current = getRun(runId);
+      if (current && current.status === "running") {
+        updateRun({ id: runId, status: "cancelled" });
+        emit("run.statusChanged", {
+          runId,
+          status: "cancelled",
+          previousStatus: "running",
+        });
       }
       return true;
     }
@@ -289,7 +300,14 @@ export class Executor {
   stopAll(): void {
     for (const [runId, controller] of this.activeRuns) {
       console.error(`[executor] stopping active run ${runId}`);
+      this.releaseProfileLocks(runId);
       controller.abort();
+    }
+    // Clear active runs after aborting all
+    this.activeRuns.clear();
+    // Disable idle sleep since no runs are active
+    if (isPowerManagementEnabled()) {
+      onRunFinished();
     }
   }
 
