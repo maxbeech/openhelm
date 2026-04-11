@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Executor profile lock deadlock**: Fixed critical bug where `cancelRun()` and `stopAll()` failed to release profile locks when aborting runs, causing permanent deadlock on profile-dependent concurrent runs.
+- **Run state inconsistency**: Fixed missing run status update and IPC event emission in `cancelRun()` when aborting active runs. Cancelled active runs now properly transition to "cancelled" status and notify the UI.
+- **Power management cleanup**: Fixed `stopAll()` not calling `onRunFinished()` when power management is enabled, causing the app to stay awake after all runs were stopped.
+
 ### Added
 - **Token-efficient page understanding (`get_page_digest`)**: New tool uses CDP Accessibility tree to produce a compact semantic digest of any web page at ~5-15K tokens (vs 188K+ for raw HTML or 25K per screenshot). Returns an annotated outline with headings, links, buttons, form fields, and their states. Supports lazy-load triggering and configurable token budget.
 - **DOM search & scroll (`find_on_page`)**: Search the page for text, CSS selectors, or XPath using CDP `DOM.performSearch`. Auto-scrolls to the match and returns a `selector_hint` for use with `click_element`. Eliminates screenshot-scroll-screenshot cycles for locating elements.
