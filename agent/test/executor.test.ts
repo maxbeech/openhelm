@@ -1465,6 +1465,77 @@ describe("Executor MCP tool-missing auto-retry", () => {
     }
   });
 
+  it("does NOT fail a run when Claude recovered from the tool-missing error", async () => {
+    // Regression test for 2026-04-11 production bug: Claude's first call to
+    // a Notion MCP tool used the wrong name (`notion_fetch` with underscore),
+    // got "No such tool available", then immediately retried with the
+    // correct name (`notion-fetch` with hyphen) and succeeded. The run
+    // actually completed its mission, but the executor force-failed it
+    // because the error string appeared anywhere in the logs.
+    //
+    // With the recovery-aware fix, toolStats showing invocations of the
+    // same MCP server (more than error count) means Claude recovered, and
+    // the run should be allowed to proceed to outcome assessment.
+    const job = createJob({
+      projectId,
+      name: "MCP Recovered Job",
+      prompt: "fetch a notion page",
+      scheduleType: "once",
+      scheduleConfig: { fireAt: new Date().toISOString() },
+    });
+    const run = createRun({ jobId: job.id, triggerSource: "manual" });
+
+    queue.enqueue({
+      runId: run.id,
+      jobId: job.id,
+      priority: 0,
+      enqueuedAt: Date.now(),
+    });
+
+    // Runner that emits a single "No such tool available" error for the
+    // wrong tool name, then reports two successful invocations of the
+    // same MCP server via toolStats (simulating Claude retrying with the
+    // correct hyphenated name and succeeding).
+    const recoveredRunner = async (
+      config: RunnerConfig,
+    ): Promise<ClaudeCodeRunResult> => {
+      config.onLogChunk(
+        "stdout",
+        "Error: No such tool available: mcp__notion__notion_fetch",
+      );
+      config.onLogChunk("stdout", "Successfully fetched the notion page.");
+      return {
+        exitCode: 0,
+        timedOut: false,
+        killed: false,
+        toolStats: [
+          { toolName: "mcp__notion__notion-fetch", invocations: 2, approxOutputTokens: 400 },
+        ],
+      };
+    };
+
+    const executor = new Executor(recoveredRunner);
+    executor.processNext();
+
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      const updated = getRun(run.id);
+      if (updated?.status === "failed" || updated?.status === "succeeded") break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    // The run should have succeeded (or at worst been left to outcome
+    // assessment to decide — NOT forced to failed by the MCP branch), and
+    // there must be NO auto-retry enqueued.
+    const finalRun = getRun(run.id);
+    expect(finalRun!.status).toBe("succeeded");
+
+    const retries = listRuns({ jobId: job.id }).filter(
+      (r) => r.parentRunId === run.id,
+    );
+    expect(retries).toHaveLength(0);
+  });
+
   it("does NOT retry again if the failing run is itself an MCP retry", async () => {
     const job = createJob({
       projectId,

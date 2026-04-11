@@ -27,7 +27,12 @@ import { triagePermanentFailure } from "./failure-triage.js";
 import { handleInteractiveDetected } from "./hitl-handler.js";
 import { createDashboardItem } from "../db/queries/dashboard-items.js";
 import { getProject } from "../db/queries/projects.js";
-import { createRunLog, hasTokenLimitError, hasMcpToolMissingError } from "../db/queries/run-logs.js";
+import {
+  createRunLog,
+  hasTokenLimitError,
+  countMcpToolMissingErrorsByServer,
+  findUnrecoveredMcpServers,
+} from "../db/queries/run-logs.js";
 import { getSetting, deleteSetting } from "../db/queries/settings.js";
 import { computeNextFireAt } from "../scheduler/schedule.js";
 import { emit } from "../ipc/emitter.js";
@@ -738,18 +743,21 @@ export class Executor {
     // asking "Should I start?" instead of executing immediately.
     let appendSystemPrompt: string | undefined;
     try {
-      const { EXECUTION_SYSTEM_PROMPT } = await import("../mcp-servers/mcp-config-builder.js");
-      appendSystemPrompt = EXECUTION_SYSTEM_PROMPT;
+      const { EXECUTION_SYSTEM_PROMPT, EXTERNAL_MCP_GUIDANCE } = await import("../mcp-servers/mcp-config-builder.js");
+      // EXTERNAL_MCP_GUIDANCE codifies quirks of third-party MCP servers
+      // (Notion hyphens vs underscores, Notion view URL rejection) so Claude
+      // stops rediscovering them every context compaction.
+      appendSystemPrompt = EXECUTION_SYSTEM_PROMPT + "\n\n" + EXTERNAL_MCP_GUIDANCE;
     } catch (err) {
       console.error("[executor] EXECUTION_SYSTEM_PROMPT import error (non-fatal):", err);
     }
     if (mcpConfigPath) {
-      const { BROWSER_MCP_PREAMBLE, BROWSER_CAPTCHA_PREAMBLE, BROWSER_PROFILE_PREAMBLE, DATA_TABLES_MCP_PREAMBLE, BROWSER_SYSTEM_PROMPT, buildBrowserCredentialsNotice } = await import("../mcp-servers/mcp-config-builder.js");
+      const { BROWSER_MCP_PREAMBLE, BROWSER_CAPTCHA_PREAMBLE, BROWSER_PROFILE_PREAMBLE, SOCIAL_MEDIA_ENGAGEMENT_PREAMBLE, DATA_TABLES_MCP_PREAMBLE, BROWSER_SYSTEM_PROMPT, buildBrowserCredentialsNotice } = await import("../mcp-servers/mcp-config-builder.js");
       // Data tables preamble (always available when MCP config exists)
       effectivePrompt = DATA_TABLES_MCP_PREAMBLE + effectivePrompt;
       // Browser MCP preamble + system prompt (only when browser venv is ready)
       if (hasBrowserMcp) {
-        effectivePrompt = BROWSER_MCP_PREAMBLE + BROWSER_CAPTCHA_PREAMBLE + BROWSER_PROFILE_PREAMBLE + effectivePrompt;
+        effectivePrompt = BROWSER_MCP_PREAMBLE + BROWSER_CAPTCHA_PREAMBLE + BROWSER_PROFILE_PREAMBLE + SOCIAL_MEDIA_ENGAGEMENT_PREAMBLE + effectivePrompt;
         // Append browser rule on top of the execution instruction
         appendSystemPrompt = (appendSystemPrompt ? appendSystemPrompt + "\n\n" : "") + BROWSER_SYSTEM_PROMPT;
         // Always tell Claude which browser credentials are (or are NOT) loaded
@@ -839,18 +847,14 @@ export class Executor {
         } catch { /* ignore */ }
       }
 
-      // Kill any orphaned Chrome processes from this run — but NOT if the user
-      // has an open CAPTCHA intervention to solve (they need the browser alive).
+      // Kill any orphaned Chrome processes from this run.
+      // Note: interventionWatcher.stop() (called above) clears createdItemIds,
+      // so hasOpenItems() is always false here — cleanup always runs.
       if (mcpConfigPath) {
-        const hasOpenCaptcha = interventionWatcher.hasOpenItems();
-        if (hasOpenCaptcha) {
-          console.error(`[executor] skipping browser cleanup for run ${runId} — open CAPTCHA intervention`);
-        } else {
-          try {
-            const { cleanupBrowsersForRun } = await import("../mcp-servers/browser-cleanup.js");
-            cleanupBrowsersForRun(runId);
-          } catch { /* ignore */ }
-        }
+        try {
+          const { cleanupBrowsersForRun } = await import("../mcp-servers/browser-cleanup.js");
+          cleanupBrowsersForRun(runId);
+        } catch { /* ignore */ }
       }
 
       // Save credential audit trail
@@ -972,24 +976,53 @@ export class Executor {
     } else if (result.exitCode === 0) {
       finalStatus = "succeeded";
 
-      // MCP tool-missing forces a failure regardless of exit code. Claude
-      // Code will happily exit 0 even when it gave up because an MCP server
-      // (usually openhelm_browser) never registered its tools — the assistant
-      // just writes "No such tool available: mcp__..." and moves on. Without
-      // this check the run would be marked succeeded and the Round 6 auto-
-      // retry below would never trigger. See docs/browser/efficiency-improvements.md
-      // "Round 6 Fixes".
-      if (hasMcpToolMissingError(runId)) {
+      // MCP tool-missing forces a failure — but ONLY when Claude could not
+      // recover. Claude Code will happily exit 0 even when it gave up because
+      // an MCP server (usually openhelm_browser) never registered its tools.
+      // However, Claude often DOES recover — by retrying with the correct
+      // tool name (notion uses hyphens `mcp__notion__notion-fetch` not
+      // underscores), or because the MCP server registered slightly late
+      // and later calls succeeded.
+      //
+      // To tell these apart we compare per-server error counts to per-server
+      // tool-use invocations (from the runner's toolStats). If a server had
+      // MORE successful invocations than tool-missing errors, it recovered
+      // and we let outcome assessment decide the final status. If every
+      // attempt against a server erred, that server is genuinely unrecovered
+      // and the run should be retried.
+      const mcpErrorsByServer = countMcpToolMissingErrorsByServer(runId);
+      const unrecoveredServers = findUnrecoveredMcpServers(
+        mcpErrorsByServer,
+        result.toolStats,
+      );
+      if (unrecoveredServers.length > 0) {
         finalStatus = "failed";
         createRunLog({
           runId,
           stream: "stderr",
           text:
-            "Run exited cleanly but Claude reported 'No such tool available: mcp__...' — " +
-            "an MCP server failed to register its tools during Claude Code's initialization " +
-            "handshake. Treating as a failed run so it can be auto-retried.",
+            "Run exited cleanly but Claude could not use MCP server(s) " +
+            `[${unrecoveredServers.join(", ")}] — every tool call returned ` +
+            "'No such tool available: mcp__...' with no successful recovery. " +
+            "The MCP server failed to register its tools during Claude Code's " +
+            "initialization handshake. Treating as a failed run so it can be " +
+            "auto-retried.",
         });
       } else {
+        if (mcpErrorsByServer.size > 0) {
+          // Log recovered errors for observability, but don't fail the run.
+          const recoveredList = Array.from(mcpErrorsByServer.entries())
+            .map(([s, c]) => `${s}(${c})`)
+            .join(", ");
+          createRunLog({
+            runId,
+            stream: "stderr",
+            text:
+              `Claude hit 'No such tool available' for [${recoveredList}] ` +
+              "but recovered — later tool calls to the same server succeeded. " +
+              "Letting outcome assessment decide final status.",
+          });
+        }
         // Outcome verification: LLM checks if the mission was actually accomplished
         try {
           outcomeAssessment = await assessOutcome(runId, job.prompt);
@@ -1084,7 +1117,12 @@ export class Executor {
       // MCP failure — create alert but still allow self-correction
       if (isMcpError(stderrText)) {
         handleMcpFailure(runId, job.id, job.projectId, stderrText.slice(-300));
-      } else if (hasMcpToolMissingError(runId)) {
+      } else if (
+        findUnrecoveredMcpServers(
+          countMcpToolMissingErrorsByServer(runId),
+          result.toolStats,
+        ).length > 0
+      ) {
         // MCP tool-missing — Claude reported "No such tool available" in its
         // response text (stdout), meaning the MCP server was configured but
         // failed to start or timed out during Claude Code's initialization
@@ -1097,11 +1135,17 @@ export class Executor {
         // short auto-retry. Bounded to a single retry per lineage: if the
         // current run itself is already a retry (has a parentRunId), we
         // fall through to normal failure handling to prevent infinite loops.
+        //
+        // NOTE: we only enter this branch when Claude NEVER recovered —
+        // `findUnrecoveredMcpServers` returns empty when any subsequent
+        // tool call to the same server succeeded, which means "notion
+        // underscore→hyphen" recoveries and "cold-start timeout that
+        // warmed up" runs are NOT retried here.
         handleMcpFailure(
           runId,
           job.id,
           job.projectId,
-          'Claude reported "No such tool available" for an MCP tool — the MCP server likely failed to start or timed out during initialization. Auto-retrying once.',
+          'Claude reported "No such tool available" for an MCP tool and never recovered — the MCP server likely failed to start or timed out during initialization. Auto-retrying once.',
         );
         const currentRun = getRun(runId);
         const alreadyRetry = currentRun?.parentRunId != null;

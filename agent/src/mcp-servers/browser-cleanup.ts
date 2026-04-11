@@ -7,10 +7,11 @@
  *    per-run files at ~/.openhelm/browser-pids/run-{runId}.json. After a
  *    run finishes the agent reads the file and kills survivors.
  *
- * 2. **Process-scan based** — Scans `ps` output for Chrome processes
- *    launched with nodriver temp user-data-dirs (`uc_*` prefix) and a
- *    `--remote-debugging-port` flag. This catches instances whose PID was
- *    tracked incorrectly (e.g. Python MCP server PID instead of Chrome).
+ * 2. **Process-scan based** — Scans `ps` output for Chrome processes that have
+ *    a `--remote-debugging-port` flag AND use either a nodriver temp dir
+ *    (`uc_*` prefix) OR a named OpenHelm profile dir (`~/.openhelm/profiles/`).
+ *    This catches instances whose PID was tracked incorrectly (e.g. race-
+ *    condition on macOS background launch where `find_pid_on_port` times out).
  */
 
 import { readFileSync, readdirSync, unlinkSync, existsSync } from "fs";
@@ -18,10 +19,12 @@ import { execFileSync } from "child_process";
 import { join } from "path";
 import { homedir } from "os";
 
-const BROWSER_PIDS_DIR = join(
-  process.env.OPENHELM_DATA_DIR ?? join(homedir(), ".openhelm"),
-  "browser-pids",
-);
+const OPENHELM_DATA_DIR = process.env.OPENHELM_DATA_DIR ?? join(homedir(), ".openhelm");
+
+const BROWSER_PIDS_DIR = join(OPENHELM_DATA_DIR, "browser-pids");
+
+/** Named profile root — Chrome instances using these dirs must also be cleaned up. */
+const OPENHELM_PROFILES_DIR = join(OPENHELM_DATA_DIR, "profiles");
 
 const CHROME_NAMES = ["chrome", "chromium", "msedge", "google chrome"];
 
@@ -50,11 +53,15 @@ function safeKill(pid: number, signal: NodeJS.Signals): void {
 }
 
 /**
- * Find orphaned nodriver Chrome processes by scanning `ps` output.
+ * Find orphaned OpenHelm-managed Chrome processes by scanning `ps` output.
  *
- * Matches Chrome main processes (not Helper/renderer sub-processes) that
- * have a `user-data-dir` inside a temp directory with the `uc_` prefix
- * (nodriver's signature) AND a `--remote-debugging-port` flag.
+ * Matches Chrome main processes (not Helper/renderer sub-processes) that:
+ *   - Have a `--remote-debugging-port` flag (confirms automation instance), AND
+ *   - Use either a nodriver temp user-data-dir (`uc_` prefix) OR a named
+ *     OpenHelm profile dir (`~/.openhelm/profiles/`).
+ *
+ * Named-profile Chromes were previously invisible to this scan, causing them
+ * to accumulate when PID-file tracking failed to capture their PID at spawn.
  *
  * @param excludePids PIDs to skip (e.g. from a currently active run).
  */
@@ -77,11 +84,17 @@ function findOrphanedNodriverPids(excludePids?: Set<number>): number[] {
       if (!CHROME_NAMES.some((n) => lower.includes(n))) continue;
       if (lower.includes("helper") || lower.includes("crashpad")) continue;
 
-      // Must have a nodriver temp user-data-dir (uc_ prefix in temp path)
-      if (!/user-data-dir=\S*\/uc_/.test(trimmed)) continue;
-
       // Must have remote-debugging-port (confirms automation instance)
       if (!trimmed.includes("--remote-debugging-port")) continue;
+
+      // Must be an OpenHelm-managed Chrome — either:
+      //   (a) a nodriver temp dir (uc_ prefix), or
+      //   (b) a named OpenHelm profile dir (~/.openhelm/profiles/)
+      // Named-profile Chromes were previously invisible to this scan, causing
+      // them to accumulate when PID-file tracking missed their PID on spawn.
+      const hasNodriverTempDir = /user-data-dir=\S*\/uc_/.test(trimmed);
+      const hasNamedProfileDir = trimmed.includes(`user-data-dir=${OPENHELM_PROFILES_DIR}`);
+      if (!hasNodriverTempDir && !hasNamedProfileDir) continue;
 
       // Extract PID (first token)
       const pid = parseInt(trimmed.split(/\s+/)[0], 10);

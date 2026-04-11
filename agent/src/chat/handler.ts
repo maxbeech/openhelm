@@ -27,6 +27,18 @@ const MAX_TOOL_LOOP_ITERATIONS = 5;
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_LLM_RETRIES = 2;
 
+const PROMPT_TOO_LONG_PATTERNS = [
+  "prompt is too long",
+  "context_length_exceeded",
+  "maximum context length",
+  "input length and max_tokens exceed",
+];
+
+function isPromptTooLongError(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  return PROMPT_TOO_LONG_PATTERNS.some((p) => lower.includes(p));
+}
+
 /** Fire-and-forget: rename a new thread based on the user's first message. */
 function autoRenameThread(convId: string, userContent: string, projectId: string | null): void {
   callLlmViaCli({
@@ -273,22 +285,24 @@ export async function handleChatMessage(
     const userMessage = buildLlmUserMessage(history, content, toolExchange || undefined);
     if (abortSignal?.aborted) throw new Error("Chat cancelled by user");
 
-    const llmResult = await callLlmWithRetry({
-      model: "chat",
-      modelOverride,
-      effort,
-      systemPrompt,
-      userMessage,
-      // Allow only safe read/search tools; block Bash and Agent so the LLM
-      // is forced to use XML tool_call blocks for OpenHelm data queries.
-      allowedTools: "WebSearch,WebFetch,Read,Glob,Grep",
-      disallowedTools: "Bash,Agent",
-      workingDirectory: project?.directoryPath,
-      permissionMode: permissionMode || "plan",
-      preferRawText: true,
-      resumeSessionId: sessionId ?? undefined,
-      abortSignal,
-      onTextChunk: (text) => {
+    let llmResult: LlmCallResult;
+    try {
+      llmResult = await callLlmWithRetry({
+        model: "chat",
+        modelOverride,
+        effort,
+        systemPrompt,
+        userMessage,
+        // Allow only safe read/search tools; block Bash and Agent so the LLM
+        // is forced to use XML tool_call blocks for OpenHelm data queries.
+        allowedTools: "WebSearch,WebFetch,Read,Glob,Grep",
+        disallowedTools: "Bash,Agent",
+        workingDirectory: project?.directoryPath,
+        permissionMode: permissionMode || "plan",
+        preferRawText: true,
+        resumeSessionId: sessionId ?? undefined,
+        abortSignal,
+        onTextChunk: (text) => {
         const stripped = sanitizeStreamChunk(text);
         if (!stripped) return;
         // The CLI may emit cumulative or delta text. Either way, compute
@@ -308,6 +322,15 @@ export async function handleChatMessage(
         emit("chat.status", { status: "reading", tools: [toolName], projectId, conversationId: convId });
       },
     });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (isPromptTooLongError(msg)) {
+        throw new Error(
+          "This conversation is too long to process. Start a new thread to continue — use the + button above the chat.",
+        );
+      }
+      throw err;
+    }
     // Flush any text held back in the stream buffer (e.g. a partial tag at the
     // end of the stream that was never closed). Without this, legitimate text
     // after an unclosed suppressed tag is silently dropped.

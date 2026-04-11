@@ -39,7 +39,12 @@ export const BROWSER_MCP_PREAMBLE =
   "   If verified is false OR warnings mention a search input OR editor_kind is `input-search`, DO NOT click submit — go back, use `find_on_page` with a more specific phrase, and retry.\n" +
   "C. After clicking any submit/post/publish/reply button, your VERY NEXT call MUST be `get_page_digest`. Confirm the editor closed, the new comment/post appears, or a success toast is visible. If none of those are true, the submission did NOT succeed — do not claim success. Retry or report the blocker.\n" +
   "D. Collapsed comment widgets (Reddit, Twitter, LinkedIn) are handled automatically: `paste_text`/`type_text` detect both hidden editors AND visible trigger wrappers (custom elements like `<faceplate-textarea-input>`, `<shreddit-composer>`), click them, wait for the real editor to mount, and auto-fall-back to a generic `textarea, [contenteditable]` scan to find the revealed editor. You do NOT need to manually switch selectors after clicking a composer trigger — just pass the same selector you used for `find_on_page` / `click_element` and paste_text will re-target. If paste_text still returns `verified: false` after auto-expand, check `resolved_target.fallback_editor_used` and `activator_clicked` — if both are true and it STILL failed, the composer wants a real mouse gesture: call `click_element` on the activator selector, then `get_page_digest`, then retry. Do NOT give up after a single failed paste_text — retry at least twice with different approaches before abandoning the thread.\n" +
-  "E. `find_on_page(query)` is the most reliable way to locate a specific piece of UI. It accepts plain text (case-insensitive), CSS selectors, and XPath (starting with `//`), and always returns a `selector_hint` of the form `[data-oh-find=\"1\"]` or similar that you can pass directly to `click_element`/`paste_text`. Note: on Reddit, find_on_page for 'Join the conversation' returns a selector for the trigger WRAPPER, not the editor itself — but paste_text handles this automatically (see rule D). Use the same selector_hint for both `click_element` and the subsequent `paste_text`.\n\n";
+  "E. `find_on_page(query)` is the most reliable way to locate a specific piece of UI. It accepts plain text (case-insensitive), CSS selectors, and XPath (starting with `//`), and always returns a `selector_hint` of the form `[data-oh-find=\"1\"]` or similar that you can pass directly to `click_element`/`paste_text`. Note: on Reddit, find_on_page for 'Join the conversation' returns a selector for the trigger WRAPPER, not the editor itself — but paste_text handles this automatically (see rule D). Use the same selector_hint for both `click_element` and the subsequent `paste_text`.\n\n" +
+  "PLATFORM ANTI-AUTOMATION BLOCKERS (mandatory — do not waste turns):\n" +
+  "F. Reddit signup-modal overlay: When browsing a Reddit thread without a valid logged-in session, Reddit injects a full-screen 'Sign up' modal over the comment form. If `get_page_digest` shows 'Sign up' / 'Continue with Google' prominently near the comment area, OR if `paste_text` returns `verified: false` on a Reddit comment target more than once, the session is NOT valid — STOP trying to paste. Do one of: (a) call `check_session(instance_id, \"reddit.com\")` — if `logged_in: false`, call `request_user_help` with reason `\"Reddit session expired — please log in manually\"` and poll. (b) If `request_user_help` is not appropriate for this job, STOP and report `blocker: \"reddit_session_expired\"` as the final status. Do NOT attempt to submit comments via execute_script, clipboard hacks, or DOM manipulation — Reddit's reCAPTCHA on comment submission will block those too.\n" +
+  "G. LinkedIn Lexical/ProseMirror editor: LinkedIn's message composer uses a contenteditable editor that ignores `execCommand`, clipboard paste, AND JavaScript DOM mutation. If `paste_text` returns `verified: false` on a LinkedIn message target after 2 attempts (one with `find_on_page(\"Write a message\")`, one with `find_on_page(\"Message\")`), STOP. Do NOT try `execute_script` with manual DOM rewrites — those will fail silently or crash the page. Instead: click the message composer to focus it, then call `type_text` with `humanize=false` and a short `delay_ms` to dispatch real character keystrokes via CDP — this is the only input path LinkedIn accepts. If that ALSO fails after 2 attempts, STOP and report `blocker: \"linkedin_message_composer\"`. Do not pivot to a different contact.\n" +
+  "H. LinkedIn connection-modal button: The 'Send without a note' button on LinkedIn's connection modal sometimes swallows programmatic clicks. If `click_element` on that button returns success but the modal is still visible on the next `get_page_digest`, retry ONCE using `find_on_page(\"Send without a note\")` to get a fresh selector. If still blocked, STOP and report `blocker: \"linkedin_connection_modal\"`. Do NOT call `execute_script` to simulate the click — LinkedIn filters synthetic MouseEvents on this control.\n" +
+  "I. GENERAL RULE: any time a platform is actively blocking automation (reCAPTCHA on submit, overlaid modal, editor ignoring input), after AT MOST 2 structured retries you MUST STOP and report the specific blocker as the run's final status. Burning 20+ turns on a blocked platform is worse than a clean refusal — the user will see both the attempt and the reason in the run log.\n\n";
 
 /**
  * Injected as a system-level instruction via --append-system-prompt when the
@@ -51,7 +56,29 @@ export const BROWSER_SYSTEM_PROMPT =
   "The ONLY browser tool you may call is `mcp__openhelm_browser__spawn_browser` and the other `mcp__openhelm_browser__*` tools. " +
   "You MUST NOT call any tool from chrome-devtools, stealth-browser-mcp, or any MCP server other than openhelm_browser for browser automation. " +
   "If openhelm_browser tools are unavailable or return an error, stop and report the error — do NOT fall back to another browser MCP. " +
-  "Always call `mcp__openhelm_browser__close_instance` for every browser instance you open before finishing.";
+  "Always call `mcp__openhelm_browser__close_instance` for every browser instance you open before finishing. " +
+  "BROWSER INSTANCE IDs: an `instance_id` returned by `spawn_browser` is a UUID like `c252d8da-b78c-42df-8b1f-fbd4341bee7c` — NEVER pass human-readable labels (`\"hn-session\"`, `\"browser_1\"`, `\"main\"`) as an instance_id. If a tool returns `Instance not found: <id>`, the error message now includes the list of live UUIDs — retry with one of those, or call `list_instances` if the list is empty.";
+
+/**
+ * Injected as a system-level instruction on every run. Codifies known quirks
+ * of external MCP servers (Notion, etc.) so Claude doesn't waste tool calls
+ * rediscovering them after every context compaction.
+ */
+export const EXTERNAL_MCP_GUIDANCE =
+  "EXTERNAL MCP TOOL QUIRKS (mandatory, no exceptions):\n" +
+  "- Notion MCP tools use HYPHENS, not underscores. The correct names are " +
+  "`mcp__notion__notion-fetch`, `mcp__notion__notion-search`, " +
+  "`mcp__notion__notion-update-page`, etc. `mcp__notion__notion_fetch` " +
+  "(underscore) does NOT exist — do not call it.\n" +
+  "- `mcp__notion__notion-fetch` does NOT support Notion view URLs. If a URL " +
+  "contains a `?v=<viewId>` query parameter (or any `&v=...`), STRIP the " +
+  "`v` parameter before calling the tool — pass only the database/page URL. " +
+  "Example: `https://notion.so/workspace/DB-abc123?v=xyz` → fetch " +
+  "`https://notion.so/workspace/DB-abc123`. The tool returns a 400 " +
+  "validation error (`URL type view not currently supported`) if you " +
+  "leave the view param in, and falling back to the browser to read " +
+  "Notion is slow and error-prone — do not do that when a simple URL " +
+  "strip would work.";
 
 /**
  * Prepended to job prompts to instruct Claude on CAPTCHA handling.
@@ -64,10 +91,19 @@ export const BROWSER_CAPTCHA_PREAMBLE =
   "If the response contains captcha_detected=true, you MUST immediately call " +
   "request_user_help with the reason from captcha_action_required. Do NOT close the browser.\n" +
   "- After calling request_user_help, poll with take_screenshot every 30s for up to 15 minutes. " +
-  "Output a status line each poll to prevent silence timeout.\n" +
+  "Output a status line each poll to prevent silence timeout. Do NOT give up after 30 seconds, " +
+  "1 minute, or 5 minutes — the user may be away from their machine and needs time to notice " +
+  "the notification. The 15-minute budget is the MINIMUM wait; only stop earlier if take_screenshot " +
+  "shows the CAPTCHA is resolved.\n" +
   "- If a page looks wrong, empty, or shows 'Just a moment...', check the response for captcha_detected " +
   "before giving up.\n" +
-  "- NEVER close a browser instance that has an unresolved CAPTCHA.\n\n";
+  "- NEVER close a browser instance that has an unresolved CAPTCHA.\n" +
+  "- NEVER pivot to a different target platform after a CAPTCHA timeout. If this job was about " +
+  "X.com engagement and X.com is blocked, the correct outcome is to STOP and report " +
+  "\"blocked on X.com CAPTCHA\" — do NOT post to Hacker News, Reddit, LinkedIn, or any other " +
+  "platform as a substitute. Posting to the wrong platform wastes the entire run and still " +
+  "fails the job's mission. The only exception is when the job prompt EXPLICITLY lists " +
+  "multiple target platforms as interchangeable alternatives.\n\n";
 
 /**
  * Prepended to job prompts to instruct Claude on persistent profile usage
@@ -80,7 +116,40 @@ export const BROWSER_PROFILE_PREAMBLE =
   "- If no credential-linked profile exists for the target site, omit `profile` entirely (or explicitly pass `profile=\"default\"`) — the tool defaults to the shared `default` profile. This keeps cookies between runs and is what bypasses Reddit/Cloudflare fresh-browser bot checks.\n" +
   "- DO NOT invent per-task profile names like `\"search_session\"`, `\"hn_browser\"`, `\"reddit_task\"`. Those create brand-new empty profiles every run, which is equivalent to having no profile at all. Reuse existing named profiles or fall back to `default`.\n" +
   "- After spawning, call `check_session(instance_id, domain)` on any site that needs login. If the session is expired, call `auto_login` with the credential name. If auto_login also fails, call `request_user_help` for manual login.\n" +
-  "- If the first `navigate` lands on an anti-bot page ('Prove your humanity', 'Just a moment', 'Checking your browser'), DO NOT immediately close the instance and move on. Try: (1) wait 3s and `reload_page` once, (2) if still blocked, re-spawn with the site's dedicated profile (e.g. `profile=\"reddit\"`, `profile=\"xcom\"`) — existing cookies often bypass the check, (3) only call `request_user_help` or abandon the platform if both fail. Do NOT skip a whole target platform after a single flake.\n\n";
+  "- If the first `navigate` lands on an anti-bot page ('Prove your humanity', 'Just a moment', 'Checking your browser'), DO NOT immediately close the instance and move on. Try: (1) wait 3s and `reload_page` once, (2) if still blocked, re-spawn with the site's dedicated profile (e.g. `profile=\"reddit\"`, `profile=\"xcom\"`) — existing cookies often bypass the check, (3) only call `request_user_help` or abandon the platform if both fail. Do NOT skip a whole target platform after a single flake.\n" +
+  "- CROSS-COMPACTION RECOVERY (critical): if your context has just been compacted (you see a conversation summary at the top and don't remember what you were doing), the Python browser MCP subprocess is still running with your PREVIOUS browser instance and all its cookies/auth still live. BEFORE calling `spawn_browser`, call `list_instances` to see what's already attached. If an instance exists, use its `instance_id` directly — do NOT spawn a fresh browser, as that will force a full re-login and lose whatever work you were in the middle of (CAPTCHA, auth, session state). If you do call `spawn_browser(profile=\"<name>\")` and a live instance is already bound to that profile, the tool will transparently return the existing instance (`reused: true` in the response) — accept that and continue; do NOT treat it as an error.\n\n";
+
+/**
+ * Prepended to job prompts when the browser MCP is available and the job may
+ * post content on social media platforms. Enforces authentic, non-promotional
+ * engagement so that automated posts are genuinely helpful rather than spammy.
+ */
+export const SOCIAL_MEDIA_ENGAGEMENT_PREAMBLE =
+  "SOCIAL MEDIA ENGAGEMENT ETHICS (mandatory, no exceptions):\n" +
+  "When posting comments, replies, or messages on any social media platform " +
+  "(Reddit, X/Twitter, Hacker News, LinkedIn, Discord, or any other platform), " +
+  "you MUST follow these rules:\n" +
+  "1. BE GENUINELY HELPFUL: Every post must add real value to the conversation. " +
+  "Engage with the actual content of the thread — answer questions, share relevant " +
+  "experience, offer concrete advice, or contribute a meaningful perspective.\n" +
+  "2. NEVER SOUND PROMOTIONAL OR SPAMMY: Do not use marketing language, superlatives, " +
+  "or calls-to-action. Do not open with praise for the thread just to appear engaged. " +
+  "Do not pad comments with filler phrases like 'Great question!' or 'I came across this " +
+  "and thought I'd share...'.\n" +
+  "3. ONLY MENTION THE PRODUCT WHEN IT IS DIRECTLY RELEVANT: Only reference the product " +
+  "or tool being built if it genuinely solves the specific problem or need being discussed " +
+  "in that thread. If a mention is warranted, be brief, factual, and specific about why " +
+  "it applies. Never shoehorn in a mention when the thread is not directly about a problem " +
+  "the product addresses.\n" +
+  "4. BE TRANSPARENT ABOUT AFFILIATION: If you mention the product, you must disclose " +
+  "your connection to it (e.g. 'I'm building something similar' or 'Disclosure: I work " +
+  "on this tool'). Never hide the fact that you are associated with what you are referencing.\n" +
+  "5. DO NOT DUPLICATE OR MASS-POST: Do not post the same comment or a near-identical " +
+  "comment across multiple threads or platforms. Each post must be unique and tailored " +
+  "to its specific context.\n" +
+  "6. WHEN IN DOUBT, SAY NOTHING: If you cannot add genuine value without mentioning the " +
+  "product, skip the post entirely and report that no suitable opportunity was found. " +
+  "A skipped post is always better than a spammy or misleading one.\n\n";
 
 /**
  * Prepended to job prompts when the data tables MCP is available.
@@ -146,7 +215,20 @@ export function buildBrowserCredentialsNotice(
     "\n\nWORKFLOW: For each site, first `spawn_browser` with the credential's profile " +
     "(listed above) to reuse the saved session. Call `check_session` to verify. " +
     "Only if the session is expired, fall back to `auto_login` with the credential name. " +
-    "If auto_login also fails, call `request_user_help` for manual login.\n\n"
+    "If auto_login also fails, call `request_user_help` for manual login.\n\n" +
+    "NO EXTERNAL API/OAUTH CONFIG FILES (mandatory): Authentication for every site " +
+    "above is handled ENTIRELY by the browser credential + its linked profile. " +
+    "Do NOT search for, read, require, or ask the user to create any external API " +
+    "or OAuth config file — e.g. `~/.openhelm/reddit-config.json`, `reddit-cookies.json`, " +
+    "`twitter-api.json`, `linkedin-oauth.json`, or any `*-config.json` / `*-credentials.json` " +
+    "under `~/.openhelm/`. Those files do NOT exist and are NOT needed. " +
+    "Do NOT use PRAW, Reddit Script Apps, Tweepy, the LinkedIn API, or any other " +
+    "API client library — the ONLY supported path is the browser MCP with the " +
+    "credential + profile above. If a job prompt references an API/OAuth/Script-App " +
+    "workflow for one of these sites, treat that as out-of-date and use the browser " +
+    "flow instead. If you genuinely cannot log in via the browser after `auto_login` " +
+    "and `request_user_help` have both failed, stop and report the specific blocker — " +
+    "do NOT invent an API-based fallback.\n\n"
   );
 }
 

@@ -148,6 +148,34 @@ async def _reconcile_profile_locks() -> List[str]:
                 "server", "reconcile_profile_locks",
                 f"Failed to release lock for orphaned instance {iid}: {e}"
             )
+
+    # Disk sweep: walk every profile lock file on disk and let
+    # `is_profile_locked` evaluate its liveness. That call silently clears
+    # stale entries (dead PIDs, PID-reuse mismatches, >10min-old files).
+    # This catches locks left behind by a *sibling* MCP subprocess that
+    # died without clean shutdown — those locks have a dead PID and are
+    # invisible to the in-memory `_instance_profiles` reconcile above.
+    try:
+        profiles_root = _pm.PROFILES_ROOT
+        if os.path.isdir(profiles_root):
+            for name in os.listdir(profiles_root):
+                lock_path = os.path.join(profiles_root, name, ".openhelm.lock")
+                if not os.path.exists(lock_path):
+                    continue
+                had_lock = True
+                if not _pm.is_profile_locked(name):
+                    if had_lock and name not in released:
+                        released.append(name)
+                        debug_logger.log_info(
+                            "server", "reconcile_profile_locks",
+                            f"Swept stale on-disk lock for profile '{name}'"
+                        )
+    except Exception as e:
+        debug_logger.log_warning(
+            "server", "reconcile_profile_locks",
+            f"Disk sweep failed: {e}"
+        )
+
     return released
 
 
@@ -242,6 +270,28 @@ async def app_lifespan(server):
             debug_logger.log_info("server", "cleanup", "Process cleanup complete")
         except Exception as e:
             debug_logger.log_error("server", "cleanup", f"Process cleanup failed: {e}")
+
+        # Explicitly release any profile locks whose owning PID is this
+        # MCP subprocess. Normally `close_instance` (the tool) and the
+        # idle reaper's post-sweep `_reconcile_profile_locks` keep this
+        # empty, but if the shutdown path is reached through a graceful
+        # SIGTERM mid-run there may still be in-flight lock files we
+        # wrote. Clearing them here prevents "Profile X is already in
+        # use" from appearing on the very next spawn_browser call — the
+        # new MCP subprocess would otherwise see our still-alive PID in
+        # the lock file and refuse to reap it.
+        try:
+            released = _pm.release_all_held_by(os.getpid())
+            if released:
+                debug_logger.log_info(
+                    "server", "cleanup",
+                    f"Released profile locks on shutdown: {', '.join(released)}"
+                )
+        except Exception as e:
+            debug_logger.log_warning(
+                "server", "cleanup",
+                f"Shutdown profile lock cleanup failed: {e}"
+            )
         try:
             persistent_instances = persistent_storage.list_instances()
             if persistent_instances.get("instances"):
@@ -280,6 +330,36 @@ dom_handler = DOMHandler()
 accessibility_handler = AccessibilityHandler()
 cdp_function_executor = CDPFunctionExecutor()
 captcha_detector = CaptchaDetector()
+
+
+async def _format_instance_not_found(instance_id: str) -> str:
+    """
+    Build a descriptive "Instance not found" error message that lists
+    currently-live instance IDs so the caller can recover in one step.
+
+    After a context compaction, LLMs sometimes refer to browser instances by
+    a human-readable label (e.g. "hn-session", "browser_1") instead of the
+    UUID assigned at spawn time. Returning just "Instance not found: <name>"
+    forces the agent to issue a separate `list_instances` call. Instead we
+    embed the valid IDs inline so the next retry can use a real UUID.
+    """
+    try:
+        instances = await browser_manager.list_instances()
+    except Exception:
+        instances = []
+    if not instances:
+        return (
+            f"Instance not found: {instance_id}. No browser instances are "
+            f"currently running — call spawn_browser first."
+        )
+    available = [getattr(inst, "instance_id", str(inst)) for inst in instances]
+    return (
+        f"Instance not found: {instance_id}. Available instance_ids: "
+        f"{available}. Browser instance_ids are UUIDs assigned by spawn_browser "
+        f"— do not pass human-readable names like 'hn-session' or 'browser_1'. "
+        f"Retry the call with one of the UUIDs above (or call list_instances "
+        f"for full details)."
+    )
 
 @section_tool("browser-management")
 async def spawn_browser(
@@ -372,6 +452,88 @@ async def spawn_browser(
             # prior browser was auto-closed by the idle reaper but the
             # lock file remained.
             await _reconcile_profile_locks()
+
+            # Cross-compaction recovery: if a live browser instance is
+            # already attached to this profile, return THAT instance
+            # instead of trying to spawn a fresh Chrome on top of it.
+            #
+            # Context: when Claude Code's context window fills up it
+            # compacts the conversation and starts a "new" session —
+            # but the MCP subprocess (this Python process) is NOT
+            # restarted, so `browser_manager._instances` is still
+            # populated and the old Chrome is still running with its
+            # cookies/auth. The post-compaction session just doesn't
+            # know the old instance_id. Without this reuse path, the
+            # new session calls spawn_browser, hits the "Profile is
+            # already in use" lock from the LIVE instance (which is
+            # correct — it IS in use), and the entire run derails into
+            # fresh logins and CAPTCHA re-solving. With this path,
+            # spawn_browser with the same profile transparently returns
+            # the existing instance_id and Claude carries on where it
+            # left off.
+            reused_instance = None
+            try:
+                live_instances = await browser_manager.list_instances()
+                live_ids = {i.instance_id for i in live_instances}
+                for iid, pname in _instance_profiles.items():
+                    if pname == profile and iid in live_ids:
+                        reused_instance = next(
+                            (i for i in live_instances if i.instance_id == iid),
+                            None,
+                        )
+                        if reused_instance is not None:
+                            break
+            except Exception as e:
+                debug_logger.log_warning(
+                    "server", "spawn_browser_reuse",
+                    f"Failed to scan for reusable instance on profile '{profile}': {e}"
+                )
+            if reused_instance is not None:
+                debug_logger.log_info(
+                    "server", "spawn_browser_reuse",
+                    f"Reusing live instance {reused_instance.instance_id} "
+                    f"on profile '{profile}' (cross-compaction recovery)"
+                )
+                print(
+                    f"[spawn_browser] reusing existing instance "
+                    f"{reused_instance.instance_id} on profile '{profile}' "
+                    f"(live browser already attached to this profile — likely "
+                    f"a post-compaction resume)",
+                    file=sys.stderr,
+                )
+                _pm.touch_last_used(profile)
+                return {
+                    "instance_id": reused_instance.instance_id,
+                    "state": reused_instance.state,
+                    "headless": reused_instance.headless,
+                    "viewport": reused_instance.viewport,
+                    "reused": True,
+                }
+
+            # Wait briefly for any competing run holding this profile to
+            # finish. Two concurrent OpenHelm runs that both fall back to
+            # `profile="default"` used to fight over the lock file, forcing
+            # the second to retry with no profile at all (losing cookies,
+            # tripping Cloudflare/Reddit bot detection). A short poll turns
+            # those short overlaps into a transparent wait. If the lock is
+            # still held after the timeout we fall through to `acquire_lock`
+            # which raises the usual "already in use" error.
+            if _pm.is_profile_locked(profile):
+                wait_budget = float(
+                    os.environ.get("OPENHELM_PROFILE_LOCK_WAIT_SECONDS", "15")
+                )
+                freed = _pm.wait_for_unlock(profile, timeout_seconds=wait_budget)
+                if freed:
+                    debug_logger.log_info(
+                        "server", "spawn_browser_wait",
+                        f"Profile '{profile}' became free after waiting — proceeding"
+                    )
+                else:
+                    debug_logger.log_warning(
+                        "server", "spawn_browser_wait",
+                        f"Profile '{profile}' still locked after {wait_budget:.0f}s — "
+                        f"falling through to acquire_lock (will raise)"
+                    )
             _pm.acquire_lock(profile)
             user_data_dir = _pm.get_profile_path(profile)
             _pm.touch_last_used(profile)
@@ -583,9 +745,25 @@ async def navigate(
     if isinstance(timeout, str):
         timeout = int(timeout)
     timeout_s = timeout / 1000.0
+    # Cap the internal budget so navigate ALWAYS returns before the outer
+    # MCP tool_timeout wrapper (120s) fires.  When we hit the hard outer
+    # timeout the browser is torn down and the next spawn racks up profile
+    # lock contention — callers are far better served by a soft
+    # ``success=False`` response they can retry against the same tab.
+    # 70s leaves headroom for get_tab() reconnect (~18s), best-effort
+    # URL/title reads (6s), and CAPTCHA probe (5s) before the 120s outer
+    # limit.  Internal navigate budget = min(user, 70).
+    NAVIGATE_INTERNAL_CEILING_S = 70.0
+    if timeout_s > NAVIGATE_INTERNAL_CEILING_S:
+        debug_logger.log_info(
+            "server", "navigate",
+            f"Clamping navigate timeout {timeout_s}s → "
+            f"{NAVIGATE_INTERNAL_CEILING_S}s to stay under MCP tool timeout"
+        )
+        timeout_s = NAVIGATE_INTERNAL_CEILING_S
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
 
     if referrer:
         try:
@@ -602,6 +780,7 @@ async def navigate(
     # control over cancellation — tab.get() has been observed to hang
     # past its wait_for timeout on Reddit.
     navigation_started = False
+    navigate_error: Optional[str] = None
     try:
         await asyncio.wait_for(
             tab.send(uc.cdp.page.navigate(url=url)),
@@ -609,9 +788,23 @@ async def navigate(
         )
         navigation_started = True
     except asyncio.TimeoutError:
+        navigate_error = (
+            f"Page.navigate CDP call timed out after "
+            f"{min(timeout_s, 10):.0f}s (the CDP command itself did not "
+            f"return — the page did not start loading). This often means "
+            f"the target host is unreachable, the URL is invalid, or the "
+            f"tab is wedged. Try a different URL, reload_page, or spawn a "
+            f"fresh browser."
+        )
         debug_logger.log_warning(
             "server", "navigate",
             f"Page.navigate CDP call timed out for {url} — page may still proceed"
+        )
+    except Exception as e:
+        navigate_error = f"Page.navigate CDP call failed: {type(e).__name__}: {e}"
+        debug_logger.log_warning(
+            "server", "navigate",
+            f"Page.navigate CDP call raised for {url}: {e}"
         )
 
     # Wait for the requested readiness signal. Each branch is shielded
@@ -680,6 +873,14 @@ async def navigate(
         "title": title,
         "success": navigation_started,
     }
+    # When navigation did not start, always include an explicit error string so
+    # the caller never sees an empty {"success": false} with no diagnostic —
+    # that triggers blind retries against unreachable hosts and burns the run.
+    if not navigation_started:
+        response["error"] = navigate_error or (
+            f"Navigation to {url} did not start and no error was captured. "
+            f"The tab may be wedged — try reload_page or spawn a fresh browser."
+        )
     # Auto-detect blocking CAPTCHAs (layers 1-2 only, no LLM cost)
     try:
         captcha_info = await asyncio.wait_for(
@@ -707,7 +908,7 @@ async def go_back(instance_id: str) -> Dict[str, Any]:
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     await tab.back()
     await asyncio.sleep(1)
     response: Dict[str, Any] = {"success": True}
@@ -730,7 +931,7 @@ async def go_forward(instance_id: str) -> Dict[str, Any]:
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     await tab.forward()
     await asyncio.sleep(1)
     response: Dict[str, Any] = {"success": True}
@@ -754,7 +955,7 @@ async def reload_page(instance_id: str, ignore_cache: bool = False) -> Dict[str,
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     await tab.reload()
     await asyncio.sleep(1)
     response: Dict[str, Any] = {"success": True}
@@ -787,7 +988,7 @@ async def query_elements(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     debug_logger.log_info('Server', 'query_elements', f'Received limit parameter: {limit} (type: {type(limit)})')
     elements = await dom_handler.query_elements(
         tab, selector, text_filter, visible_only, limit
@@ -830,7 +1031,7 @@ async def click_element(
         timeout = int(timeout)
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await dom_handler.click_element(tab, selector, text_match, timeout)
 
 @section_tool("element-interaction")
@@ -870,7 +1071,7 @@ async def type_text(
         delay_ms = int(delay_ms)
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await dom_handler.type_text(tab, selector, text, clear_first, delay_ms, parse_newlines, shift_enter)
 
 @section_tool("element-interaction")
@@ -904,7 +1105,7 @@ async def paste_text(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await dom_handler.paste_text(tab, selector, text, clear_first)
 
 @section_tool("element-interaction")
@@ -930,7 +1131,7 @@ async def select_option(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     
     converted_index = None
     if index is not None:
@@ -958,7 +1159,7 @@ async def get_element_state(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await dom_handler.get_element_state(tab, selector)
 
 @section_tool("element-interaction")
@@ -986,7 +1187,7 @@ async def wait_for_element(
         timeout = int(timeout)
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await dom_handler.wait_for_element(tab, selector, timeout, visible, text_content)
 
 @section_tool("element-interaction")
@@ -1018,7 +1219,7 @@ async def scroll_page(
         amount = int(amount)
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await dom_handler.scroll_page(
         tab, direction, amount, smooth, percent, wait_for_content, timeout_ms
     )
@@ -1042,7 +1243,7 @@ async def execute_script(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     try:
         result = await dom_handler.execute_script(tab, script, args)
         return {
@@ -1074,7 +1275,7 @@ async def get_page_content(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     content = await dom_handler.get_page_content(tab, include_frames)
 
     return response_handler.handle_response(
@@ -1123,7 +1324,7 @@ async def get_page_digest(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await accessibility_handler.get_page_digest(
         tab, max_tokens, trigger_lazy_load, include_links, mode
     )
@@ -1154,7 +1355,7 @@ async def find_on_page(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await accessibility_handler.find_on_page(tab, query, scroll_to, match_index)
 
 @section_tool("page-understanding")
@@ -1188,7 +1389,7 @@ async def find_by_role(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await accessibility_handler.find_by_role(tab, role, name, scroll_to, match_index)
 
 
@@ -1224,7 +1425,7 @@ async def take_screenshot(
 
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
 
     SCREENSHOT_TIMEOUT_S = 60
     FILE_SAVE_TOKEN_THRESHOLD = 8000
@@ -1435,7 +1636,7 @@ async def get_response_content(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     body = await network_interceptor.get_response_body(tab, request_id)
     if body:
         try:
@@ -1580,7 +1781,7 @@ async def modify_headers(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await network_interceptor.modify_headers(tab, headers)
 
 
@@ -1601,7 +1802,7 @@ async def get_cookies(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await network_interceptor.get_cookies(tab, urls)
 
 
@@ -1636,7 +1837,7 @@ async def set_cookie(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     
     if not url and not domain:
         current_url = tab.url if hasattr(tab, 'url') else None
@@ -1678,7 +1879,7 @@ async def clear_cookies(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await network_interceptor.clear_cookies(tab, url)
 
 
@@ -1750,7 +1951,7 @@ async def auto_login(
 
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
 
     username = cred.get("username", "")
     password = cred.get("password", "")
@@ -1843,7 +2044,7 @@ async def inject_auth_cookie(
 
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
 
     cookie = {
         "name": cookie_name,
@@ -1901,7 +2102,7 @@ async def inject_auth_header(
 
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
 
     header_value = f"{prefix}{cred.get('value', '')}"
     result = await network_interceptor.modify_headers(tab, {header_name: header_value})
@@ -1976,7 +2177,7 @@ async def check_session(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await _pm.check_session_cookies(
         tab, domain, network_interceptor=network_interceptor
     )
@@ -2242,7 +2443,7 @@ async def new_tab(
     """
     browser = await browser_manager.get_browser(instance_id)
     if not browser:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     try:
         new_tab_obj = await browser.get(url, new_tab=True)
         await new_tab_obj
@@ -2281,7 +2482,7 @@ async def extract_element_styles(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await element_cloner.extract_element_styles(
         tab,
         selector=selector,
@@ -2317,7 +2518,7 @@ async def extract_element_structure(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await element_cloner.extract_element_structure(
         tab,
         selector=selector,
@@ -2353,7 +2554,7 @@ async def extract_element_events(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await element_cloner.extract_element_events(
         tab,
         selector=selector,
@@ -2389,7 +2590,7 @@ async def extract_element_animations(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await element_cloner.extract_element_animations(
         tab,
         selector=selector,
@@ -2425,7 +2626,7 @@ async def extract_element_assets(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     result = await element_cloner.extract_element_assets(
         tab,
         selector=selector,
@@ -2463,7 +2664,7 @@ async def extract_element_styles_cdp(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await element_cloner.extract_element_styles_cdp(
         tab,
         selector=selector,
@@ -2497,7 +2698,7 @@ async def extract_related_files(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     result = await element_cloner.extract_related_files(
         tab,
         analyze_css=analyze_css,
@@ -2544,7 +2745,7 @@ async def clone_element_complete(
             raise Exception(f"Invalid JSON in extraction_options: {extraction_options}")
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     result = await comprehensive_element_cloner.extract_complete_element(
         tab,
         selector=selector,
@@ -2668,7 +2869,7 @@ async def clone_element_progressive(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await progressive_element_cloner.clone_element_progressive(tab, selector, include_children)
 
 
@@ -2856,7 +3057,7 @@ async def clone_element_to_file(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     parsed_options = None
     if extraction_options:
         try:
@@ -2890,7 +3091,7 @@ async def extract_complete_element_to_file(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await file_based_element_cloner.extract_complete_element_to_file(
         tab, selector, include_children
     )
@@ -2924,7 +3125,7 @@ async def extract_complete_element_cdp(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     cdp_cloner = CDPElementCloner()
     return await cdp_cloner.extract_complete_element_cdp(tab, selector, include_children)
 
@@ -2954,7 +3155,7 @@ async def extract_element_styles_to_file(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await file_based_element_cloner.extract_element_styles_to_file(
         tab,
         selector=selector,
@@ -2990,7 +3191,7 @@ async def extract_element_structure_to_file(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await file_based_element_cloner.extract_element_structure_to_file(
         tab,
         selector=selector,
@@ -3026,7 +3227,7 @@ async def extract_element_events_to_file(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await file_based_element_cloner.extract_element_events_to_file(
         tab,
         selector=selector,
@@ -3062,7 +3263,7 @@ async def extract_element_animations_to_file(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await file_based_element_cloner.extract_element_animations_to_file(
         tab,
         selector=selector,
@@ -3098,7 +3299,7 @@ async def extract_element_assets_to_file(
     """
     tab = await browser_manager.get_tab(instance_id)
     if not tab:
-        raise Exception(f"Instance not found: {instance_id}")
+        raise Exception(await _format_instance_not_found(instance_id))
     return await file_based_element_cloner.extract_element_assets_to_file(
         tab,
         selector=selector,
@@ -3721,7 +3922,12 @@ async def request_user_help(
     After calling this tool, poll every 30 seconds by taking a screenshot and
     checking if the issue is resolved. Output a status message each time like
     "Waiting for user intervention on [url]..." to prevent silence timeout.
-    Give up after 5 minutes of waiting.
+    Wait up to 15 minutes — the user may be away from the machine. Do NOT
+    give up after 30 seconds or 5 minutes. And NEVER pivot to a different
+    target platform when a CAPTCHA times out: the job's mission is tied to
+    the specific site it was asked to use; posting to a substitute platform
+    (e.g. Hacker News instead of X.com) wastes the run and still fails the
+    job. If the wait times out, stop and report "blocked on CAPTCHA".
 
     Args:
         instance_id (str): Browser instance ID

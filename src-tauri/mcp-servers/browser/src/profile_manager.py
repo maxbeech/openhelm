@@ -17,8 +17,33 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+try:
+    import psutil  # type: ignore
+except ImportError:  # pragma: no cover — psutil is a hard dep in practice
+    psutil = None  # type: ignore
+
 PROFILES_ROOT = os.path.expanduser("~/.openhelm/profiles")
 PROFILES_META = os.path.join(PROFILES_ROOT, "profiles.json")
+
+# Maximum number of seconds `wait_for_unlock` will poll before giving up.
+# Long enough to cover a typical short run's cleanup tail but short enough
+# that we don't deadlock the scheduler.
+LOCK_WAIT_DEFAULT_SECONDS = 15.0
+LOCK_WAIT_POLL_INTERVAL_SECONDS = 0.5
+
+
+def _pid_start_time(pid: int) -> Optional[float]:
+    """Return the process start time for *pid*, or None if unavailable.
+
+    Used together with the PID itself to detect PID reuse: two processes
+    may share a PID over time, but they cannot share a start time.
+    """
+    if psutil is None:
+        return None
+    try:
+        return float(psutil.Process(pid).create_time())
+    except Exception:  # ProcessLookupError, AccessDenied, ...
+        return None
 
 # Known auth cookies per domain — used by check_session_cookies to determine
 # whether a persistent session is likely valid.
@@ -146,29 +171,60 @@ def touch_last_used(name: str) -> None:
 
 
 def is_profile_locked(name: str) -> bool:
-    """Check whether a profile is currently locked by another process."""
+    """Check whether a profile is currently locked by a live owning process.
+
+    A lock is considered *stale* (and is silently cleared) if any of these
+    are true:
+
+    - The lock file is older than 10 minutes.
+    - The recorded PID is no longer alive.
+    - The recorded PID is alive but belongs to a *different* process than
+      the one that originally took the lock (PID reuse). We detect this by
+      comparing the recorded ``pid_start_time`` against the live process's
+      actual start time via psutil — if they disagree, the lock holder has
+      already died and its PID was recycled.
+    """
     lp = _lock_path(name)
     if not os.path.exists(lp):
         return False
-    # Stale lock detection: if lock file is older than 10 minutes, treat as stale.
-    # Also treat as stale if the PID recorded in the lock file is no longer alive.
     try:
         mtime = os.path.getmtime(lp)
         if time.time() - mtime > 600:
             os.remove(lp)
             return False
-        # Check if the locking process is still alive
+
         with open(lp, "r") as f:
             lock_data = json.load(f)
         lock_pid = lock_data.get("pid")
-        if lock_pid:
-            try:
-                os.kill(lock_pid, 0)  # Signal 0 = alive check only
-            except (ProcessLookupError, PermissionError):
-                # Process is dead — stale lock
+        if not lock_pid:
+            return True  # Malformed but present — treat as locked conservatively
+
+        # Step 1: is the PID even alive?
+        try:
+            os.kill(lock_pid, 0)
+        except (ProcessLookupError, PermissionError):
+            os.remove(lp)
+            return False
+
+        # Step 2: PID-reuse detection — if we recorded a start time, verify
+        # the live process's start time still matches. If it doesn't, the
+        # original locker died and an unrelated process has inherited the
+        # PID, so the lock is stale.
+        recorded_start = lock_data.get("pid_start_time")
+        if recorded_start is not None:
+            live_start = _pid_start_time(int(lock_pid))
+            if live_start is None:
+                # Process vanished between the kill(0) and the psutil call
                 os.remove(lp)
                 return False
-    except (OSError, json.JSONDecodeError, KeyError):
+            # Compare with a 1-second tolerance — psutil and /proc round
+            # differently and we only care about coarse identity.
+            if abs(float(recorded_start) - live_start) > 1.0:
+                os.remove(lp)
+                return False
+    except (OSError, json.JSONDecodeError, KeyError, ValueError):
+        # Any unexpected state → leave the file in place and report locked;
+        # the 10-minute staleness check will eventually clear it.
         pass
     return True
 
@@ -177,7 +233,8 @@ def acquire_lock(name: str) -> None:
     """
     Acquire an exclusive lock on a profile.
 
-    Raises RuntimeError if the profile is already locked.
+    Raises RuntimeError if the profile is already locked. Callers that can
+    tolerate a short wait should use :func:`wait_for_unlock` first.
     """
     if is_profile_locked(name):
         raise RuntimeError(
@@ -186,11 +243,16 @@ def acquire_lock(name: str) -> None:
         )
     lp = _lock_path(name)
     os.makedirs(os.path.dirname(lp), exist_ok=True)
+    pid = os.getpid()
+    payload: Dict[str, Any] = {
+        "locked_at": datetime.now(timezone.utc).isoformat(),
+        "pid": pid,
+    }
+    start = _pid_start_time(pid)
+    if start is not None:
+        payload["pid_start_time"] = start
     with open(lp, "w") as f:
-        f.write(json.dumps({
-            "locked_at": datetime.now(timezone.utc).isoformat(),
-            "pid": os.getpid(),
-        }))
+        f.write(json.dumps(payload))
 
 
 def release_lock(name: str) -> None:
@@ -200,6 +262,68 @@ def release_lock(name: str) -> None:
         os.remove(lp)
     except FileNotFoundError:
         pass
+
+
+def wait_for_unlock(
+    name: str,
+    timeout_seconds: float = LOCK_WAIT_DEFAULT_SECONDS,
+    poll_interval_seconds: float = LOCK_WAIT_POLL_INTERVAL_SECONDS,
+) -> bool:
+    """Poll ``is_profile_locked`` until *name* is free or *timeout* elapses.
+
+    Returns True as soon as the lock is available, or False if the timeout
+    is reached. Each poll also re-runs the staleness detection in
+    ``is_profile_locked``, so a lock whose owning process has died in the
+    meantime will be cleared on the next tick.
+
+    This is the critical missing piece that turns "Profile 'default' is
+    already in use by another task" from a fatal error into a short,
+    transparent wait when two concurrent runs briefly overlap. The
+    previous behaviour forced the agent to fall back to an ephemeral
+    profile, losing cookies/auth and tripping every site's bot detection.
+    """
+    if timeout_seconds <= 0:
+        return not is_profile_locked(name)
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        if not is_profile_locked(name):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(poll_interval_seconds)
+
+
+def release_all_held_by(pid: int) -> List[str]:
+    """Best-effort: release every profile lock whose owning PID matches *pid*.
+
+    Used during MCP subprocess shutdown so the lock files we wrote during
+    this process's lifetime are cleared even if the idle-cleanup loop or
+    the per-instance close path missed them. Returns the list of profile
+    names whose lock file was removed.
+    """
+    released: List[str] = []
+    if not os.path.isdir(PROFILES_ROOT):
+        return released
+    try:
+        entries = os.listdir(PROFILES_ROOT)
+    except OSError:
+        return released
+    for entry in entries:
+        lp = _lock_path(entry)
+        if not os.path.exists(lp):
+            continue
+        try:
+            with open(lp, "r") as f:
+                lock_data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if lock_data.get("pid") == pid:
+            try:
+                os.remove(lp)
+                released.append(entry)
+            except OSError:
+                pass
+    return released
 
 
 @contextmanager

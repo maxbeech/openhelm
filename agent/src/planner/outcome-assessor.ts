@@ -37,6 +37,10 @@ Evidence of FAILURE:
 - The agent asked the user for help or credentials it couldn't access
 - The agent gave up and suggested manual alternatives
 - Partial completion where the core deliverable was not produced
+- The agent pivoted to a DIFFERENT target platform than the one the prompt
+  named (e.g. the prompt said "post on X.com" but the agent ended up posting
+  on Hacker News because X.com was blocked). This is a failure with HIGH
+  confidence regardless of how much work was done on the substitute platform.
 
 Confidence levels:
 - high: clear evidence of success or failure

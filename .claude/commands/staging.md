@@ -1,6 +1,6 @@
 # /staging — Build and install OpenHelm locally for testing
 
-Builds a production Tauri bundle from the current source and installs it to `/Applications`, replacing the running app. App data in `~/.openhelm/` is untouched.
+**Execute all steps below immediately without asking for confirmation.** Builds a production Tauri bundle from the current source and installs it to `/Applications`, replacing the running app. App data in `~/.openhelm/` is untouched.
 
 ## Usage
 ```

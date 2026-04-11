@@ -1156,7 +1156,38 @@ class DOMHandler:
                 "the insertion, or the field was not actually focused."
             )
 
-        return {
+        # Blocker classification — when the agent sees a known blocker it
+        # should STOP retrying and report the run as blocked rather than
+        # burning turns on techniques that cannot possibly work. We only
+        # flag a blocker when the insertion actually failed; a successful
+        # paste never needs a blocker hint. These are generic heuristics
+        # — the server has no platform-specific bypass logic, it just
+        # names the blocker so the agent (and the human reading the run
+        # log) can make an informed stop decision.
+        blocker: Optional[str] = None
+        if not verified:
+            editor_kind = resolved.get("editor_kind")
+            is_real_editor = resolved.get("is_real_editor", True)
+            is_visible = resolved.get("is_visible", True)
+            # Lexical/ProseMirror class: a real contenteditable that is
+            # visible and focused but still rejects insertions is the
+            # classic framework-guarded editor signature (LinkedIn
+            # message composer, Slack compose, some Twitter inputs).
+            if (
+                editor_kind == "contenteditable"
+                and is_real_editor
+                and is_visible
+                and inserted_chars == 0
+            ):
+                blocker = "contenteditable_editor_rejected_insert"
+            # Collapsed-editor class: we resolved to a hidden target and
+            # either no activator fired or the activator did not expand
+            # the editor. On Reddit this is usually the signup-modal
+            # overlay silently swallowing the real editor.
+            elif not is_visible and inserted_chars == 0:
+                blocker = "editor_hidden_or_overlay"
+
+        result: Dict[str, Any] = {
             "success": verified,
             "verified": verified,
             "expected_chars": expected_chars,
@@ -1165,6 +1196,9 @@ class DOMHandler:
             "resolved_target": resolved_clean,
             "warnings": warnings,
         }
+        if blocker is not None:
+            result["blocker"] = blocker
+        return result
 
     @staticmethod
     async def type_text(

@@ -95,8 +95,11 @@ class BrowserManager:
             except Exception:
                 pass
 
-    # Maximum spawn retries when Chrome fails to start
-    MAX_SPAWN_RETRIES = 3
+    # Maximum spawn retries when Chrome fails to start.  4 attempts handles
+    # the transient "Browser window not found [code: -32000]" case where the
+    # first couple of starts land on a half-alive profile; by the 3rd/4th
+    # attempt the stale Chrome has been killed and the profile lock cleared.
+    MAX_SPAWN_RETRIES = 4
 
     async def spawn_browser(self, options: BrowserOptions) -> BrowserInstance:
         """
@@ -130,9 +133,11 @@ class BrowserManager:
                         f"Spawn retry {attempt + 1}/{self.MAX_SPAWN_RETRIES} "
                         f"after: {last_error}"
                     )
-                    # Aggressive cleanup before retry
+                    # Aggressive cleanup before retry.  On -32000 failures
+                    # the profile lock or a half-alive Chrome is usually
+                    # the culprit, so always run the full kill path.
                     process_cleanup.kill_all_nodriver_chrome()
-                    await asyncio.sleep(1.0 + attempt)  # 1s, 2s backoff
+                    await asyncio.sleep(1.5 + attempt * 1.5)  # 1.5s, 3s, 4.5s
 
                 browser, tab, used_background = await self._do_spawn(
                     instance_id, options
@@ -219,17 +224,57 @@ class BrowserManager:
             browser = await asyncio.wait_for(uc.start(config=config), timeout=30.0)
         except asyncio.TimeoutError:
             raise Exception("Browser failed to start within 30 seconds (port conflict or Chrome init hang)")
-        tab = browser.main_tab
+
+        # --- Validate a usable page target exists ---
+        # Occasionally Chrome reports the browser target before a page target
+        # is registered, or the initial page target is destroyed during
+        # profile restore.  main_tab can then return a stale/unusable target
+        # whose first CDP call fails with "Browser window not found
+        # [code: -32000]".  Refresh targets and probe the tab briefly; if it
+        # still does not respond, raise so spawn_browser retries cleanly.
+        tab = None
+        probe_error: Optional[Exception] = None
+        for probe_attempt in range(4):  # ~6s total budget
+            try:
+                await asyncio.wait_for(browser.update_targets(), timeout=2.0)
+            except Exception as e:
+                probe_error = e
+            candidate = browser.main_tab
+            if candidate is None:
+                probe_error = Exception("Browser has no main_tab yet")
+                await asyncio.sleep(0.5 + probe_attempt * 0.5)
+                continue
+            try:
+                await asyncio.wait_for(candidate.evaluate("1"), timeout=3.0)
+                tab = candidate
+                break
+            except Exception as e:
+                probe_error = e
+                await asyncio.sleep(0.5 + probe_attempt * 0.5)
+        if tab is None:
+            # Tear down this half-alive Chrome so the retry path has a clean
+            # slate — otherwise the stale process keeps the profile locked.
+            try:
+                await asyncio.wait_for(browser.stop(), timeout=2.0)
+            except Exception:
+                pass
+            raise Exception(
+                f"Browser started but no CDP-reachable page target: {probe_error}"
+            )
 
         # --- Process tracking ---
         if used_background:
-            pid = await find_pid_on_port(config.port, retries=15, delay=0.3)
+            # Increased retries (30 × 0.5s = 15s) to handle slow profile loads.
+            # Named Chrome profiles with large history can take >4.5s to start,
+            # which was causing PID tracking to silently fail and leaving orphans.
+            pid = await find_pid_on_port(config.port, retries=30, delay=0.5)
             if pid:
                 process_cleanup.track_browser_process_by_pid(instance_id, pid)
             else:
                 debug_logger.log_warning(
                     "browser_manager", "spawn_browser",
-                    f"Could not find PID for background browser {instance_id}"
+                    f"Could not find PID for background browser {instance_id} — "
+                    f"process scan fallback will handle cleanup at run end"
                 )
         elif hasattr(browser, '_process') and browser._process:
             process_cleanup.track_browser_process(instance_id, browser._process)
@@ -682,7 +727,7 @@ class BrowserManager:
         last_error = None
         for attempt in range(3):
             try:
-                timeout = 5.0 + attempt * 3.0  # 5s, 8s, 11s
+                timeout = 4.0 + attempt * 2.0  # 4s, 6s, 8s (~18s total)
                 await asyncio.wait_for(
                     tab.evaluate("1"),
                     timeout=timeout,

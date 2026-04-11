@@ -15,6 +15,8 @@ import {
   removeMcpConfigFile,
   cleanupOrphanedConfigs,
   buildBrowserCredentialsNotice,
+  BROWSER_SYSTEM_PROMPT,
+  EXTERNAL_MCP_GUIDANCE,
 } from "../src/mcp-servers/mcp-config-builder.js";
 
 const mockGetBrowserMcpPaths = vi.mocked(getBrowserMcpPaths);
@@ -234,6 +236,23 @@ describe("buildBrowserCredentialsNotice", () => {
     expect(notice).toContain('"Reddit" (token)');
     expect(notice).toContain("check_session");
   });
+
+  it("explicitly forbids API/OAuth config-file fallbacks when credentials are loaded", () => {
+    // Regression guard for Issue 15 (2026-04-11): OpenClaw DM Outreach runs
+    // hallucinated a `~/.openhelm/reddit-config.json` Reddit Script App
+    // workflow and aborted with "BLOCKER: Reddit OAuth credentials missing"
+    // despite the Reddit browser credential + pre-authenticated profile being
+    // correctly pre-loaded. The notice must rule out API/OAuth config-file
+    // workflows so Claude's training-data prior can't override the browser
+    // credential path.
+    const notice = buildBrowserCredentialsNotice([
+      { name: "Reddit", type: "username_password", profileName: "cred-575995bd" },
+    ]);
+    expect(notice).toContain("NO EXTERNAL API/OAUTH CONFIG FILES");
+    expect(notice).toContain("reddit-config.json");
+    expect(notice).toContain("PRAW");
+    expect(notice).toContain("do NOT invent an API-based fallback");
+  });
 });
 
 describe("cleanupOrphanedConfigs", () => {
@@ -293,5 +312,36 @@ describe("cleanupOrphanedConfigs", () => {
 
     delete process.env.OPENHELM_DATA_DIR;
     rmSync(tempDir, { recursive: true, force: true });
+  });
+});
+
+describe("BROWSER_SYSTEM_PROMPT instance_id guidance (Issue 19)", () => {
+  it("tells Claude instance_ids are UUIDs, not human-readable labels", () => {
+    // Issue 19 regression: after context compaction, agents sometimes pass
+    // labels like "hn-session" or "browser_1" as instance_id and get
+    // "Instance not found". The system prompt must pre-empt that.
+    expect(BROWSER_SYSTEM_PROMPT).toContain("UUID");
+    expect(BROWSER_SYSTEM_PROMPT).toMatch(/hn-session|browser_1/);
+    expect(BROWSER_SYSTEM_PROMPT).toContain("list_instances");
+  });
+});
+
+describe("EXTERNAL_MCP_GUIDANCE (Issues 20 + 21)", () => {
+  it("warns about Notion tool name hyphens (Issue 21)", () => {
+    // Issue 21: Claude occasionally calls `mcp__notion__notion_fetch`
+    // (underscore) instead of the correct hyphenated form.
+    expect(EXTERNAL_MCP_GUIDANCE).toContain("mcp__notion__notion-fetch");
+    expect(EXTERNAL_MCP_GUIDANCE).toMatch(/hyphen/i);
+    // Must explicitly call out the broken underscore variant so the agent
+    // recognises the mistake before making the call.
+    expect(EXTERNAL_MCP_GUIDANCE).toContain("notion_fetch");
+  });
+
+  it("tells the agent to strip ?v= view params before calling notion-fetch (Issue 20)", () => {
+    // Issue 20: notion-fetch rejects URLs with a view id — the agent must
+    // strip the `?v=` parameter instead of falling back to the browser.
+    expect(EXTERNAL_MCP_GUIDANCE).toContain("?v=");
+    expect(EXTERNAL_MCP_GUIDANCE).toMatch(/strip/i);
+    expect(EXTERNAL_MCP_GUIDANCE).toContain("notion-fetch");
   });
 });
