@@ -158,7 +158,12 @@ export function executeDataTableWriteTool(
       if (duplicate) {
         return fail(call, `A data table named "${a.name}" already exists in this project (id: ${duplicate.id}). Use update or delete it first.`);
       }
-      const columns = Array.isArray(a.columns) ? a.columns : JSON.parse(a.columns as string);
+      let columns: unknown;
+      try {
+        columns = Array.isArray(a.columns) ? a.columns : JSON.parse(a.columns as string);
+      } catch (e) {
+        return fail(call, `Invalid columns JSON: ${e instanceof Error ? e.message : String(e)}`);
+      }
       const table = createDataTable({
         projectId,
         name: a.name as string,
@@ -172,7 +177,12 @@ export function executeDataTableWriteTool(
     case "insert_data_table_rows": {
       if (!a.tableId) return fail(call, "tableId is required");
       if (!a.rows) return fail(call, "rows is required");
-      const rows = Array.isArray(a.rows) ? a.rows : JSON.parse(a.rows as string);
+      let rows: unknown;
+      try {
+        rows = Array.isArray(a.rows) ? a.rows : JSON.parse(a.rows as string);
+      } catch (e) {
+        return fail(call, `Invalid rows JSON: ${e instanceof Error ? e.message : String(e)}`);
+      }
       const inserted = insertDataTableRows({ tableId: a.tableId as string, rows, actor: "ai" });
       emit("dataTable.rowsInserted", { tableId: a.tableId, count: inserted.length });
       return ok(call, { inserted: inserted.length, rows: inserted });
@@ -180,7 +190,12 @@ export function executeDataTableWriteTool(
     case "update_data_table_row": {
       if (!a.rowId) return fail(call, "rowId is required");
       if (!a.data) return fail(call, "data is required");
-      const data = typeof a.data === "string" ? JSON.parse(a.data) : a.data;
+      let data: unknown;
+      try {
+        data = typeof a.data === "string" ? JSON.parse(a.data) : a.data;
+      } catch (e) {
+        return fail(call, `Invalid data JSON: ${e instanceof Error ? e.message : String(e)}`);
+      }
       const updated = updateDataTableRow({
         id: a.rowId as string,
         data: data as Record<string, unknown>,
@@ -191,7 +206,12 @@ export function executeDataTableWriteTool(
     }
     case "delete_data_table_rows": {
       if (!a.rowIds) return fail(call, "rowIds is required");
-      const rowIds = Array.isArray(a.rowIds) ? a.rowIds : JSON.parse(a.rowIds as string);
+      let rowIds: unknown;
+      try {
+        rowIds = Array.isArray(a.rowIds) ? a.rowIds : JSON.parse(a.rowIds as string);
+      } catch (e) {
+        return fail(call, `Invalid rowIds JSON: ${e instanceof Error ? e.message : String(e)}`);
+      }
       const deleted = deleteDataTableRows({ rowIds: rowIds as string[], actor: "ai" });
       emit("dataTable.rowsDeleted", { count: deleted });
       return ok(call, { deleted });
