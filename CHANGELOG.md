@@ -1,5 +1,135 @@
 # Changelog
 
+## [Unreleased] - 2026-04-11
+
+### Added (Cloud-mode interactive credential setup)
+- **"Set Up Browser Session" works in cloud mode.** Previously, clicking "Open Browser" in the credential setup dialog failed with `[transport-supabase] Method not implemented in cloud mode: credential.setupBrowserProfile` because there was no way to stream a live browser from an E2B sandbox back to the frontend. Fixed end-to-end:
+  - **E2B template swapped to `e2bdev/desktop`** (`e2b/Dockerfile`) — unified XFCE + Chromium + noVNC image used for BOTH credential setup sessions and normal job runs. Run-time Chromium drops `--headless=new` since it now has a real display; this also unlocks future "watch the agent work" features on the same substrate.
+  - **Three new Worker RPCs** in `worker/src/credential-setup.ts` + `credential-setup-session.ts`: `credential.setupBrowserProfile` spawns a desktop sandbox via `@e2b/desktop`, launches Chromium with `--user-data-dir=/home/user/profiles/cred-${id}`, calls `sandbox.stream.start()`, and returns `sandbox.stream.getUrl()` — a browser-embeddable signed noVNC URL. `credential.finalizeBrowserProfile` tars the profile, uploads it to a new private `browser-profiles` Supabase Storage bucket keyed `{user_id}/{credential_id}.tar.gz`, stamps `credentials.browser_profile_storage_key` / `browser_profile_verified_at`, and kills the sandbox. `credential.cancelBrowserSetup` tears down a setup sandbox without saving. 30-minute hard timeout per session; ownership checks on every RPC.
+  - **Frontend iframe flow** in `src/components/credentials/browser-setup-step.tsx` branches on `isCloudMode`: when cloud, renders the signed stream URL in a sandboxed iframe and replaces the `⌘Q` detection flow with a **Done — Save Login** button that calls finalize directly. Local Tauri flow unchanged.
+  - **Run-time profile hydration** in `worker/src/profile-hydration.ts` — before every run, downloads any in-scope credential profile tarballs from Supabase Storage and extracts them under `/home/user/profiles/`. The first hydrated profile path is passed via `OPENHELM_BROWSER_PROFILE_DIR` to the `openhelm-browser` MCP (`worker/src/executor.ts` `buildMcpConfig()`).
+  - **Schema**: `supabase/migrations/20260411000001_browser_profile_storage.sql` adds `credentials.browser_profile_storage_key`, `credentials.browser_profile_verified_at`, and the `browser-profiles` storage bucket with per-user RLS (`auth.uid()::text = (storage.foldername(name))[1]`). Matching Drizzle columns in `agent/src/db/schema-postgres.ts`.
+  - **Transport routing**: `credential.setupBrowserProfile`, `.finalizeBrowserProfile`, `.cancelBrowserSetup` added to `WORKER_METHODS` in `src/lib/transport-supabase.ts` so they dispatch to the Worker RPC instead of falling through to the "not implemented" error.
+  - **Shared types**: `SetupBrowserProfileResult` now carries optional `streamUrl`, `sandboxId`, `expiresAt`; new `FinalizeBrowserProfileParams` / `Result` types in `shared/src/index.ts`. `cancelBrowserSetup()` API wrapper accepts either a string credentialId (local) or `{ sandboxId }` (cloud).
+  - **Tests**: 12 new worker tests in `credential-setup.test.ts` + `profile-hydration.test.ts` covering setup → finalize → cancel happy path, ownership rejection, cookies-size heuristic (likely_logged_in vs no_cookies_detected), scope resolution (global / project-match / out-of-project exclusion), and download-failure skip. 3 new frontend tests in `browser-setup-step.test.tsx` covering iframe render, finalize on Done, cancel on unmount, and error surfacing. Worker suite: 72/72.  Follow-up work on a per-job headless/desktop toggle and a lightweight LLM classifier is documented as a "Future Phase" section in `docs/plan_12_hosted_cloud_deployment.md`.
+
+### Fixed (Cloud-mode chat: web tools, auto-rename, model labels)
+- **Cloud-mode chat now has a real tool loop.** The worker's `chat.send` handler previously did a single bare LLM call with no tools — so asking for factual information produced "I can't browse the internet" refusals in both read-only and full-access modes. It now runs a multi-turn tool loop using OpenAI native function calling against OpenRouter. New files under `worker/src/chat/`:
+  - `tool-schemas.ts` — two curated tool sets (READ_ONLY_TOOLS and FULL_ACCESS_TOOLS) in OpenAI function-calling JSON Schema format
+  - `tool-executor.ts` — dispatcher that runs web tools via `fetch` and data tools against Supabase with explicit `user_id` filtering
+  - `web-tools.ts` — `searchWeb()` (DuckDuckGo HTML) and `fetchUrlAsText()` with regex-based HTML stripping (no jsdom dep — keeps the worker bundle small)
+  - `tool-loop.ts` — core loop with 5-iteration cap, forced tool-free summary on cap, usage metering, token accumulation across turns
+  - `system-prompt.ts` — advertises tools and injects the user's project list so the LLM knows what to call
+- **Read-only mode** exposes web_search, web_fetch, list_projects, list_goals, list_jobs, list_runs, get_run_logs.
+- **Full-access mode** adds create_goal, archive_goal, create_job, archive_job (auto-executed in cloud — pending-action confirmation cards for cloud are a follow-up).
+- **Cloud-mode chat threads now auto-rename from "New Chat"** on the first user message. New `worker/src/chat/auto-rename.ts` runs a fire-and-forget classification `llmCall`, updates the conversation title via Supabase, and broadcasts `chat.threadRenamed` on the user's event channel. Rename failures never block a chat response.
+- **`worker/src/index.ts`** now passes `permissionMode` through from the `chat.send` RPC payload to the handler — previously it was destructured-and-dropped.
+- **`worker/src/llm-router.ts`** — exported `getOpenRouterClient()` and `resolveModel()` so the tool loop can make raw tools-aware completions without duplicating auth setup.
+- **Model selector labels**: `CHAT_MODELS` in `src/stores/chat-store.ts` renamed from Haiku/Sonnet/Opus (Claude-specific, misleading in cloud mode where we use GPT-4o) to mode-agnostic tier names Fast/Balanced/Advanced. The `value` strings stay stable so persisted state and backend model mappings continue to work in both modes.
+- **Tests**: `worker/src/__tests__/chat-handler.test.ts` rewritten to mock the new chat/* module layer; 14 test cases covering tool-set selection per mode, tool-call persistence, auto-rename triggering on first message only, history loading, and error paths. Worker test suite passes 61/61.
+
+## [Unreleased] - 2026-04-10
+
+### Changed (Chat tool access redesign)
+- **Chat tool access modes simplified to just two**: Read-only (`plan`) and Full access (`bypassPermissions`). The `Auto` option was removed from both local and cloud builds — `src/stores/chat-store.ts` no longer lists it.
+- **Full-access chat now routes through `backend.run()`** — the same agentic code path used by scheduled jobs — via a new `agent/src/chat/agentic-runner.ts`. This gives chat full parity with scheduled jobs: browser MCP, data tables MCP, and (in cloud mode) E2B sandboxed execution. Prior chat history is prepended into the prompt; v1 is single-turn per message.
+- **MCP context setup extracted** from `agent/src/executor/index.ts` into `agent/src/mcp-servers/build-run-mcp-context.ts` so the executor and the full-access chat runner share one implementation.
+
+### Added (Chat web tools)
+- **`agent/src/chat/web-fetch.ts`** — `fetchUrlAsText()` and `searchWeb()` helpers backed by the root package's already-installed `jsdom`. No new dependencies.
+- **`web_search` + `web_fetch` chat tools** (`agent/src/chat/tools.ts`, `agent/src/chat/tool-executor.ts`) — read-only chat can now search the web (DuckDuckGo HTML endpoint) and fetch readable page text. `executeReadTool` is now async to accommodate network I/O.
+- **`agent/test/chat-web-fetch.test.ts`** — 11 unit tests covering HTML extraction, JSON passthrough, truncation, scheme rejection, DuckDuckGo parsing, and error paths.
+
+### Fixed (Goose backend MCP forwarding)
+- **`GooseBackend.buildRunArgs()` now forwards `--mcp-config`** when `config.mcpConfigPath` is set (`agent/src/agent-backend/goose/index.ts`). Previously the flag was silently dropped, so scheduled-job runs in cloud mode spawned Goose with **zero MCP servers** — browser and data-tables tools were effectively disabled. The claude-code backend and the E2B worker were already correct; only the local Goose backend was mis-wired. Two outdated comments in the same file (line 8 and the `GOOSE_MCP_EXTENSION_FLAGS` dead-code comment) were removed. Regression-tested in `agent/test/goose-backend.test.ts` with a spawn-args capture mock.
+
+## [Unreleased] - 2026-04-06
+
+### Added (Plan 12, Phases 8–10: Stripe Billing, Integration Tests, Production Deployment)
+
+#### Phase 8: Stripe Integration
+- **`worker/src/stripe-billing.ts`** — Stripe REST API wrapper (no SDK dependency): `createCheckoutSession` (new Cloud subscriptions with 7-day trial), `createPortalSession` (Stripe Customer Portal for billing management), `reportUsageOverage` (end-of-period metered overage reporting via Stripe Usage Records API)
+- **`worker/src/index.ts`** — three new RPC handlers:
+  - `billing.createCheckout` — creates Stripe Checkout session with user_id metadata; resolves user email from Supabase Auth
+  - `billing.createPortalSession` — creates Customer Portal session using stored `stripe_customer_id`
+  - `jobs.create` — creates a job record in Supabase (used by onboarding wizard and cloud frontend)
+- **`worker/src/config.ts`** — added `stripeSecretKey`, `stripePriceStarter/Growth/Scale`, `appUrl` optional config fields
+- **`supabase/functions/stripe-webhook/index.ts`** — added `checkout.session.completed` handler: upserts subscription record with `user_id` from session metadata, linking Stripe customer to Supabase user on first purchase
+- **`supabase/functions/validate-license/index.ts`** — new Edge Function: validates Business tier license keys; callable without Supabase Auth session (desktop app uses this); returns `{ valid, plan, maxSeats, email, expiresAt }`
+- **`supabase/migrations/20260406000005_license_keys.sql`** — `license_keys` table with RLS (service_role only) + `validate_license_key(key)` Postgres function (granted to anon role so desktop apps can call without auth)
+
+#### Phase 9: End-to-End Integration Tests
+- **`worker/src/__tests__/integration.test.ts`** — integration test suite covering all major cloud scenarios:
+  - Run creation: scheduler tick creates run record + fires onRunReady callback
+  - Empty tick: no runs created when no jobs are due
+  - Disabled job filtering
+  - Concurrency limit enforcement (user at max concurrent runs is skipped)
+  - Crash recovery: `recoverOrphanedRuns()` handles stale "running" runs on restart
+  - Multi-tenant isolation: each user's jobs enqueue independently
+  - Run ID uniqueness across all users
+  - Usage metering: haiku < sonnet < opus cost ordering, 20% markup invariant, Haiku-equivalent multipliers (12x Sonnet, 20x Opus)
+  - Schedule computation: once/interval/cron helpers
+- **`worker/src/__tests__/stripe-billing.test.ts`** — 15 unit tests for Stripe billing functions using ESM-compatible mocking (`jest.unstable_mockModule`)
+- **`worker/src/__tests__/setup.ts`** — Jest setup file: sets required env vars before any module loads (prevents config validation from throwing in test environment)
+- **`worker/jest.config.js`** — added `setupFiles` pointing to setup.ts; enables env-var-dependent modules in tests
+
+#### Phase 10: Production Deployment & Launch
+- **`.env.example`** — root-level env var reference covering all services (Supabase anon/service keys, Worker secrets, Stripe price IDs, E2B, frontend VITE_ vars, local agent website URL)
+- **`worker/fly.toml`** — added rolling deploy strategy (avoids dropping in-flight runs), Prometheus metrics endpoint at `:9091/metrics` for Fly.io dashboard monitoring
+- **Security audit** (all items verified):
+  - RLS enabled on all tables including new `license_keys` table
+  - `SUPABASE_SERVICE_KEY` never referenced in frontend code (only in Worker)
+  - Stripe webhook signature verified via HMAC-SHA256 (constant-time comparison)
+  - License key validation uses `SECURITY DEFINER` function to prevent direct table access
+  - CORS headers set on Worker HTTP server (`Access-Control-Allow-Origin: *` appropriate for known JWT-authenticated endpoints)
+  - No API keys in committed code; all via environment variables
+
+### Added (Plan 12, Phases 6–7: Hosted Cloud Deployment)
+
+#### Phase 6: Cloud Frontend Features
+- **`src/components/cloud/usage-dashboard.tsx`** — billing/usage overview for cloud mode: token credit progress bar, daily usage bar chart (recharts), breakdown by call type (execution/chat/planning/assessment), cost projection for current billing period; fetches from `usage-report` Edge Function + `usage_records` table
+- **`src/components/cloud/usage-chart.tsx`** — recharts `BarChart` component for daily token usage; renders Haiku-equivalent token buckets per calendar day in the billing period
+- **`src/components/cloud/plan-manager.tsx`** — current plan display (name, status, renewal date) with Stripe Customer Portal redirect (via Worker `/rpc`); inline plan selector for upgrades; past_due warning banner
+- **`src/components/cloud/plan-selector.tsx`** — Starter/Growth/Scale plan cards with pricing, token allowances, and feature lists; "Most popular" badge on Growth; calls back with selected plan for checkout
+- **`src/components/cloud/onboarding-wizard.tsx`** — 5-step cloud onboarding (Welcome → Plan → Project → Job → Complete); creates project with git URL, creates first job via Worker RPC, handles Stripe checkout redirect flow
+- **`src/components/shared/new-project-dialog.tsx`** — now mode-aware: cloud mode shows git repository URL field (no folder picker); local mode unchanged
+- **`src/components/settings/settings-screen.tsx`** — cloud mode renders Plan Manager + Usage Dashboard + Application settings; local mode unchanged
+
+#### Phase 7: E2B Sandbox Template & MCP Servers
+- **`e2b/Dockerfile`** — sandbox template: Ubuntu 22.04 + Goose (block/goose) + Python 3.12 + Node.js 20 + Chromium + OpenHelm browser MCP server (pre-installed with venv at `/opt/openhelm/mcp-servers/browser/.venv`)
+- **`e2b/e2b.toml`** — E2B template config: `name = "openhelm-goose"`, 2 vCPU / 4 GB RAM; linked to `Dockerfile`
+- **`e2b/build.sh`** — build script: copies `agent/mcp-servers/` into E2B build context, runs `e2b template build`, cleans up; prints post-build instructions for setting `E2B_TEMPLATE_ID` in Fly.io secrets
+- **`e2b/.env.example`** — documents `E2B_API_KEY` and `E2B_TEMPLATE_ID` variables
+- **`worker/src/executor.ts`** — now writes per-run MCP config (`/tmp/mcp-config.json`) to the sandbox before launching Goose; passes `--mcp-config /tmp/mcp-config.json` flag; sets `GOOSE_PROVIDER`, `GOOSE_MODEL`, `GOOSE_LEAD_MODEL`, and `ANTHROPIC_API_KEY` env vars per-sandbox
+
+### Added (Plan 12, Phases 4–5: Hosted Cloud Deployment)
+
+#### Phase 4: Worker Service
+- **`worker/`** — new standalone Node.js service deployed on Fly.io that drives cloud-mode execution
+  - `src/scheduler.ts` — 60-second tick loop; queries Supabase for due jobs across all users, enforces per-user concurrency limits, creates run records
+  - `src/executor.ts` — E2B sandbox lifecycle: clones project git URL, writes prompt, runs Goose agent, streams output, tears down sandbox on completion
+  - `src/stream-relay.ts` — bridges E2B sandbox stdout to Supabase Realtime Broadcast (`run:{runId}` channel) with 5-second batch persistence to `run_logs`
+  - `src/llm-router.ts` — direct Anthropic API for chat/planning/assessment (bypasses E2B for operations that don't need file system access)
+  - `src/usage-meter.ts` + `src/cost-calculator.ts` — token billing at 20% markup over Anthropic raw rates; normalizes to Haiku-equivalent credits; atomically updates subscription via `increment_used_credits` RPC
+  - `src/index.ts` — health endpoint (`GET /health`), action RPC endpoint (`POST /rpc`), crash recovery on startup
+  - `Dockerfile` + `fly.toml` — production-ready Fly.io deployment config (London region, shared-cpu-1x, always-on)
+- **`supabase/migrations/20260406000004_rpc_functions.sql`** — `increment_used_credits` and `get_usage_summary` Postgres functions with tightly scoped permissions
+
+#### Phase 5: Frontend Transport Layer
+- **`src/lib/mode.ts`** — `isLocalMode` / `isCloudMode` flags; detects Tauri vs browser context
+- **`src/lib/transport.ts`** — `Transport` interface + lazy singleton `TransportProxy`; all data flows through `transport.request()` and `transport.onEvent()`
+- **`src/lib/transport-tauri.ts`** — `TauriTransport` wraps existing `agentClient`; local mode is unchanged
+- **`src/lib/transport-supabase.ts`** — `SupabaseTransport` for cloud mode; CRUD via PostgREST, actions via Worker HTTP RPC, events via Supabase Realtime Broadcast
+- **`src/lib/transport-supabase-crud.ts`** — full PostgREST dispatch table (projects, goals, jobs, runs, settings, memories, inbox, etc.)
+- **`src/lib/supabase-client.ts`** — Supabase anon client singleton; reads `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`
+- **`src/components/auth/auth-guard.tsx`** — transparent in local mode; requires Supabase auth in cloud mode; shows `LoginPage` until authenticated
+- **`src/components/auth/login-page.tsx`** — email/password, Google OAuth, magic link authentication UI (no external auth-ui library dependency)
+- **`src/lib/api.ts`** — migrated from `agentClient.request()` to `transport.request()` (150 call sites, mechanical replace)
+- **`src/hooks/use-agent-event.ts`** — migrated to `transport.onEvent()` for cross-mode event subscriptions
+- **`src/main.tsx`** — wrapped `<App>` with `<AuthGuard>`; cloud mode enforces auth before rendering
+- **`src/App.tsx`** — cloud mode skips `agentClient.start()`; sets `agentReady` immediately (AuthGuard already confirmed session)
+- **`@supabase/supabase-js`** added to root `package.json`
+
 ## [0.8.0] - 2026-04-05
 
 ### Added

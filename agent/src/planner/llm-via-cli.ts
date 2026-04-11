@@ -1,10 +1,10 @@
 /**
- * Adapter that planner modules call instead of the old Anthropic SDK client.
- * Translates planner needs into runClaudeCodePrint calls.
+ * Adapter that planner modules call to invoke the active AgentBackend's LLM.
+ * Delegates to getBackend().llmCall(), which routes to the appropriate backend
+ * (ClaudeCodeBackend in local mode, GooseBackend in Cloud tier).
  */
 
-import { runClaudeCodePrint } from "../claude-code/print.js";
-import { getSetting } from "../db/queries/settings.js";
+import { getBackend } from "../agent-backend/registry.js";
 
 export type ModelTier = "planning" | "classification" | "chat";
 
@@ -41,12 +41,6 @@ export interface LlmCallConfig {
   abortSignal?: AbortSignal;
 }
 
-const MODEL_MAP: Record<ModelTier, string> = {
-  planning: "sonnet",
-  classification: "claude-haiku-4-5-20251001",
-  chat: "claude-haiku-4-5-20251001",
-};
-
 // Tier-specific timeouts: sonnet is slower than haiku, allow generous headroom.
 const TIMEOUT_MAP: Record<ModelTier, number> = {
   planning: 180_000,      // 3 minutes — sonnet plan generation can take 60-90s
@@ -66,18 +60,16 @@ export interface LlmCallResult {
 }
 
 export async function callLlmViaCli(config: LlmCallConfig): Promise<LlmCallResult> {
-  const binaryPath = getClaudeCodePath();
-
   const tier = config.model ?? "planning";
-  const model = config.modelOverride ?? MODEL_MAP[tier];
+  const backend = getBackend();
+  const model = config.modelOverride ?? backend.resolveModel(tier === "chat" ? "chat" : tier === "classification" ? "classification" : "planning");
   const timeoutMs = config.timeoutMs ?? TIMEOUT_MAP[tier];
 
-  console.error(`[llm] calling ${model} (tier=${tier}, timeout=${timeoutMs}ms)`);
+  console.error(`[llm] calling ${model} via ${backend.name} (tier=${tier}, timeout=${timeoutMs}ms)`);
   const t0 = Date.now();
 
-  const result = await runClaudeCodePrint({
-    binaryPath,
-    prompt: config.userMessage,
+  const result = await backend.llmCall({
+    userMessage: config.userMessage,
     systemPrompt: config.systemPrompt,
     model,
     disableTools: config.allowedTools ? false : (config.disableTools ?? true),
@@ -98,14 +90,4 @@ export async function callLlmViaCli(config: LlmCallConfig): Promise<LlmCallResul
 
   console.error(`[llm] ${model} completed in ${Date.now() - t0}ms (${result.text.length} chars)`);
   return { text: result.text, sessionId: result.sessionId };
-}
-
-function getClaudeCodePath(): string {
-  const setting = getSetting("claude_code_path");
-  if (!setting?.value) {
-    throw new Error(
-      "Claude Code CLI not configured. Complete setup in Settings.",
-    );
-  }
-  return setting.value;
 }

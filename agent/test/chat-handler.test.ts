@@ -13,6 +13,11 @@ import {
 const callLlmViaCliMock = vi.fn();
 const emitMock = vi.fn();
 const generateAndHandleSystemJobsMock = vi.fn().mockResolvedValue(undefined);
+const runChatAgenticMock = vi.fn();
+
+vi.mock("../src/chat/agentic-runner.js", () => ({
+  runChatAgentic: (...args: unknown[]) => runChatAgenticMock(...args),
+}));
 
 vi.mock("../src/planner/llm-via-cli.js", () => ({
   callLlmViaCli: (...args: unknown[]) => {
@@ -827,5 +832,25 @@ describe("handleChatMessage — streaming sanitizer (Issue 3 fix)", () => {
     const streamedText = getStreamedText();
     expect(streamedText).not.toContain("<tool_call>");
     expect(streamedText).toContain("Some text");
+  });
+});
+
+describe("handleChatMessage — bypassPermissions routing", () => {
+  it("delegates to runChatAgentic and skips callLlmViaCli", async () => {
+    runChatAgenticMock.mockResolvedValueOnce([]);
+
+    await handleChatMessage(projectId, "Find info on the web", undefined, undefined, undefined, "bypassPermissions");
+
+    expect(runChatAgenticMock).toHaveBeenCalledOnce();
+    expect(callLlmViaCliMock).not.toHaveBeenCalled();
+  });
+
+  it("uses callLlmViaCli (not runChatAgentic) in plan mode", async () => {
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Here are your goals.", sessionId: null });
+
+    await handleChatMessage(projectId, "What are my goals?");
+
+    expect(runChatAgenticMock).not.toHaveBeenCalled();
+    expect(callLlmViaCliMock).toHaveBeenCalledOnce();
   });
 });

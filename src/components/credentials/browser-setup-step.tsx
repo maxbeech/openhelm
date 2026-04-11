@@ -1,9 +1,14 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
 import { Chrome, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
 import { useAgentEvent } from "@/hooks/use-agent-event";
-import { setupBrowserProfile, cancelBrowserSetup } from "@/lib/api";
+import {
+  setupBrowserProfile,
+  finalizeBrowserProfile,
+  cancelBrowserSetup,
+} from "@/lib/api";
+import { isCloudMode } from "@/lib/mode";
 import type { BrowserSetupStatus, BrowserSessionVerification } from "@openhelm/shared";
 
 interface Props {
@@ -15,35 +20,30 @@ interface Props {
 export function BrowserSetupStep({ credentialId, onComplete, onSkip }: Props) {
   const [status, setStatus] = useState<BrowserSetupStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const sandboxIdRef = useRef<string | null>(null);
 
-  // Listen for agent events scoped to this credential
-  useAgentEvent<{ credentialId: string }>(
-    "credential.browserLaunched",
-    (data) => {
-      if (data.credentialId === credentialId) setStatus("browser_open");
-    },
-  );
+  // Local (Tauri) mode events — cloud drives state directly via the finalize RPC.
+  useAgentEvent<{ credentialId: string }>("credential.browserLaunched", (d) => {
+    if (d.credentialId === credentialId) setStatus("browser_open");
+  });
+  useAgentEvent<{ credentialId: string }>("credential.browserClosed", (d) => {
+    if (d.credentialId === credentialId) setStatus("verifying");
+  });
+  useAgentEvent<BrowserSessionVerification>("credential.sessionVerified", (d) => {
+    if (d.credentialId !== credentialId) return;
+    setStatus(d.status === "likely_logged_in" ? "completed" : "no_login_detected");
+  });
 
-  useAgentEvent<{ credentialId: string }>(
-    "credential.browserClosed",
-    (data) => {
-      if (data.credentialId === credentialId) setStatus("verifying");
-    },
-  );
-
-  useAgentEvent<BrowserSessionVerification>(
-    "credential.sessionVerified",
-    (data) => {
-      if (data.credentialId !== credentialId) return;
-      setStatus(data.status === "likely_logged_in" ? "completed" : "no_login_detected");
-    },
-  );
-
-  // Cancel monitor on unmount if browser is still open
+  // Cancel monitor / sandbox on unmount if still open
   useEffect(() => {
     return () => {
       if (status === "browser_open" || status === "verifying") {
-        cancelBrowserSetup(credentialId).catch(() => {});
+        if (isCloudMode && sandboxIdRef.current) {
+          cancelBrowserSetup({ sandboxId: sandboxIdRef.current }).catch(() => {});
+        } else {
+          cancelBrowserSetup(credentialId).catch(() => {});
+        }
       }
     };
   }, [credentialId, status]);
@@ -56,46 +56,88 @@ export function BrowserSetupStep({ credentialId, onComplete, onSkip }: Props) {
       if (!result.launched) {
         setStatus("error");
         setError(result.message);
+        return;
       }
-      // The browserLaunched event will transition us to browser_open
+      if (isCloudMode) {
+        // Cloud: we have a sandbox + stream URL. Show the iframe immediately;
+        // the user will click Done to finalize.
+        sandboxIdRef.current = result.sandboxId ?? null;
+        setStreamUrl(result.streamUrl ?? null);
+        setStatus("browser_open");
+      }
+      // Local: the credential.browserLaunched agent event transitions us.
     } catch (err) {
       setStatus("error");
       setError(err instanceof Error ? err.message : "Failed to launch browser");
     }
   }, [credentialId]);
 
+  const handleCloudFinalize = useCallback(async () => {
+    if (!sandboxIdRef.current) return;
+    setStatus("verifying");
+    try {
+      const result = await finalizeBrowserProfile({
+        sandboxId: sandboxIdRef.current,
+      });
+      setStatus(result.status === "likely_logged_in" ? "completed" : "no_login_detected");
+      sandboxIdRef.current = null;
+      setStreamUrl(null);
+    } catch (err) {
+      setStatus("error");
+      setError(err instanceof Error ? err.message : "Failed to save login session");
+    }
+  }, []);
+
   const handleRetry = useCallback(() => {
     setStatus("idle");
     setError(null);
+    setStreamUrl(null);
+    sandboxIdRef.current = null;
   }, []);
 
   return (
     <>
       <div className="flex-1 space-y-4 px-1">
-        {/* IDLE — explain + launch button */}
         {status === "idle" && (
           <div className="flex items-start gap-3 rounded-md border border-primary/30 bg-primary/5 p-4">
             <Chrome className="mt-0.5 size-5 shrink-0 text-primary" />
             <div className="space-y-2">
               <p className="text-sm font-medium">Log in once to save your session</p>
               <p className="text-2xs text-muted-foreground">
-                We&apos;ll open Chrome so you can log in manually. Your session will be saved
-                and reused automatically for future automation runs.
+                {isCloudMode
+                  ? "We'll open a remote browser embedded in this window so you can log in. Your session is saved and reused for future automation runs."
+                  : "We'll open Chrome so you can log in manually. Your session will be saved and reused automatically for future automation runs."}
               </p>
             </div>
           </div>
         )}
 
-        {/* LAUNCHING */}
         {status === "launching" && (
           <div className="flex items-center gap-3 rounded-md border border-blue-500/30 bg-blue-500/5 p-4">
             <Loader2 className="size-5 shrink-0 animate-spin text-blue-400" />
-            <p className="text-sm font-medium">Opening Chrome...</p>
+            <p className="text-sm font-medium">
+              {isCloudMode ? "Starting remote browser..." : "Opening Chrome..."}
+            </p>
           </div>
         )}
 
-        {/* BROWSER_OPEN — waiting for user to log in and close */}
-        {status === "browser_open" && (
+        {status === "browser_open" && isCloudMode && streamUrl && (
+          <div className="space-y-3">
+            <div className="overflow-hidden rounded-md border border-blue-500/30">
+              <iframe
+                src={streamUrl}
+                title="Remote browser"
+                className="block h-[520px] w-full bg-black"
+                allow="clipboard-read; clipboard-write"
+                sandbox="allow-forms allow-scripts allow-same-origin allow-popups"
+              />
+            </div>
+            <p className="text-2xs text-muted-foreground">
+              Log in in the remote browser above. When done, click <strong>Done — Save Login</strong>.
+            </p>
+          </div>
+        )}
+        {status === "browser_open" && !isCloudMode && (
           <div className="flex items-start gap-3 rounded-md border border-blue-500/30 bg-blue-500/5 p-4">
             <div className="relative mt-1 shrink-0">
               <Chrome className="size-5 text-blue-400" />
@@ -104,14 +146,12 @@ export function BrowserSetupStep({ credentialId, onComplete, onSkip }: Props) {
             <div className="space-y-2">
               <p className="text-sm font-medium">Chrome is open</p>
               <p className="text-2xs text-muted-foreground">
-                Log in to your site in the Chrome window. If Chrome asks to save your password, click <strong>Save</strong>.
-                When you&apos;re done, <strong>quit Chrome (⌘Q)</strong> and we&apos;ll detect your session automatically.
+                Log in in the Chrome window, then <strong>quit Chrome (⌘Q)</strong>. We&apos;ll detect your session.
               </p>
             </div>
           </div>
         )}
 
-        {/* VERIFYING */}
         {status === "verifying" && (
           <div className="flex items-center gap-3 rounded-md border border-blue-500/30 bg-blue-500/5 p-4">
             <Loader2 className="size-5 shrink-0 animate-spin text-blue-400" />
@@ -119,7 +159,6 @@ export function BrowserSetupStep({ credentialId, onComplete, onSkip }: Props) {
           </div>
         )}
 
-        {/* COMPLETED */}
         {status === "completed" && (
           <div className="flex items-start gap-3 rounded-md border border-green-500/30 bg-green-500/5 p-4">
             <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-green-400" />
@@ -133,14 +172,13 @@ export function BrowserSetupStep({ credentialId, onComplete, onSkip }: Props) {
           </div>
         )}
 
-        {/* NO_LOGIN_DETECTED */}
         {status === "no_login_detected" && (
           <div className="flex items-start gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-4">
             <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-400" />
             <div className="space-y-2">
               <p className="text-sm font-medium">No login detected</p>
               <p className="text-2xs text-muted-foreground">
-                Chrome was closed but we couldn&apos;t detect a login session. If you didn&apos;t
+                The browser was closed but we couldn&apos;t detect a login session. If you didn&apos;t
                 log in, try again. If you did log in, it may still work — some sites store
                 sessions differently.
               </p>
@@ -148,7 +186,6 @@ export function BrowserSetupStep({ credentialId, onComplete, onSkip }: Props) {
           </div>
         )}
 
-        {/* ERROR */}
         {status === "error" && (
           <div className="flex items-start gap-3 rounded-md border border-red-500/30 bg-red-500/5 p-4">
             <AlertTriangle className="mt-0.5 size-5 shrink-0 text-red-400" />
@@ -167,7 +204,10 @@ export function BrowserSetupStep({ credentialId, onComplete, onSkip }: Props) {
             <Button onClick={handleLaunch}>Open Browser</Button>
           </>
         )}
-        {status === "browser_open" && (
+        {status === "browser_open" && isCloudMode && (
+          <Button onClick={handleCloudFinalize}>Done — Save Login</Button>
+        )}
+        {status === "browser_open" && !isCloudMode && (
           <Button variant="ghost" onClick={onComplete}>Done</Button>
         )}
         {status === "completed" && (

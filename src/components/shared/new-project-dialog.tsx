@@ -9,10 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { FolderOpen } from "lucide-react";
+import { FolderOpen, GitBranch } from "lucide-react";
 import { useProjectStore } from "@/stores/project-store";
 import { CredentialMultiPicker } from "@/components/credentials/credential-multi-picker";
 import { setCredentialScopesForEntity } from "@/lib/api";
+import { isCloudMode } from "@/lib/mode";
 
 interface NewProjectDialogProps {
   open: boolean;
@@ -27,6 +28,7 @@ export function NewProjectDialog({
 }: NewProjectDialogProps) {
   const [name, setName] = useState("");
   const [directoryPath, setDirectoryPath] = useState("");
+  const [gitUrl, setGitUrl] = useState("");
   const [description, setDescription] = useState("");
   const [credentialIds, setCredentialIds] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
@@ -43,14 +45,19 @@ export function NewProjectDialog({
     }
   };
 
+  const isValid = isCloudMode
+    ? name.trim() && gitUrl.trim()
+    : name.trim() && directoryPath.trim();
+
   const handleCreate = async () => {
-    if (!name.trim() || !directoryPath.trim()) return;
+    if (!isValid) return;
     setCreating(true);
     setError(null);
     try {
       const project = await createProject({
         name: name.trim(),
-        directoryPath: directoryPath.trim(),
+        directoryPath: isCloudMode ? "" : directoryPath.trim(),
+        gitUrl: isCloudMode ? gitUrl.trim() : undefined,
         description: description.trim() || undefined,
       });
       if (credentialIds.length > 0) {
@@ -58,6 +65,7 @@ export function NewProjectDialog({
       }
       setName("");
       setDirectoryPath("");
+      setGitUrl("");
       setDescription("");
       setCredentialIds([]);
       onCreated(project.id);
@@ -83,21 +91,44 @@ export function NewProjectDialog({
               placeholder="My Project"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="proj-dir">Directory</Label>
-            <div className="flex gap-2">
-              <Input
-                id="proj-dir"
-                value={directoryPath}
-                onChange={(e) => setDirectoryPath(e.target.value)}
-                placeholder="/path/to/project"
-                className="flex-1"
-              />
-              <Button variant="outline" size="icon" onClick={pickDirectory}>
-                <FolderOpen className="size-4" />
-              </Button>
+
+          {isCloudMode ? (
+            /* Cloud mode: git repository URL */
+            <div className="space-y-1.5">
+              <Label htmlFor="proj-git-url">Git Repository URL</Label>
+              <div className="flex gap-2">
+                <GitBranch className="size-4 mt-2.5 text-muted-foreground shrink-0" />
+                <Input
+                  id="proj-git-url"
+                  value={gitUrl}
+                  onChange={(e) => setGitUrl(e.target.value)}
+                  placeholder="https://github.com/org/repo.git"
+                  className="flex-1"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                HTTPS URL of the repository to clone into each run's sandbox.
+              </p>
             </div>
-          </div>
+          ) : (
+            /* Local mode: filesystem directory */
+            <div className="space-y-1.5">
+              <Label htmlFor="proj-dir">Directory</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="proj-dir"
+                  value={directoryPath}
+                  onChange={(e) => setDirectoryPath(e.target.value)}
+                  placeholder="/path/to/project"
+                  className="flex-1"
+                />
+                <Button variant="outline" size="icon" onClick={pickDirectory}>
+                  <FolderOpen className="size-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label htmlFor="proj-desc">
               Description <span className="text-muted-foreground">(optional)</span>
@@ -111,6 +142,7 @@ export function NewProjectDialog({
               className="max-h-32 overflow-y-auto"
             />
           </div>
+
           <div className="space-y-1.5">
             <Label>Credentials (optional)</Label>
             <CredentialMultiPicker value={credentialIds} onChange={setCredentialIds} />
@@ -119,7 +151,7 @@ export function NewProjectDialog({
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button
             onClick={handleCreate}
-            disabled={!name.trim() || !directoryPath.trim() || creating}
+            disabled={!isValid || creating}
             className="w-full"
           >
             {creating ? "Creating..." : "Create project"}

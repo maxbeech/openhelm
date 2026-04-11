@@ -34,7 +34,7 @@ function fail(call: ChatToolCall, error: string): ToolExecutionResult {
 }
 
 /** Execute a read (non-mutating) tool immediately. */
-export function executeReadTool(call: ChatToolCall, projectId: string | null): ToolExecutionResult {
+export async function executeReadTool(call: ChatToolCall, projectId: string | null): Promise<ToolExecutionResult> {
   const a = call.args;
   const pid = projectId ?? undefined;
   try {
@@ -88,6 +88,26 @@ export function executeReadTool(call: ChatToolCall, projectId: string | null): T
           ? listMemories({ projectId: pid, type: a.type as any, tag: a.tag as string | undefined, isArchived: false })
           : listAllMemories({ type: a.type as any, tag: a.tag as string | undefined, isArchived: false }),
         );
+
+      case "web_search": {
+        const { searchWeb } = await import("./web-fetch.js");
+        if (!a.query) return fail(call, "query is required");
+        const results = await searchWeb(
+          String(a.query),
+          typeof a.maxResults === "number" ? a.maxResults : undefined,
+        );
+        return ok(call, { results });
+      }
+
+      case "web_fetch": {
+        const { fetchUrlAsText } = await import("./web-fetch.js");
+        if (!a.url) return fail(call, "url is required");
+        const result = await fetchUrlAsText(
+          String(a.url),
+          typeof a.maxChars === "number" ? a.maxChars : undefined,
+        );
+        return ok(call, result);
+      }
 
       default:
         return fail(call, `Unknown read tool: ${call.tool}`);

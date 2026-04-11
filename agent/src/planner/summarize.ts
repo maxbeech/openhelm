@@ -9,7 +9,7 @@
 
 import { listRunLogs } from "../db/queries/run-logs.js";
 import { callLlmViaCli } from "./llm-via-cli.js";
-import { PrintError } from "../claude-code/print.js";
+import { PrintError } from "../agent-backend/errors.js";
 import type { RunStatus } from "@openhelm/shared";
 
 const MAX_LOG_CHARS = 8_000;

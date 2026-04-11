@@ -195,6 +195,25 @@ export const TOOLS: ToolDefinition[] = [
       memoryId: { type: "string", description: "Memory ID", required: true },
     },
   },
+  // ─── Web tools ───
+  {
+    name: "web_search",
+    description: "Search the public web and return the top results as {title, url, snippet}. Use this when the user asks a factual question that likely needs up-to-date information.",
+    isWrite: false,
+    parameters: {
+      query: { type: "string", description: "Search query", required: true },
+      maxResults: { type: "number", description: "Max results (default 5, max 10)" },
+    },
+  },
+  {
+    name: "web_fetch",
+    description: "Fetch a URL and return its readable text content (HTML tags stripped). Use this to read the actual contents of a web page — either one the user references directly or one you found via web_search. Returns plain text truncated to ~8000 characters by default.",
+    isWrite: false,
+    parameters: {
+      url: { type: "string", description: "Absolute http(s) URL", required: true },
+      maxChars: { type: "number", description: "Max characters of text to return (default 8000)" },
+    },
+  },
 ];
 
 function getToolDef(name: string): ToolDefinition | undefined {

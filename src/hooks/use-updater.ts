@@ -1,9 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { check } from "@tauri-apps/plugin-updater";
-import { getVersion } from "@tauri-apps/api/app";
-import { invoke } from "@tauri-apps/api/core";
 import { useUpdaterStore } from "@/stores/updater-store";
 import { agentClient } from "@/lib/agent-client";
+import { isLocalMode } from "@/lib/mode";
 import type { SchedulerStatus } from "@openhelm/shared";
 
 export type UpdaterStatus =
@@ -64,10 +62,13 @@ export function useUpdater(): UseUpdaterReturn {
   }, []);
 
   const checkForUpdate = useCallback(async () => {
+    if (!isLocalMode) return;
     if (checkingRef.current) return;
     checkingRef.current = true;
     setState((s) => ({ ...s, status: "checking", error: null }));
     try {
+      const { getVersion } = await import("@tauri-apps/api/app");
+      const { check } = await import("@tauri-apps/plugin-updater");
       const [currentVersion, update] = await Promise.all([
         getVersion(),
         check(),
@@ -132,6 +133,7 @@ export function useUpdater(): UseUpdaterReturn {
       setState((s) => ({ ...s, status: "ready" }));
       await update.install();
       // Relaunch the app after successful install
+      const { invoke } = await import("@tauri-apps/api/core");
       await invoke("relaunch_app");
     } catch (err) {
       // Cancel the update preparation since install failed

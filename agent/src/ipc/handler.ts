@@ -1,5 +1,5 @@
 import type { IpcRequest, IpcResponse, IpcError } from "@openhelm/shared";
-import { PrintError } from "../claude-code/print.js";
+import { PrintError } from "../agent-backend/errors.js";
 import { captureAgentError } from "../sentry.js";
 
 type HandlerFn = (params?: unknown) => unknown | Promise<unknown>;

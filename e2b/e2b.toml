@@ -1,0 +1,26 @@
+# E2B sandbox template configuration for OpenHelm.
+#
+# Publish with: e2b template build
+# After first build, E2B assigns a template ID — paste it into WORKER_E2B_TEMPLATE_ID
+# in Fly.io secrets and into worker/.env.example.
+#
+# Ref: https://e2b.dev/docs/sandbox-template
+
+[template]
+name       = "openhelm-goose"
+# dockerfile must be relative to this file's directory
+dockerfile = "Dockerfile"
+
+# Base image (e2bdev/desktop) starts Xvfb + XFCE + noVNC, so the sandbox comes
+# up with a live desktop streamable via `sandbox.stream.getUrl()`. The Worker
+# then writes /tmp/prompt.txt and /tmp/mcp-config.json and runs:
+#   cd /workspace && goose run --output-format stream-json \
+#     --mcp-config /tmp/mcp-config.json --no-session < /tmp/prompt.txt
+# The desktop entrypoint is inherited from the base image — no start_cmd override.
+
+# Sandbox resources — desktop image needs a little more memory than the old
+# headless Ubuntu for XFCE + Chromium. 2 vCPU / 4 GB is still fine for most
+# coding tasks; bump to 4 vCPU / 8 GB for Scale plan users if needed.
+[template.resources]
+vcpu   = 2
+memory = "4096"  # MB

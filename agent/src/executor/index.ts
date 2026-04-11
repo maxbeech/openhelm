@@ -10,10 +10,8 @@
 
 import { existsSync } from "fs";
 import { jobQueue, type QueueItem } from "../scheduler/queue.js";
-import {
-  runClaudeCode,
-  type RunnerConfig,
-} from "../claude-code/runner.js";
+import { getBackend } from "../agent-backend/registry.js";
+import type { AgentRunConfig, AgentRunResult, SystemEventData } from "../agent-backend/types.js";
 import { updateRun, getRun, listRuns, snapshotRunCorrectionNote } from "../db/queries/runs.js";
 import {
   getJob,
@@ -42,7 +40,7 @@ import { resolveCredentialsForJob, touchCredential, saveRunCredentials, type Run
 import { getKeychainItem } from "../keychain/index.js";
 import { createRedactor, extractSecretStrings } from "../credentials/redactor.js";
 import type { InteractiveDetectionType } from "../claude-code/interactive-detector.js";
-import type { RunStatus, ClaudeCodeRunResult, Job, Credential, CredentialValue } from "@openhelm/shared";
+import type { RunStatus, Job, Credential, CredentialValue } from "@openhelm/shared";
 import { captureAgentError, addAgentBreadcrumb } from "../sentry.js";
 import {
   isPowerManagementEnabled,
@@ -58,21 +56,21 @@ import { handleAutopilotRunCompleted } from "../autopilot/post-run.js";
 const DEFAULT_MAX_CONCURRENCY = 2;
 const DEFAULT_TIMEOUT_MS = 0; // No limit (silence timeout catches stuck processes)
 
-/** Function signature matching runClaudeCode (for dependency injection in tests) */
-type RunnerFn = (
-  config: RunnerConfig,
-  signal?: AbortSignal,
-) => Promise<ClaudeCodeRunResult>;
+/**
+ * Dependency-injectable backend run function (for testing).
+ * Defaults to getBackend().run() via the registry.
+ */
+type BackendRunFn = (config: AgentRunConfig) => Promise<AgentRunResult>;
 
 export class Executor {
   private activeRuns = new Map<string, AbortController>();
   private hitlKilledRuns = new Map<string, InteractiveDetectionType>();
   /** Tracks which browser profile paths are in use by running tasks. */
   private profileLocks = new Map<string, string>(); // profileName → runId
-  private runnerFn: RunnerFn;
+  private _backendRunFn: BackendRunFn;
 
-  constructor(runnerFn?: RunnerFn) {
-    this.runnerFn = runnerFn ?? runClaudeCode;
+  constructor(backendRunFn?: BackendRunFn) {
+    this._backendRunFn = backendRunFn ?? ((config) => getBackend().run(config));
   }
 
   get activeRunCount(): number {
@@ -296,7 +294,7 @@ export class Executor {
     // Pre-flight: load job, project, check prerequisites
     const preflight = this.preflightCheck(runId, jobId);
     if (!preflight) return;
-    const { job, project, claudePath, timeoutMs } = preflight;
+    const { job, project, timeoutMs } = preflight;
 
     // Register AbortController BEFORE marking the run as running, so there is
     // never a window where the run is "running" in the DB but has no handle.
@@ -542,112 +540,79 @@ export class Executor {
     const redact = createRedactor(allSecrets);
 
     // ── MCP config (bundled browser + data tables servers) ──
-    let mcpConfigPath: string | undefined;
-    let hasBrowserMcp = false;
-    try {
-      const { isVenvReady, isSourceAvailable, setupBrowserMcpVenv } =
-        await import("../mcp-servers/browser-setup.js");
-      if (isVenvReady()) {
-        hasBrowserMcp = true;
-      } else if (isSourceAvailable()) {
-        // Auto-setup the browser MCP venv on first run when source is bundled
-        console.error("[executor] browser MCP source available but venv not ready — setting up...");
-        try {
-          await setupBrowserMcpVenv();
-          hasBrowserMcp = true;
-          console.error("[executor] browser MCP venv setup complete");
-        } catch (setupErr) {
-          console.error("[executor] browser MCP auto-setup failed (non-fatal):", setupErr);
-        }
-      }
-    } catch { /* browser setup not available — non-fatal */ }
+    const { buildRunMcpContext } = await import("../mcp-servers/build-run-mcp-context.js");
+    const mcpContext = await buildRunMcpContext({
+      runId,
+      projectId: job.projectId,
+      browserCredentialsFilePath,
+    });
+    const mcpConfigPath = mcpContext.mcpConfigPath;
+    const appendSystemPrompt = mcpContext.appendSystemPrompt;
+    effectivePrompt = mcpContext.promptPrefix + effectivePrompt;
 
-    try {
-      // Write MCP config with bundled servers (openhelm-browser + openhelm-data).
-      // Passed via --mcp-config to ADD on top of the user's existing MCP environment.
-      const { writeMcpConfigFile } = await import("../mcp-servers/mcp-config-builder.js");
-      mcpConfigPath = writeMcpConfigFile(runId, hasBrowserMcp ? browserCredentialsFilePath : undefined, job.projectId) ?? undefined;
-      if (mcpConfigPath) {
-        console.error(`[executor] MCP config written for run ${runId}`);
-      }
-    } catch (err) {
-      console.error("[executor] MCP config generation error (non-fatal):", err);
-    }
-
-    // Prepend MCP preambles and build system prompt additions
-    let appendSystemPrompt: string | undefined;
-    if (mcpConfigPath) {
-      const { BROWSER_MCP_PREAMBLE, BROWSER_CAPTCHA_PREAMBLE, BROWSER_CREDENTIALS_PREAMBLE, BROWSER_PROFILE_PREAMBLE, DATA_TABLES_MCP_PREAMBLE, BROWSER_SYSTEM_PROMPT } = await import("../mcp-servers/mcp-config-builder.js");
-      // Data tables preamble (always available when MCP config exists)
-      effectivePrompt = DATA_TABLES_MCP_PREAMBLE + effectivePrompt;
-      // Browser MCP preamble + system prompt (only when browser venv is ready)
-      if (hasBrowserMcp) {
-        effectivePrompt = BROWSER_MCP_PREAMBLE + BROWSER_CAPTCHA_PREAMBLE + BROWSER_PROFILE_PREAMBLE + effectivePrompt;
-        // System-level instruction is far more authoritative than user-prompt preamble
-        appendSystemPrompt = BROWSER_SYSTEM_PROMPT;
-        if (browserCredentialsFilePath) {
-          effectivePrompt = BROWSER_CREDENTIALS_PREAMBLE + effectivePrompt;
-        }
-      }
-    }
-
-    // Track the Claude Code process PID so the focus guard can suppress child windows.
-    let claudePid: number | undefined;
+    // Track the agent process PID so the focus guard can suppress child windows.
+    let agentPid: number | undefined;
 
     // Accumulate recent stderr lines for post-mortem analysis (auth/MCP detection)
     const recentStderr: string[] = [];
 
-    // Execute via ClaudeCodeRunner
-    const result = await this.runnerFn(
-      {
-        binaryPath: claudePath,
-        workingDirectory: job.workingDirectory ?? project.directoryPath,
-        prompt: effectivePrompt,
-        timeoutMs,
-        silenceTimeoutMs: job.silenceTimeoutMinutes
-          ? job.silenceTimeoutMinutes * 60_000
-          : undefined,
-        model: getSetting("low_token_mode")?.value === "true"
-          ? "claude-haiku-4-5-20251001"
-          : (job.model ?? undefined),
-        modelEffort: (() => {
-          const raw = (job.modelEffort as "low" | "medium" | "high") ?? "medium";
-          return getSetting("low_token_mode")?.value === "true" && raw === "high" ? "medium" : raw;
-        })(),
-        permissionMode: (job.permissionMode as "default" | "acceptEdits" | "dontAsk" | "bypassPermissions") ?? undefined,
-        resumeSessionId,
-        additionalEnv: Object.keys(additionalEnv).length > 0 ? additionalEnv : undefined,
-        mcpConfigPath,
-        appendSystemPrompt,
-        onPidAvailable: (pid) => {
-          claudePid = pid;
-          // Notify the Tauri focus guard (intercepted in Rust before reaching the frontend)
-          emit("focus_guard.addPid", { pid });
-        },
-        onLogChunk: (stream, text) => {
-          // Redact any credential values from logs
-          const safeText = redact(text);
-          // DB insert BEFORE IPC emit (ordering invariant)
-          const log = createRunLog({ runId, stream, text: safeText });
-          emit("run.log", { runId, sequence: log.sequence, stream, text: safeText });
-          // Accumulate recent stderr for post-mortem auth/MCP detection
-          if (stream === "stderr") {
-            recentStderr.push(safeText);
-            if (recentStderr.length > 30) recentStderr.shift();
+    // Execute via the active AgentBackend
+    const result = await this._backendRunFn({
+      workingDirectory: job.workingDirectory ?? project.directoryPath,
+      prompt: effectivePrompt,
+      timeoutMs,
+      silenceTimeoutMs: job.silenceTimeoutMinutes
+        ? job.silenceTimeoutMinutes * 60_000
+        : undefined,
+      model: getSetting("low_token_mode")?.value === "true"
+        ? getBackend().resolveModel("classification")
+        : (job.model ?? undefined),
+      effort: (() => {
+        const raw = (job.modelEffort as "low" | "medium" | "high") ?? "medium";
+        return getSetting("low_token_mode")?.value === "true" && raw === "high" ? "medium" : raw;
+      })(),
+      permissionMode: (job.permissionMode as "default" | "acceptEdits" | "dontAsk" | "bypassPermissions") ?? undefined,
+      resumeSessionId,
+      environmentVars: Object.keys(additionalEnv).length > 0 ? additionalEnv : undefined,
+      mcpConfigPath,
+      appendSystemPrompt,
+      abortSignal: controller.signal,
+
+      onEvent: (event) => {
+        if (event.type === "system") {
+          const data = event.data as SystemEventData;
+          if (data.kind === "pid") {
+            agentPid = data.pid;
+            // Notify the Tauri focus guard (intercepted in Rust before reaching the frontend)
+            emit("focus_guard.addPid", { pid: data.pid });
+          } else if (data.kind === "interactive_detected") {
+            emit("run.interactiveDetected", { runId, reason: data.reason, type: data.detectionType });
+            this.hitlKilledRuns.set(runId, data.detectionType as InteractiveDetectionType);
+            handleInteractiveDetected(runId, data.reason, controller);
           }
-        },
-        onInteractiveDetected: (reason, type) => {
-          emit("run.interactiveDetected", { runId, reason, type });
-          this.hitlKilledRuns.set(runId, type);
-          handleInteractiveDetected(runId, reason, controller);
-        },
+        }
       },
-      controller.signal,
-    );
+
+      onStdout: (text) => {
+        const safeText = redact(text);
+        // DB insert BEFORE IPC emit (ordering invariant)
+        const log = createRunLog({ runId, stream: "stdout", text: safeText });
+        emit("run.log", { runId, sequence: log.sequence, stream: "stdout", text: safeText });
+      },
+
+      onStderr: (text) => {
+        const safeText = redact(text);
+        // DB insert BEFORE IPC emit (ordering invariant)
+        const log = createRunLog({ runId, stream: "stderr", text: safeText });
+        emit("run.log", { runId, sequence: log.sequence, stream: "stderr", text: safeText });
+        recentStderr.push(safeText);
+        if (recentStderr.length > 30) recentStderr.shift();
+      },
+    });
 
     // Release the focus guard for this process tree now that the run has finished.
-    if (claudePid !== undefined) {
-      emit("focus_guard.removePid", { pid: claudePid });
+    if (agentPid !== undefined) {
+      emit("focus_guard.removePid", { pid: agentPid });
     }
 
     // Wrap all post-run cleanup in try/finally so the active-run slot is always
@@ -715,6 +680,7 @@ export class Executor {
       return null;
     }
 
+    // Validate backend is configured (fast-fail before attempting to run)
     const claudePathSetting = getSetting("claude_code_path");
     if (!claudePathSetting) {
       this.failPermanently(
@@ -752,7 +718,6 @@ export class Executor {
     return {
       job,
       project,
-      claudePath: claudePathSetting.value,
       timeoutMs,
     };
   }
@@ -761,7 +726,7 @@ export class Executor {
   private async onRunCompleted(
     runId: string,
     job: Job,
-    result: ClaudeCodeRunResult,
+    result: AgentRunResult,
     timeoutMs?: number,
     recentStderr?: string[],
   ): Promise<void> {

@@ -11,6 +11,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import * as api from "@/lib/api";
 import { useLowTokenModeStore } from "@/stores/low-token-mode-store";
+import { isLocalMode } from "@/lib/mode";
 
 const DEFAULT_GLOBAL_PROMPT =
   `- If any tool or external service operation hangs with no progress for more than 3 minutes, abandon that specific operation and try an alternative approach. Do not wait indefinitely for unresponsive tools or services.
@@ -122,35 +123,39 @@ export function ExecutionSection() {
             The silence timeout (10 min) catches stuck processes independently.
           </p>
         </div>
-        <div className="flex items-center justify-between">
-          <div>
-            <Label className="text-sm">Wake Mac for scheduled jobs</Label>
-            <p className="text-xs text-muted-foreground">
-              Wake your Mac from sleep before scheduled jobs run. Requires
-              administrator privileges. May not work with lid closed.
-            </p>
+        {isLocalMode && (
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm">Wake Mac for scheduled jobs</Label>
+              <p className="text-xs text-muted-foreground">
+                Wake your Mac from sleep before scheduled jobs run. Requires
+                administrator privileges. May not work with lid closed.
+              </p>
+            </div>
+            <Switch
+              checked={wakeEnabled}
+              onCheckedChange={handleWakeToggle}
+            />
           </div>
-          <Switch
-            checked={wakeEnabled}
-            onCheckedChange={handleWakeToggle}
-          />
-        </div>
-        <div className="flex items-center justify-between">
-          <div>
-            <Label className="text-sm">Suppress job windows</Label>
-            <p className="text-xs text-muted-foreground">
-              Automatically hide windows opened by running jobs so they don't
-              steal focus. Hidden windows remain accessible via the Dock.
-            </p>
+        )}
+        {isLocalMode && (
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm">Suppress job windows</Label>
+              <p className="text-xs text-muted-foreground">
+                Automatically hide windows opened by running jobs so they don't
+                steal focus. Hidden windows remain accessible via the Dock.
+              </p>
+            </div>
+            <Switch
+              checked={suppressWindows}
+              onCheckedChange={(checked) => {
+                setSuppressWindows(checked);
+                api.setSetting({ key: "focus_guard_enabled", value: String(checked) });
+              }}
+            />
           </div>
-          <Switch
-            checked={suppressWindows}
-            onCheckedChange={(checked) => {
-              setSuppressWindows(checked);
-              api.setSetting({ key: "focus_guard_enabled", value: String(checked) });
-            }}
-          />
-        </div>
+        )}
         <div className="space-y-1.5">
           <Label className="text-sm">Global prompt</Label>
           <Textarea
@@ -164,46 +169,48 @@ export function ExecutionSection() {
             Appended to every job prompt. Use for general behavioral guidelines that should apply across all jobs.
           </p>
         </div>
-        <div className="space-y-1.5">
-          <Label className="text-sm">Weekly Claude Code budget reset</Label>
-          <p className="text-xs text-muted-foreground">
-            When your Claude Code usage resets each week. Low token mode auto-disables at this time.
-          </p>
-          <div className="flex items-center gap-2">
-            <Select
-              value={weeklyResetDow !== null ? String(weeklyResetDow) : "none"}
-              onValueChange={(v) => {
-                if (v === "none") { void clearWeeklyReset(); return; }
-                void setWeeklyReset(parseInt(v, 10), weeklyResetHour ?? 0);
-              }}
-            >
-              <SelectTrigger className="w-32">
-                <SelectValue placeholder="Day" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Not set</SelectItem>
-                {DOW_LABELS.map((label, i) => (
-                  <SelectItem key={i} value={String(i)}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {weeklyResetDow !== null && (
+        {isLocalMode && (
+          <div className="space-y-1.5">
+            <Label className="text-sm">Weekly Claude Code budget reset</Label>
+            <p className="text-xs text-muted-foreground">
+              When your Claude Code usage resets each week. Low token mode auto-disables at this time.
+            </p>
+            <div className="flex items-center gap-2">
               <Select
-                value={String(weeklyResetHour ?? 0)}
-                onValueChange={(v) => void setWeeklyReset(weeklyResetDow, parseInt(v, 10))}
+                value={weeklyResetDow !== null ? String(weeklyResetDow) : "none"}
+                onValueChange={(v) => {
+                  if (v === "none") { void clearWeeklyReset(); return; }
+                  void setWeeklyReset(parseInt(v, 10), weeklyResetHour ?? 0);
+                }}
               >
-                <SelectTrigger className="w-28">
-                  <SelectValue />
+                <SelectTrigger className="w-32">
+                  <SelectValue placeholder="Day" />
                 </SelectTrigger>
                 <SelectContent>
-                  {HOUR_LABELS.map((label, i) => (
+                  <SelectItem value="none">Not set</SelectItem>
+                  {DOW_LABELS.map((label, i) => (
                     <SelectItem key={i} value={String(i)}>{label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            )}
+              {weeklyResetDow !== null && (
+                <Select
+                  value={String(weeklyResetHour ?? 0)}
+                  onValueChange={(v) => void setWeeklyReset(weeklyResetDow, parseInt(v, 10))}
+                >
+                  <SelectTrigger className="w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {HOUR_LABELS.map((label, i) => (
+                      <SelectItem key={i} value={String(i)}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

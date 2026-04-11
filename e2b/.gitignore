@@ -1,0 +1,2 @@
+# Build context files (copied in during e2b/build.sh, cleaned up afterwards)
+mcp-servers/

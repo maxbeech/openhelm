@@ -14,8 +14,7 @@ import { createRunLog, listRunLogs } from "../src/db/queries/run-logs.js";
 import { setSetting } from "../src/db/queries/settings.js";
 import { JobQueue } from "../src/scheduler/queue.js";
 import { Executor } from "../src/executor/index.js";
-import type { RunnerConfig } from "../src/claude-code/runner.js";
-import type { ClaudeCodeRunResult } from "@openhelm/shared";
+import type { AgentRunConfig, AgentRunResult } from "../src/agent-backend/types.js";
 
 let cleanup: () => void;
 let projectId: string;
@@ -105,20 +104,30 @@ beforeEach(() => {
   queue = new JobQueue();
 });
 
-/** Create a mock runner that returns controlled outcomes */
+const DEFAULT_RUN_RESULT: AgentRunResult = {
+  exitCode: 0,
+  timedOut: false,
+  killed: false,
+  sessionId: null,
+  inputTokens: null,
+  outputTokens: null,
+  rateLimitUtilization: null,
+};
+
+/** Create a mock backend run function that returns controlled outcomes */
 function mockRunner(
-  result: ClaudeCodeRunResult = { exitCode: 0, timedOut: false, killed: false },
+  result: Partial<AgentRunResult> = {},
   delayMs = 0,
-): (config: RunnerConfig, signal?: AbortSignal) => Promise<ClaudeCodeRunResult> {
-  return async (config, signal) => {
+): (config: AgentRunConfig) => Promise<AgentRunResult> {
+  return async (config) => {
     // Simulate log output
-    config.onLogChunk("stdout", "Mock output line 1");
-    config.onLogChunk("stdout", "Mock output line 2");
+    config.onStdout?.("Mock output line 1");
+    config.onStdout?.("Mock output line 2");
 
     if (delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
-    return result;
+    return { ...DEFAULT_RUN_RESULT, ...result };
   };
 }
 
@@ -631,10 +640,10 @@ describe("Executor timeout default", () => {
     deleteSetting("run_timeout_minutes");
 
     let capturedTimeout: number | undefined;
-    const captureRunner = async (config: RunnerConfig) => {
+    const captureRunner = async (config: AgentRunConfig): Promise<AgentRunResult> => {
       capturedTimeout = config.timeoutMs;
-      config.onLogChunk("stdout", "done");
-      return { exitCode: 0, timedOut: false, killed: false, sessionId: null };
+      config.onStdout?.("done");
+      return { ...DEFAULT_RUN_RESULT, exitCode: 0 };
     };
 
     const job = createJob({
@@ -667,10 +676,10 @@ describe("Executor timeout default", () => {
 describe("Executor correctionNote prompt building", () => {
   it("appends correctionNote to effective prompt", async () => {
     let capturedPrompt = "";
-    const captureRunner = async (config: RunnerConfig) => {
+    const captureRunner = async (config: AgentRunConfig): Promise<AgentRunResult> => {
       capturedPrompt = config.prompt;
-      config.onLogChunk("stdout", "done");
-      return { exitCode: 0, timedOut: false, killed: false, sessionId: null };
+      config.onStdout?.("done");
+      return { ...DEFAULT_RUN_RESULT, exitCode: 0 };
     };
 
     const job = createJob({
@@ -702,10 +711,10 @@ describe("Executor correctionNote prompt building", () => {
 
   it("snapshots correctionNote onto the run", async () => {
     let capturedPrompt = "";
-    const captureRunner = async (config: RunnerConfig) => {
+    const captureRunner = async (config: AgentRunConfig): Promise<AgentRunResult> => {
       capturedPrompt = config.prompt;
-      config.onLogChunk("stdout", "done");
-      return { exitCode: 0, timedOut: false, killed: false, sessionId: null };
+      config.onStdout?.("done");
+      return { ...DEFAULT_RUN_RESULT, exitCode: 0 };
     };
 
     const job = createJob({
@@ -746,11 +755,11 @@ describe("Executor session resumption", () => {
   it("passes resumeSessionId to runner for corrective runs with parent sessionId", async () => {
     let capturedResumeSessionId: string | undefined;
     let capturedPrompt = "";
-    const captureRunner = async (config: RunnerConfig) => {
+    const captureRunner = async (config: AgentRunConfig): Promise<AgentRunResult> => {
       capturedResumeSessionId = config.resumeSessionId;
       capturedPrompt = config.prompt;
-      config.onLogChunk("stdout", "done");
-      return { exitCode: 0, timedOut: false, killed: false, sessionId: "new-session" };
+      config.onStdout?.("done");
+      return { ...DEFAULT_RUN_RESULT, exitCode: 0, sessionId: "new-session" };
     };
 
     const job = createJob({
@@ -792,11 +801,11 @@ describe("Executor session resumption", () => {
   it("uses fresh path when corrective run's parent has no sessionId", async () => {
     let capturedResumeSessionId: string | undefined;
     let capturedPrompt = "";
-    const captureRunner = async (config: RunnerConfig) => {
+    const captureRunner = async (config: AgentRunConfig): Promise<AgentRunResult> => {
       capturedResumeSessionId = config.resumeSessionId;
       capturedPrompt = config.prompt;
-      config.onLogChunk("stdout", "done");
-      return { exitCode: 0, timedOut: false, killed: false, sessionId: null };
+      config.onStdout?.("done");
+      return { ...DEFAULT_RUN_RESULT, exitCode: 0 };
     };
 
     const job = createJob({
@@ -839,10 +848,10 @@ describe("Executor session resumption", () => {
     // This test verifies that the resume path does NOT call retrieveMemories.
     // The mock runner will capture whether memories were injected via the prompt.
     let capturedPrompt = "";
-    const captureRunner = async (config: RunnerConfig) => {
+    const captureRunner = async (config: AgentRunConfig): Promise<AgentRunResult> => {
       capturedPrompt = config.prompt;
-      config.onLogChunk("stdout", "done");
-      return { exitCode: 0, timedOut: false, killed: false, sessionId: "sess" };
+      config.onStdout?.("done");
+      return { ...DEFAULT_RUN_RESULT, exitCode: 0, sessionId: "sess" };
     };
 
     const job = createJob({
@@ -884,10 +893,10 @@ describe("Executor session resumption", () => {
 describe("Executor global prompt injection", () => {
   it("appends global_prompt setting to effective prompt", async () => {
     let capturedPrompt = "";
-    const captureRunner = async (config: RunnerConfig) => {
+    const captureRunner = async (config: AgentRunConfig): Promise<AgentRunResult> => {
       capturedPrompt = config.prompt;
-      config.onLogChunk("stdout", "done");
-      return { exitCode: 0, timedOut: false, killed: false, sessionId: null };
+      config.onStdout?.("done");
+      return { ...DEFAULT_RUN_RESULT, exitCode: 0 };
     };
 
     setSetting("global_prompt", "Always write tests.");
@@ -921,10 +930,10 @@ describe("Executor global prompt injection", () => {
 
   it("does not append global_prompt when setting is empty", async () => {
     let capturedPrompt = "";
-    const captureRunner = async (config: RunnerConfig) => {
+    const captureRunner = async (config: AgentRunConfig): Promise<AgentRunResult> => {
       capturedPrompt = config.prompt;
-      config.onLogChunk("stdout", "done");
-      return { exitCode: 0, timedOut: false, killed: false, sessionId: null };
+      config.onStdout?.("done");
+      return { ...DEFAULT_RUN_RESULT, exitCode: 0 };
     };
 
     setSetting("global_prompt", "");
@@ -988,13 +997,13 @@ describe("Focus guard PID lifecycle", () => {
 
     const FAKE_PID = 99999;
 
-    // Mock runner that fires onPidAvailable before returning
+    // Mock backend run function that fires a system pid event before returning
     const runnerWithPid = async (
-      config: RunnerConfig,
-    ): Promise<ClaudeCodeRunResult> => {
-      config.onPidAvailable?.(FAKE_PID);
-      config.onLogChunk("stdout", "some output");
-      return { exitCode: 0, timedOut: false, killed: false };
+      config: AgentRunConfig,
+    ): Promise<AgentRunResult> => {
+      config.onEvent?.({ type: "system", data: { kind: "pid", pid: FAKE_PID } });
+      config.onStdout?.("some output");
+      return { ...DEFAULT_RUN_RESULT, exitCode: 0 };
     };
 
     const job = createJob({
@@ -1036,12 +1045,12 @@ describe("Focus guard PID lifecycle", () => {
     const mockEmit = vi.mocked(emit);
     mockEmit.mockClear();
 
-    // Mock runner that never fires onPidAvailable
+    // Mock backend run function that never fires a pid event
     const runnerNoPid = async (
-      config: RunnerConfig,
-    ): Promise<ClaudeCodeRunResult> => {
-      config.onLogChunk("stdout", "some output");
-      return { exitCode: 0, timedOut: false, killed: false };
+      config: AgentRunConfig,
+    ): Promise<AgentRunResult> => {
+      config.onStdout?.("some output");
+      return { ...DEFAULT_RUN_RESULT, exitCode: 0 };
     };
 
     const job = createJob({
@@ -1074,8 +1083,8 @@ describe("Focus guard PID lifecycle", () => {
 
 describe("Executor stuck-run protection", () => {
   it("marks run as failed and releases the slot when the runner throws unexpectedly", async () => {
-    // Runner that throws immediately — simulates an unexpected bug mid-execution
-    const throwingRunner = async (_config: RunnerConfig): Promise<ClaudeCodeRunResult> => {
+    // Backend run function that throws immediately — simulates an unexpected bug mid-execution
+    const throwingRunner = async (_config: AgentRunConfig): Promise<AgentRunResult> => {
       throw new Error("Unexpected runner crash");
     };
 
@@ -1127,10 +1136,10 @@ describe("Executor browser MCP preamble", () => {
     mockWriteMcpConfigFile.mockReturnValue("/tmp/run-test.json");
 
     let capturedPrompt = "";
-    const captureRunner = async (config: RunnerConfig) => {
+    const captureRunner = async (config: AgentRunConfig): Promise<AgentRunResult> => {
       capturedPrompt = config.prompt;
-      config.onLogChunk("stdout", "done");
-      return { exitCode: 0, timedOut: false, killed: false, sessionId: null };
+      config.onStdout?.("done");
+      return { ...DEFAULT_RUN_RESULT, exitCode: 0 };
     };
 
     const job = createJob({
@@ -1158,10 +1167,10 @@ describe("Executor browser MCP preamble", () => {
     mockWriteMcpConfigFile.mockReturnValue(null);
 
     let capturedPrompt = "";
-    const captureRunner = async (config: RunnerConfig) => {
+    const captureRunner = async (config: AgentRunConfig): Promise<AgentRunResult> => {
       capturedPrompt = config.prompt;
-      config.onLogChunk("stdout", "done");
-      return { exitCode: 0, timedOut: false, killed: false, sessionId: null };
+      config.onStdout?.("done");
+      return { ...DEFAULT_RUN_RESULT, exitCode: 0 };
     };
 
     const job = createJob({
