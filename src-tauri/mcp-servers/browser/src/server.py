@@ -1035,6 +1035,45 @@ async def click_element(
     return await dom_handler.click_element(tab, selector, text_match, timeout)
 
 @section_tool("element-interaction")
+async def triple_click(
+    instance_id: str,
+    selector: str,
+    text_match: Optional[str] = None,
+    timeout: int = 10000
+) -> Dict[str, Any]:
+    """
+    Triple-click an element to select its full line / paragraph.
+
+    Dispatches three rapid synthesised mouse events via CDP
+    Input.dispatchMouseEvent with clickCount of 1, 2, 3 — matching how
+    a real triple-click registers in Chrome. On an <input>/<textarea>
+    this selects all text on the line; on a contenteditable it selects
+    the paragraph under the cursor.
+
+    Use this when you need the browser's native selection-replace
+    behaviour before typing — e.g. when a framework fights paste_text's
+    clear_first mechanism and leaves the existing value intact. Most
+    jobs should prefer `paste_text(clear_first=True)` / `type_text(
+    clear_first=True)` which already clear the field; triple_click is
+    a specialised primitive for the cases those don't cover.
+
+    Args:
+        instance_id (str): Browser instance ID.
+        selector (str): CSS selector, XPath, or selector_hint from find_on_page.
+        text_match (Optional[str]): Match element by text content instead of selector.
+        timeout (int): Timeout in milliseconds.
+
+    Returns:
+        Dict with keys: success, selector, bbox, center, events_dispatched, message.
+    """
+    if isinstance(timeout, str):
+        timeout = int(timeout)
+    tab = await browser_manager.get_tab(instance_id)
+    if not tab:
+        raise Exception(await _format_instance_not_found(instance_id))
+    return await dom_handler.triple_click(tab, selector, text_match, timeout)
+
+@section_tool("element-interaction")
 async def type_text(
     instance_id: str,
     selector: str,

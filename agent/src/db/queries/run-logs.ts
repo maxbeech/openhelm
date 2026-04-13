@@ -175,12 +175,30 @@ export function countMcpToolMissingErrorsByServer(runId: string): Map<string, nu
  * Returns the list of server names that are genuinely unrecovered. An empty
  * list means either (a) no tool-missing errors happened or (b) every server
  * that erred had enough additional invocations to indicate it recovered.
+ *
+ * Round 10 (2026-04-12): the optional `configuredServers` param filters
+ * out phantom server names. Claude sometimes hallucinates an MCP
+ * namespace for a BUILT-IN tool (e.g. `mcp__WebSearch__search` — WebSearch
+ * is built-in, not an MCP server). The error log matches the regex but
+ * there is no actual MCP server to fail or auto-retry. When
+ * `configuredServers` is provided, any error against a server NOT in the
+ * set is silently dropped. Fixes Pattern 14 (Dream 100 Discovery marked
+ * failed even though the core work completed successfully).
  */
 export function findUnrecoveredMcpServers(
   errorsByServer: Map<string, number>,
   toolStats: Array<{ toolName: string; invocations: number }> | undefined,
+  configuredServers?: readonly string[] | Set<string> | null,
 ): string[] {
   if (errorsByServer.size === 0) return [];
+  // Build the configured-set for quick lookup. null/undefined means
+  // "don't filter" — all server names in errorsByServer are considered.
+  const configuredSet =
+    configuredServers == null
+      ? null
+      : configuredServers instanceof Set
+        ? configuredServers
+        : new Set(configuredServers);
   // Sum total tool_use invocations per server (mcp__<server>__*).
   const invocationsByServer = new Map<string, number>();
   for (const stat of toolStats ?? []) {
@@ -193,6 +211,8 @@ export function findUnrecoveredMcpServers(
   }
   const unrecovered: string[] = [];
   for (const [server, errorCount] of errorsByServer) {
+    // Drop phantom server names (Round 10 filter).
+    if (configuredSet && !configuredSet.has(server)) continue;
     const invocations = invocationsByServer.get(server) ?? 0;
     // If total invocations > errors, at least one call succeeded → recovered.
     // If invocations <= errors, every attempt erred → unrecovered.

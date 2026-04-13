@@ -21,7 +21,19 @@ export function buildDataTableSection(scored: ScoredDataTable[]): string {
     "## Available Data Tables",
     "",
     "The following data tables are available in this project. " +
-      "Use the openhelm_data MCP tools to query or modify them.",
+      "**Use the openhelm_data MCP tools** (`mcp__openhelm_data__*`) to " +
+      "query or modify them — they handle id generation, timestamps, " +
+      "and the data_table_changes audit log for you. Do NOT use the " +
+      "Bash tool with `sqlite3` to read or write these tables unless " +
+      "the MCP tools cannot express what you need.",
+    "",
+    "If you must fall back to raw `sqlite3` via Bash, INSERT into the " +
+      "`data_table_rows_autofill` view — not `data_table_rows` directly. " +
+      "The view auto-fills `id` (pseudo-UUID), `created_at`, and " +
+      "`updated_at`, so `INSERT INTO data_table_rows_autofill " +
+      "(table_id, data) VALUES ('tbl_xxx', '{\"col_abc\":\"hello\"}')` " +
+      "works. Inserting into `data_table_rows` directly without supplying " +
+      "`id` and `updated_at` will fail with a NOT NULL constraint error.",
     "",
   ];
 

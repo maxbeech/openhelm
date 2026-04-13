@@ -220,6 +220,157 @@ class DOMHandler:
             raise Exception(f"Click execution failed after finding element: {e}")
 
     # ------------------------------------------------------------------
+    # Round 11 (2026-04-13): triple_click — select full line / paragraph
+    # ------------------------------------------------------------------
+    @staticmethod
+    async def triple_click(
+        tab: Tab,
+        selector: str,
+        text_match: Optional[str] = None,
+        timeout: int = 10000,
+    ) -> Dict[str, Any]:
+        """
+        Triple-click an element to select its full line / paragraph.
+
+        Dispatches three rapid synthesised mouse events via CDP
+        ``Input.dispatchMouseEvent`` with ``clickCount`` of 1, 2, 3 —
+        matching how a real triple-click registers in Chrome. On an
+        ``<input>``/``<textarea>`` this selects all text on the line;
+        on a contenteditable it selects the paragraph.
+
+        Added to absorb the hallucinated `triple_click` tool-name call
+        the agent kept attempting in Run f84bab15 — rather than teach
+        the agent not to hallucinate, we expose the primitive as a
+        real working tool so future attempts succeed.
+
+        Returns a dict with the usual shape used across DOMHandler:
+            {success, selector, bbox, events_dispatched, message}
+
+        Raises on element-not-found so the agent treats it exactly
+        like a missing click target.
+
+        Args:
+            tab: The browser tab object.
+            selector: CSS selector, XPath, or selector_hint from find_on_page.
+            text_match: Optional text hint for element finding.
+            timeout: Timeout in milliseconds.
+        """
+        element, diagnostics = await DOMHandler._find_element_robust(
+            tab, selector, text_match, timeout
+        )
+
+        if not element:
+            nearby = await DOMHandler._find_nearby_elements(tab)
+            error_msg = DOMHandler._format_click_error(
+                selector, text_match, diagnostics, nearby
+            )
+            raise Exception(error_msg)
+
+        # Ensure the element is scrolled into view and get its bounding
+        # box so the mouse events land on its centre.
+        try:
+            await element.scroll_into_view()
+        except Exception:
+            pass
+
+        # Try multiple paths to get a bounding box. element.get_position()
+        # is the nodriver API; fall back to a JS getBoundingClientRect
+        # if that method isn't available on this element type.
+        box = None
+        try:
+            box = await element.get_position()
+        except Exception:
+            box = None
+        if not box or not getattr(box, "width", 0):
+            try:
+                rect_json = await tab.evaluate(
+                    """(() => {
+                        const el = document.querySelector(%r) ||
+                                   document.querySelector('[data-oh-find="1"]');
+                        if (!el) return null;
+                        const r = el.getBoundingClientRect();
+                        return JSON.stringify({
+                            x: r.left, y: r.top,
+                            width: r.width, height: r.height
+                        });
+                    })()"""
+                    % selector
+                )
+                import json as _json
+                if rect_json and isinstance(rect_json, str):
+                    parsed = _json.loads(rect_json)
+                    class _B: pass
+                    box = _B()
+                    box.x = parsed.get("x", 0)
+                    box.y = parsed.get("y", 0)
+                    box.width = parsed.get("width", 1)
+                    box.height = parsed.get("height", 1)
+            except Exception:
+                pass
+
+        if not box or not getattr(box, "width", 0):
+            raise Exception(
+                f"triple_click: could not compute bounding box for selector "
+                f"{selector!r} — element was found but has zero dimensions"
+            )
+
+        center_x = float(box.x) + float(box.width) / 2.0
+        center_y = float(box.y) + float(box.height) / 2.0
+
+        # Dispatch three rapid down/up pairs with clickCount 1/2/3.
+        # Spacing ~50ms between pairs — faster than a human but slow
+        # enough that Chrome's click-count accumulator (DBLCLK_TIME_MS,
+        # ~500ms) sees them as one gesture. We use the CDP Input domain
+        # which is SAFE — unlike Runtime/Debugger/Console, Input.enable
+        # is not a detection vector and is implicitly active whenever
+        # the page is committed.
+        events_dispatched = 0
+        try:
+            for click_count in (1, 2, 3):
+                # Mouse down
+                await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                    type_="mousePressed",
+                    x=center_x,
+                    y=center_y,
+                    button=uc.cdp.input_.MouseButton.LEFT,
+                    click_count=click_count,
+                ))
+                # Mouse up
+                await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                    type_="mouseReleased",
+                    x=center_x,
+                    y=center_y,
+                    button=uc.cdp.input_.MouseButton.LEFT,
+                    click_count=click_count,
+                ))
+                events_dispatched += 1
+                # 50ms between pairs — fast enough for Chrome's click
+                # accumulator to treat them as a triple-click gesture.
+                await asyncio.sleep(0.05)
+        except Exception as e:
+            raise Exception(
+                f"triple_click: CDP mouse dispatch failed at clickCount={events_dispatched+1}: {e}"
+            )
+
+        return {
+            "success": True,
+            "selector": selector,
+            "bbox": {
+                "x": float(box.x),
+                "y": float(box.y),
+                "width": float(box.width),
+                "height": float(box.height),
+            },
+            "center": {"x": center_x, "y": center_y},
+            "events_dispatched": events_dispatched,
+            "message": (
+                f"triple_click dispatched 3 click events at "
+                f"({center_x:.0f}, {center_y:.0f}) — the current line / "
+                f"paragraph under this element is now selected"
+            ),
+        }
+
+    # ------------------------------------------------------------------
     # Private: multi-strategy element finding with retry
     # ------------------------------------------------------------------
     @staticmethod
@@ -605,6 +756,14 @@ class DOMHandler:
     # ------------------------------------------------------------------
     # Input-field resolution + verification (shared by type_text/paste_text)
     # ------------------------------------------------------------------
+
+    # Shadow-DOM pierce helper — installed lazily by `_resolve_input_target`
+    # as part of its single tab.evaluate call. Every subsequent JS snippet
+    # that needs shadow-aware element lookup uses
+    # `(window.__ohFind || ((s) => document.querySelector(s)))(selector)`
+    # so flat-DOM selectors and shadow-hosted selectors share a code path.
+    # This is the fix for Pattern 7 (Reddit old-login shadow-DOM blocker).
+
     @staticmethod
     async def _resolve_input_target(
         tab: Tab,
@@ -640,13 +799,85 @@ class DOMHandler:
             }
             or {"selector": None, "match_count": 0, ...} if nothing matched.
         """
-        # We run the whole resolver inside a single JS call so we never pay
-        # multiple round-trip costs.
+        # The resolver JS below inlines the shadow-pierce helper install
+        # (inside the `if (!window.__ohFindInstalled)` guard) so that a
+        # single tab.evaluate call covers both install and resolve. This
+        # is Pattern 7 (Reddit shadow-DOM login) — the resolver now sees
+        # open-shadow-hosted inputs as candidates, at no extra round-trip.
         js = """
         (function(rawSelector) {
+            // Install window.__ohFind / __ohFindAll on first call.
+            // These walk open shadow roots so the resolver's candidate
+            // scan (and all subsequent paste/type/read helpers) see
+            // shadow-hosted inputs the same way flat-DOM inputs are seen.
+            if (!window.__ohFindInstalled) {
+                (function() {
+                    var DEADLINE_MS = 1500;
+                    var MAX_ROOTS = 1000;
+                    function walkRoots(cb) {
+                        var start = performance.now();
+                        var visited = 0;
+                        var stack = [document];
+                        while (stack.length) {
+                            if (performance.now() - start > DEADLINE_MS) break;
+                            if (visited >= MAX_ROOTS) break;
+                            var root = stack.pop();
+                            visited++;
+                            try { if (cb(root) === 'stop') return; } catch (e) {}
+                            var hosts;
+                            try { hosts = root.querySelectorAll('*'); }
+                            catch (e) { continue; }
+                            for (var i = 0; i < hosts.length; i++) {
+                                var h = hosts[i];
+                                if (h && h.shadowRoot) stack.push(h.shadowRoot);
+                            }
+                        }
+                    }
+                    window.__ohFind = function(sel) {
+                        if (!sel) return null;
+                        try {
+                            var fast = document.querySelector(sel);
+                            if (fast) return fast;
+                        } catch (e) { return null; }
+                        var found = null;
+                        walkRoots(function(root) {
+                            if (found) return 'stop';
+                            try {
+                                var m = root.querySelector(sel);
+                                if (m) { found = m; return 'stop'; }
+                            } catch (e) {}
+                        });
+                        return found;
+                    };
+                    window.__ohFindAll = function(sel) {
+                        if (!sel) return [];
+                        var out = [];
+                        try { out.push.apply(out, document.querySelectorAll(sel)); }
+                        catch (e) { return []; }
+                        walkRoots(function(root) {
+                            if (root === document) return;
+                            try {
+                                var ms = root.querySelectorAll(sel);
+                                for (var i = 0; i < ms.length; i++) {
+                                    if (out.indexOf(ms[i]) === -1) out.push(ms[i]);
+                                }
+                            } catch (e) {}
+                        });
+                        return out;
+                    };
+                    window.__ohFindInstalled = true;
+                })();
+            }
+            // Shadow-aware query: falls back to document.querySelector if
+            // the __ohFind helper couldn't be installed. Respects the
+            // 1.5s internal budget inside __ohFindAll.
             function safeQuery(root, sel) {
-                try { return Array.from(root.querySelectorAll(sel)); }
-                catch (e) { return []; }
+                try {
+                    if (root === document && typeof window.__ohFindAll === 'function') {
+                        return Array.from(window.__ohFindAll(sel));
+                    }
+                    return Array.from(root.querySelectorAll(sel));
+                } catch (e) { return []; }
             }
             function visible(el) {
                 if (!el) return false;
@@ -834,13 +1065,35 @@ class DOMHandler:
                 if (sc > bestScore) { best = all[i]; bestScore = sc; }
             }
 
-            var resolvedSel = buildSelector(best);
+            // Detect whether the winner is inside a shadow root — walk up
+            // via getRootNode() until we hit a document or a shadow root.
+            var shadowHosted = false;
+            try {
+                var root = best.getRootNode && best.getRootNode();
+                shadowHosted = !!(root && root.host);
+            } catch (e) { shadowHosted = false; }
+
+            var resolvedSel = shadowHosted ? null : buildSelector(best);
             // Prefer an id-based selector if we built one. Otherwise fall back
-            // to a sentinel attribute that the paste/type helpers will set.
-            if (!resolvedSel || document.querySelectorAll(resolvedSel).length !== 1) {
-                // Clear any stale sentinels first
-                var stale = document.querySelectorAll('[data-oh-target="1"]');
-                for (var s = 0; s < stale.length; s++) stale[s].removeAttribute('data-oh-target');
+            // to a sentinel attribute. For shadow-hosted elements, we set
+            // the sentinel INSIDE the shadow root — downstream helpers
+            // must use __ohFind to locate it (plain document.querySelector
+            // won't pierce shadow boundaries). __ohFind handles both cases.
+            if (shadowHosted || !resolvedSel || document.querySelectorAll(resolvedSel).length !== 1) {
+                // Clear any stale sentinels (walk shadow roots too).
+                function clearStale() {
+                    try {
+                        var flat = document.querySelectorAll('[data-oh-target="1"]');
+                        for (var s = 0; s < flat.length; s++) flat[s].removeAttribute('data-oh-target');
+                    } catch (e) {}
+                    if (typeof window.__ohFindAll === 'function') {
+                        try {
+                            var deep = window.__ohFindAll('[data-oh-target="1"]');
+                            for (var d = 0; d < deep.length; d++) deep[d].removeAttribute('data-oh-target');
+                        } catch (e) {}
+                    }
+                }
+                clearStale();
                 best.setAttribute('data-oh-target', '1');
                 resolvedSel = '[data-oh-target="1"]';
             }
@@ -907,7 +1160,8 @@ class DOMHandler:
                 matched_parts: matched_parts,
                 score: bestScore,
                 activator_selector: activator_selector,
-                activator_text: activator_text
+                activator_text: activator_text,
+                is_shadow_hosted: shadowHosted
             });
         })(%s)
         """ % json.dumps(selector)
@@ -1065,10 +1319,14 @@ class DOMHandler:
 
         Works for <input>/<textarea> (.value) and contenteditable
         (.innerText/.textContent). Returns None if the element isn't found.
+
+        Uses the shadow-pierce helper `__ohFind` so this works for elements
+        inside open shadow roots (e.g. old reddit login).
         """
         js = (
             "(() => {"
-            f"  const el = document.querySelector({json.dumps(selector)});"
+            "  const finder = (window.__ohFind || ((s) => document.querySelector(s)));"
+            f"  const el = finder({json.dumps(selector)});"
             "  if (!el) return null;"
             "  if (el.isContentEditable) return el.innerText || el.textContent || '';"
             "  if ('value' in el) return el.value == null ? '' : String(el.value);"
@@ -1088,6 +1346,7 @@ class DOMHandler:
         resolved: Dict[str, Any],
         original_selector: str,
         action: str,
+        method_used: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Build the structured verification result returned by paste/type."""
         expected_chars = len(expected)
@@ -1196,6 +1455,13 @@ class DOMHandler:
             "resolved_target": resolved_clean,
             "warnings": warnings,
         }
+        if method_used is not None:
+            # Records which technique in the paste/type ladder actually
+            # landed the text — "execCommand", "input_event",
+            # "clipboard_event", "cdp_insert_text", "keyboard_paste", or
+            # "react_native_setter". Agents use this to decide whether a
+            # framework-guarded editor required a fallback path.
+            result["method_used"] = method_used
         if blocker is not None:
             result["blocker"] = blocker
         return result
@@ -1286,6 +1552,34 @@ class DOMHandler:
                 )
 
             selector = resolved_selector
+            is_shadow = bool(resolved.get("is_shadow_hosted"))
+
+            # For shadow-hosted targets (Pattern 7 Reddit shadow DOM
+            # login): we can't get a native Element handle via
+            # `tab.select()` (document.querySelector doesn't pierce
+            # shadow boundaries). Fall back to the paste ladder so the
+            # text still lands — the diagnostic cost is that humanized
+            # typing is skipped on shadow-hosted fields, which is
+            # acceptable for login flows.
+            if is_shadow:
+                _ok, method_used = await DOMHandler._paste_into_contenteditable_ladder(
+                    tab, selector, text
+                )
+                await asyncio.sleep(0.15)
+                actual = await DOMHandler._read_field_value(tab, selector)
+                if not (actual and text.strip()[:40] in (actual or "")):
+                    _ok2, react_method = await DOMHandler._react_native_setter_paste(
+                        tab, selector, text
+                    )
+                    if _ok2:
+                        method_used = react_method
+                        actual = await DOMHandler._read_field_value(tab, selector)
+                return DOMHandler._build_input_verification(
+                    expected=text, actual=actual, resolved=resolved,
+                    original_selector=selector, action="type_text",
+                    method_used=method_used,
+                )
+
             element = await tab.select(selector)
             if not element:
                 raise Exception(f"Element not found after resolve: {selector}")
@@ -1390,6 +1684,32 @@ class DOMHandler:
             # Verification: read the field back and compare.
             await asyncio.sleep(0.15)
             actual = await DOMHandler._read_field_value(tab, selector)
+
+            # If we typed into a React-controlled input and the field is
+            # still empty, fall through to the React native-setter path.
+            # This catches the LinkedIn message composer where send_keys /
+            # humanized_type fires DOM key events but React's value tracker
+            # discards them. Only applies to non-contenteditable inputs.
+            if (
+                not is_ce
+                and text
+                and (not actual or text.strip()[:40] not in (actual or ""))
+            ):
+                _ok, react_method = await DOMHandler._react_native_setter_paste(
+                    tab, selector, text
+                )
+                if _ok:
+                    await asyncio.sleep(0.1)
+                    actual = await DOMHandler._read_field_value(tab, selector)
+                    return DOMHandler._build_input_verification(
+                        expected=text,
+                        actual=actual,
+                        resolved=resolved,
+                        original_selector=selector,
+                        action="type_text",
+                        method_used=react_method,
+                    )
+
             return DOMHandler._build_input_verification(
                 expected=text,
                 actual=actual,
@@ -1403,10 +1723,14 @@ class DOMHandler:
 
     @staticmethod
     async def _is_contenteditable(tab: Tab, selector: str) -> bool:
-        """Check if an element is a contenteditable rich text editor."""
+        """Check if an element is a contenteditable rich text editor.
+
+        Shadow-DOM aware via `window.__ohFind`.
+        """
         result = await tab.evaluate(
             '(() => {'
-            f'  const el = document.querySelector({json.dumps(selector)});'
+            '  const finder = (window.__ohFind || ((s) => document.querySelector(s)));'
+            f'  const el = finder({json.dumps(selector)});'
             '  return el && (el.contentEditable === "true" || el.isContentEditable);'
             '})()'
         )
@@ -1414,10 +1738,14 @@ class DOMHandler:
 
     @staticmethod
     async def _clear_contenteditable(tab: Tab, selector: str) -> None:
-        """Clear a contenteditable element using execCommand."""
+        """Clear a contenteditable element using execCommand.
+
+        Shadow-DOM aware via `window.__ohFind`.
+        """
         await tab.evaluate(
             '(() => {'
-            f'  const el = document.querySelector({json.dumps(selector)});'
+            '  const finder = (window.__ohFind || ((s) => document.querySelector(s)));'
+            f'  const el = finder({json.dumps(selector)});'
             '  if (el) { el.focus(); }'
             '  document.execCommand("selectAll", false, null);'
             '  document.execCommand("delete", false, null);'
@@ -1426,43 +1754,287 @@ class DOMHandler:
         await asyncio.sleep(0.1)
 
     @staticmethod
-    async def _paste_into_contenteditable(tab: Tab, selector: str, text: str) -> bool:
+    async def _paste_into_contenteditable_ladder(
+        tab: Tab, selector: str, text: str
+    ) -> Tuple[bool, str]:
         """
-        Paste text into a contenteditable element using execCommand with
-        clipboard fallback. execCommand('insertText') fires the InputEvent
-        that rich text frameworks (Lexical, ProseMirror, etc.) listen for.
+        Paste text into a contenteditable via a cascading ladder of techniques.
+
+        Each step runs only if the previous one left the field empty (verified
+        via `_read_field_value`). Order is fastest-to-slowest:
+
+          1. `document.execCommand('insertText', ...)`
+          2. Dispatch a `beforeinput` + `input` InputEvent with
+             `inputType: 'insertText'`, `data: text`, `composed: true`.
+             Lexical/ProseMirror listen on this path.
+          3. Dispatch a `ClipboardEvent('paste')` with a populated
+             `DataTransfer`. Many composers have a paste handler.
+          4. CDP `Input.insertText` — types through the IME layer.
+          5. System clipboard + Cmd/Ctrl+V via CDP `Input.dispatchKeyEvent`.
+
+        Returns `(success, method_used)`. `method_used` names which step
+        landed the text (or `"failed"` if none did).
+
+        This is the fix for Pattern 1 (Reddit DM Lexical blocker) in the
+        2026-04-12 remediation plan. Framework-guarded editors reject
+        `execCommand` but accept the InputEvent/ClipboardEvent paths.
         """
         from nodriver import cdp
+        import sys as _sys
 
-        # Primary: execCommand('insertText') — fires correct InputEvents
-        success = await tab.evaluate(
-            '(() => {'
-            f'  const el = document.querySelector({json.dumps(selector)});'
-            '  if (!el) return false;'
-            '  el.focus();'
-            f'  return document.execCommand("insertText", false, {json.dumps(text)});'
-            '})()'
-        )
-        if success:
-            return True
+        def _norm(s: Optional[str]) -> str:
+            return re.sub(r"\s+", " ", s or "").strip()
 
-        # Fallback: clipboard API + Ctrl+V for native paste flow
-        await tab.evaluate(
-            f'navigator.clipboard.writeText({json.dumps(text)})'
+        expected_norm = _norm(text)
+
+        async def _check() -> bool:
+            """Read field value and compare to expected text (normalised)."""
+            val = await DOMHandler._read_field_value(tab, selector)
+            if val is None:
+                return False
+            actual_norm = _norm(val)
+            if not expected_norm:
+                return actual_norm == ""
+            if expected_norm in actual_norm:
+                return True
+            # Tolerate partial matches on long texts (framework may truncate
+            # trailing whitespace or paragraph markers).
+            if len(expected_norm) > 40 and actual_norm.startswith(expected_norm[:40]):
+                return True
+            return False
+
+        safe_sel = json.dumps(selector)
+        safe_text = json.dumps(text)
+        # Shadow-aware element lookup prelude — inlined into each JS step
+        # so every paste strategy uses `window.__ohFind` when available,
+        # fallback to `document.querySelector`. The resolver path installs
+        # __ohFind lazily on first call; direct callers that bypass the
+        # resolver (rare) will hit the fallback branch.
+        _finder_js = (
+            "const finder = (window.__ohFind || ((s) => document.querySelector(s)));"
         )
-        await asyncio.sleep(0.05)
-        # Cmd+V on macOS (modifier 4 = Meta)
-        modifier = 4  # Meta key for macOS
-        await tab.send(cdp.input_.dispatch_key_event(
-            "rawKeyDown", modifiers=modifier,
-            key="v", code="KeyV", windows_virtual_key_code=86
-        ))
-        await tab.send(cdp.input_.dispatch_key_event(
-            "keyUp", modifiers=modifier,
-            key="v", code="KeyV", windows_virtual_key_code=86
-        ))
-        await asyncio.sleep(0.1)
-        return True
+
+        # Focus the target first — all steps assume focus.
+        try:
+            await tab.evaluate(
+                f"(() => {{ {_finder_js} const e = finder({safe_sel});"
+                f"  if (e) {{ e.focus(); }} }})()"
+            )
+            await asyncio.sleep(0.05)
+        except Exception:
+            pass
+
+        # -------- Step 1: execCommand('insertText') --------
+        try:
+            await tab.evaluate(
+                "(() => {"
+                f"  {_finder_js}"
+                f"  const el = finder({safe_sel});"
+                "  if (!el) return false;"
+                "  el.focus();"
+                f"  return document.execCommand('insertText', false, {safe_text});"
+                "})()"
+            )
+            await asyncio.sleep(0.15)
+            if await _check():
+                return True, "execCommand"
+        except Exception as e:
+            print(f"[paste ladder] execCommand step failed: {e}", file=_sys.stderr)
+
+        # -------- Step 2: dispatch InputEvent(beforeinput + input) --------
+        try:
+            await tab.evaluate(
+                "(() => {"
+                f"  {_finder_js}"
+                f"  const el = finder({safe_sel});"
+                "  if (!el) return false;"
+                "  el.focus();"
+                f"  const txt = {safe_text};"
+                "  try {"
+                "    const before = new InputEvent('beforeinput', {"
+                "      inputType: 'insertText', data: txt,"
+                "      bubbles: true, cancelable: true, composed: true"
+                "    });"
+                "    el.dispatchEvent(before);"
+                "    const after = new InputEvent('input', {"
+                "      inputType: 'insertText', data: txt,"
+                "      bubbles: true, cancelable: false, composed: true"
+                "    });"
+                "    el.dispatchEvent(after);"
+                "    return true;"
+                "  } catch (e) { return false; }"
+                "})()"
+            )
+            await asyncio.sleep(0.15)
+            if await _check():
+                return True, "input_event"
+        except Exception as e:
+            print(f"[paste ladder] input_event step failed: {e}", file=_sys.stderr)
+
+        # -------- Step 3: dispatch ClipboardEvent('paste') --------
+        try:
+            await tab.evaluate(
+                "(() => {"
+                f"  {_finder_js}"
+                f"  const el = finder({safe_sel});"
+                "  if (!el) return false;"
+                "  el.focus();"
+                f"  const txt = {safe_text};"
+                "  try {"
+                "    const dt = new DataTransfer();"
+                "    dt.setData('text/plain', txt);"
+                "    const ev = new ClipboardEvent('paste', {"
+                "      clipboardData: dt, bubbles: true, cancelable: true, composed: true"
+                "    });"
+                "    try { Object.defineProperty(ev, 'clipboardData', { value: dt }); }"
+                "    catch (e) {}"
+                "    el.dispatchEvent(ev);"
+                "    return true;"
+                "  } catch (e) { return false; }"
+                "})()"
+            )
+            await asyncio.sleep(0.2)
+            if await _check():
+                return True, "clipboard_event"
+        except Exception as e:
+            print(f"[paste ladder] clipboard_event step failed: {e}", file=_sys.stderr)
+
+        # -------- Step 4: CDP Input.insertText --------
+        try:
+            await tab.send(cdp.input_.insert_text(text))
+            await asyncio.sleep(0.2)
+            if await _check():
+                return True, "cdp_insert_text"
+        except Exception as e:
+            print(f"[paste ladder] cdp_insert_text step failed: {e}", file=_sys.stderr)
+
+        # -------- Step 5: System clipboard + Cmd/Ctrl+V --------
+        try:
+            # Write to navigator clipboard (may fail if permission denied).
+            try:
+                await tab.evaluate(
+                    f"navigator.clipboard && navigator.clipboard.writeText({safe_text})"
+                )
+            except Exception:
+                pass
+            await asyncio.sleep(0.05)
+            # Cmd+V on macOS (modifier 4 = Meta), fallback to Ctrl+V on other
+            # platforms. Sending both is idempotent — extra key presses into a
+            # focused contenteditable are harmless if the first worked.
+            for modifier in (4, 2):  # Meta, Ctrl
+                try:
+                    await tab.send(cdp.input_.dispatch_key_event(
+                        "rawKeyDown", modifiers=modifier,
+                        key="v", code="KeyV", windows_virtual_key_code=86
+                    ))
+                    await tab.send(cdp.input_.dispatch_key_event(
+                        "keyUp", modifiers=modifier,
+                        key="v", code="KeyV", windows_virtual_key_code=86
+                    ))
+                except Exception:
+                    pass
+                await asyncio.sleep(0.15)
+                if await _check():
+                    return True, "keyboard_paste"
+        except Exception as e:
+            print(f"[paste ladder] keyboard_paste step failed: {e}", file=_sys.stderr)
+
+        return False, "failed"
+
+    @staticmethod
+    async def _paste_into_contenteditable(tab: Tab, selector: str, text: str) -> bool:
+        """Thin wrapper around the paste ladder for callers that only need
+        a bool (e.g. `type_text`'s hybrid long-text path)."""
+        success, _method = await DOMHandler._paste_into_contenteditable_ladder(
+            tab, selector, text
+        )
+        return success
+
+    @staticmethod
+    async def _react_native_setter_paste(
+        tab: Tab, selector: str, text: str
+    ) -> Tuple[bool, str]:
+        """
+        Paste text into a React-controlled `<input>` or `<textarea>`.
+
+        React 18 installs a `value` tracker on the prototype. Assigning
+        `element.value = x` writes the DOM but the tracker sees no change
+        and React never fires `onChange`. The fix is to grab the native
+        setter from the prototype descriptor and call it on the element,
+        then dispatch a bubbling `input` event.
+
+        Only applies to `<input>`/`<textarea>`/`<select>` — contenteditable
+        is handled by the ladder above. Detection heuristic: the target
+        must have a property matching `/^__reactFiber/` or
+        `/^__reactInternalInstance/` (React 16+).
+
+        Returns `(success, method_used)`. `method_used` is
+        `"react_native_setter"` on success, `"react_native_setter_na"` if
+        the target isn't a React-controlled input (caller should try
+        something else), or `"failed"` if the setter path ran but the
+        value didn't land.
+        """
+        safe_sel = json.dumps(selector)
+        safe_text = json.dumps(text)
+        # __ohFind is installed lazily by the resolver; this path assumes
+        # it's already present. Fallback to document.querySelector via
+        # the inline `||` guard if not.
+        try:
+            result = await tab.evaluate(
+                "(() => {"
+                "  const finder = (window.__ohFind || ((s) => document.querySelector(s)));"
+                f"  const el = finder({safe_sel});"
+                "  if (!el) return JSON.stringify({ok: false, reason: 'not_found'});"
+                "  const tag = (el.tagName || '').toUpperCase();"
+                "  if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {"
+                "    return JSON.stringify({ok: false, reason: 'wrong_tag', tag});"
+                "  }"
+                # React fiber detection — presence of any property key
+                # starting with __reactFiber or __reactInternalInstance
+                # means React owns this element.
+                "  let isReact = false;"
+                "  for (const k of Object.keys(el)) {"
+                "    if (k.indexOf('__reactFiber') === 0 || k.indexOf('__reactInternalInstance') === 0) {"
+                "      isReact = true; break;"
+                "    }"
+                "  }"
+                "  if (!isReact) return JSON.stringify({ok: false, reason: 'not_react'});"
+                "  try {"
+                "    const ctor = tag === 'TEXTAREA' ? HTMLTextAreaElement"
+                "               : tag === 'SELECT'   ? HTMLSelectElement"
+                "               :                      HTMLInputElement;"
+                "    const desc = Object.getOwnPropertyDescriptor(ctor.prototype, 'value');"
+                "    if (!desc || !desc.set) return JSON.stringify({ok: false, reason: 'no_setter'});"
+                "    el.focus();"
+                f"    desc.set.call(el, {safe_text});"
+                "    el.dispatchEvent(new Event('input',  { bubbles: true }));"
+                "    el.dispatchEvent(new Event('change', { bubbles: true }));"
+                "    return JSON.stringify({ok: true, value_length: (el.value || '').length});"
+                "  } catch (e) {"
+                "    return JSON.stringify({ok: false, reason: 'exception', msg: String(e)});"
+                "  }"
+                "})()"
+            )
+            parsed: Dict[str, Any] = {}
+            if isinstance(result, str):
+                try:
+                    parsed = json.loads(result)
+                except Exception:
+                    parsed = {}
+            if not parsed.get("ok"):
+                if parsed.get("reason") in ("wrong_tag", "not_react", "not_found", "no_setter"):
+                    return False, "react_native_setter_na"
+                return False, "failed"
+            # Verify the value actually landed.
+            await asyncio.sleep(0.1)
+            actual = await DOMHandler._read_field_value(tab, selector)
+            if actual and text.strip() and text.strip()[:40] in actual:
+                return True, "react_native_setter"
+            if actual and actual == text:
+                return True, "react_native_setter"
+            return False, "failed"
+        except Exception:
+            return False, "react_native_setter_na"
 
     @staticmethod
     async def paste_text(
@@ -1561,12 +2133,31 @@ class DOMHandler:
 
             resolved_for_use = resolved
             selector = resolved_selector
-            element = await tab.select(selector)
-            if not element:
-                raise Exception(f"Element not found after resolve: {selector}")
+            is_shadow = bool(resolved.get("is_shadow_hosted"))
 
-            await element.focus()
-            await asyncio.sleep(0.1)
+            # For flat-DOM targets: use nodriver's tab.select() for a
+            # native Element handle (enables .focus()/.apply() convenience
+            # methods). For shadow-hosted targets (Pattern 7 Reddit
+            # login): tab.select() uses document.querySelector internally
+            # which can't pierce shadow boundaries, so skip it and do
+            # focus/clear via JS through __ohFind.
+            element = None
+            if not is_shadow:
+                element = await tab.select(selector)
+                if not element:
+                    raise Exception(f"Element not found after resolve: {selector}")
+                await element.focus()
+                await asyncio.sleep(0.1)
+            else:
+                # Shadow-hosted focus via JS.
+                await tab.evaluate(
+                    "(() => {"
+                    "  const finder = (window.__ohFind || ((s) => document.querySelector(s)));"
+                    f"  const el = finder({json.dumps(selector)});"
+                    "  if (el && el.focus) el.focus();"
+                    "})()"
+                )
+                await asyncio.sleep(0.1)
 
             is_ce = await DOMHandler._is_contenteditable(tab, selector)
 
@@ -1574,18 +2165,46 @@ class DOMHandler:
                 if is_ce:
                     await DOMHandler._clear_contenteditable(tab, selector)
                 else:
-                    try:
-                        await element.apply("(elem) => { elem.value = ''; }")
-                    except Exception:
-                        await DOMHandler._clear_contenteditable(tab, selector)
+                    if element is not None:
+                        try:
+                            await element.apply("(elem) => { elem.value = ''; }")
+                        except Exception:
+                            await DOMHandler._clear_contenteditable(tab, selector)
+                    else:
+                        # Shadow-hosted <input>/<textarea>: clear via JS.
+                        await tab.evaluate(
+                            "(() => {"
+                            "  const finder = (window.__ohFind || ((s) => document.querySelector(s)));"
+                            f"  const el = finder({json.dumps(selector)});"
+                            "  if (el && 'value' in el) el.value = '';"
+                            "})()"
+                        )
                     await asyncio.sleep(0.1)
 
+            method_used: str = "unknown"
             if is_ce:
-                await DOMHandler._paste_into_contenteditable(
+                # Cascading 5-step ladder:
+                # execCommand → InputEvent → ClipboardEvent → CDP insertText → keyboard.
+                # Each step verifies via read-back before falling through.
+                _ok, method_used = await DOMHandler._paste_into_contenteditable_ladder(
                     tab, selector, text
                 )
             else:
+                # For <input>/<textarea>: try CDP Input.insertText first (the
+                # simple path that works for plain inputs), then fall through
+                # to the React native-setter trick if the field is
+                # React-controlled and the first attempt didn't land.
                 await tab.send(cdp.input_.insert_text(text))
+                method_used = "cdp_insert_text"
+                await asyncio.sleep(0.15)
+                read1 = await DOMHandler._read_field_value(tab, selector)
+                if not read1 or (text and text[:40].strip() not in (read1 or "")):
+                    # React-controlled input? Try the native setter trick.
+                    _ok2, react_method = await DOMHandler._react_native_setter_paste(
+                        tab, selector, text
+                    )
+                    if _ok2:
+                        method_used = react_method
 
             # Verification: read the field back. For Lexical/ProseMirror,
             # execCommand may silently no-op — the read-back is the only
@@ -1593,25 +2212,13 @@ class DOMHandler:
             await asyncio.sleep(0.2)
             actual = await DOMHandler._read_field_value(tab, selector)
 
-            # If the first attempt didn't land, try the CDP Input.insertText
-            # path (types through the IME layer) as a recovery step before
-            # reporting failure.
-            if is_ce and (actual is None or len(actual.strip()) == 0) and len(text) > 0:
-                try:
-                    await element.focus()
-                    await asyncio.sleep(0.05)
-                    await tab.send(cdp.input_.insert_text(text))
-                    await asyncio.sleep(0.2)
-                    actual = await DOMHandler._read_field_value(tab, selector)
-                except Exception:
-                    pass
-
             return DOMHandler._build_input_verification(
                 expected=text,
                 actual=actual,
                 resolved=resolved_for_use,
                 original_selector=selector,
                 action="paste_text",
+                method_used=method_used,
             )
 
         except Exception as e:

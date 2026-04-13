@@ -59,6 +59,46 @@ try {
   }
 } catch (e) {}
 
+// ── 33. Canvas getImageData noise (Round 11, 2026-04-13) ────────────────
+// Patch 16 above noises toDataURL and toBlob, but Cloudflare Turnstile and
+// modern FingerprintJS versions read canvas pixels directly via
+// CanvasRenderingContext2D.getImageData(), which was NOT covered. Pure
+// toDataURL noise is ignored by anyone who does:
+//
+//   const img = ctx.getImageData(0, 0, w, h);
+//   const hash = sha256(img.data);
+//
+// Patch 33 covers that path. We apply the same per-session deterministic
+// jitter (±1 in the low bit) to the first ~16 pixels returned. Pixels
+// beyond that offset are untouched to keep the patch cheap on large
+// images. The noise is session-stable (seeded from __STEALTH_SEED__) so
+// within one run the canvas hash is consistent but different sessions
+// produce different hashes.
+try {
+  var _origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+  CanvasRenderingContext2D.prototype.getImageData = function () {
+    var imgData = _origGetImageData.apply(this, arguments);
+    try {
+      // Only noise up to 64 bytes (16 pixels) — enough to perturb any
+      // hash that reads the buffer from the start, cheap on large images.
+      var nBytes = Math.min(imgData.data.length, 64);
+      for (var i = 0; i < nBytes; i += 4) {
+        // XOR the low bit with a session-deterministic value. 0 or 1.
+        var noise = __stealthHash(__stealthSeed, i + 5000) & 1;
+        imgData.data[i] = imgData.data[i] ^ noise;
+      }
+    } catch (ex) {} // CORS / detached canvas — fine
+    return imgData;
+  };
+  if (typeof window.__oh_register === 'function') {
+    window.__oh_register(CanvasRenderingContext2D.prototype.getImageData);
+  } else {
+    CanvasRenderingContext2D.prototype.getImageData.toString = function () {
+      return 'function getImageData() { [native code] }';
+    };
+  }
+} catch (e) {}
+
 // ── 17. WebGL fingerprint consistency ───────────────────────────────────
 // Override getParameter for UNMASKED_VENDOR/RENDERER to return
 // platform-appropriate strings (injected by Python loader).

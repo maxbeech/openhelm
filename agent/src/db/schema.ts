@@ -326,7 +326,18 @@ export const dataTables = sqliteTable("data_tables", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
-/** Rows within a data table — data stored as JSON keyed by column ID */
+/** Rows within a data table — data stored as JSON keyed by column ID
+ *
+ * NOTE: Writes through Drizzle (openhelm_data MCP server, app code)
+ * auto-populate `id`, `createdAt`, and `updatedAt` via `$defaultFn`.
+ * Agents writing via raw `sqlite3` in a Bash tool should use the
+ * `data_table_rows_autofill` view (migration 0042) which INSERTs
+ * transparently forward a pseudo-UUID `id` and ISO 8601 timestamps
+ * via an INSTEAD OF INSERT trigger. Inserting directly into
+ * `data_table_rows` without supplying `id`/`updated_at` will fail
+ * with a NOT NULL constraint error — intentional, so the error is
+ * loud rather than silent.
+ */
 export const dataTableRows = sqliteTable("data_table_rows", {
   id: text("id").primaryKey(),
   tableId: text("table_id")

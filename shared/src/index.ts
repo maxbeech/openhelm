@@ -682,6 +682,13 @@ export interface ClaudeCodeRunResult {
   rateLimitUtilization: number | null;
   /** Per-tool invocation counts and approximate output token attribution */
   toolStats?: RunToolStat[];
+  /**
+   * True if the run ended via the interactive detector's natural-completion
+   * path — the agent emitted a completion signal ("Task Complete", "## Summary")
+   * and fell silent within the tail window. The executor should treat this
+   * as a clean success, NOT a silence-timeout failure. Round 10 (2026-04-12).
+   */
+  naturalCompletion?: boolean;
 }
 
 // ─── Scheduler & Executor Types ───

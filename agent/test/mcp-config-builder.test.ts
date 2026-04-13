@@ -16,6 +16,9 @@ import {
   cleanupOrphanedConfigs,
   buildBrowserCredentialsNotice,
   BROWSER_SYSTEM_PROMPT,
+  BROWSER_MCP_PREAMBLE,
+  BROWSER_CAPTCHA_PREAMBLE,
+  BROWSER_PROFILE_PREAMBLE,
   EXTERNAL_MCP_GUIDANCE,
 } from "../src/mcp-servers/mcp-config-builder.js";
 
@@ -205,13 +208,18 @@ describe("writeMcpConfigFile (happy path)", () => {
     const { writeMcpConfigFile: freshWrite } =
       await import("../src/mcp-servers/mcp-config-builder.js");
 
-    const configPath = freshWrite("run-abc");
+    // Round 10 (2026-04-12): writeMcpConfigFile now returns
+    // { path, serverNames } instead of a raw string path. The
+    // `serverNames` field is used by the executor to filter phantom
+    // MCP server names in the tool-missing detector.
+    const result = freshWrite("run-abc");
 
-    expect(configPath).not.toBeNull();
-    expect(configPath).toContain("run-run-abc.json");
-    expect(existsSync(configPath!)).toBe(true);
+    expect(result).not.toBeNull();
+    expect(result!.path).toContain("run-run-abc.json");
+    expect(existsSync(result!.path)).toBe(true);
+    expect(result!.serverNames).toContain("openhelm_browser");
 
-    const parsed = JSON.parse(readFileSync(configPath!, "utf8"));
+    const parsed = JSON.parse(readFileSync(result!.path, "utf8"));
     expect(parsed.mcpServers["openhelm_browser"].command).toBe(paths.pythonPath);
     expect(parsed.mcpServers["openhelm_browser"].args).toContain(paths.serverModule);
     expect(parsed.mcpServers["openhelm_browser"].cwd).toBe(paths.cwd);
@@ -343,5 +351,46 @@ describe("EXTERNAL_MCP_GUIDANCE (Issues 20 + 21)", () => {
     expect(EXTERNAL_MCP_GUIDANCE).toContain("?v=");
     expect(EXTERNAL_MCP_GUIDANCE).toMatch(/strip/i);
     expect(EXTERNAL_MCP_GUIDANCE).toContain("notion-fetch");
+  });
+});
+
+describe("Round 11 preamble additions (2026-04-13)", () => {
+  it("EXTERNAL_MCP_GUIDANCE documents the Notion page_size ≤25 constraint", () => {
+    // Round 11: multiple overnight runs wasted tool calls discovering
+    // the Notion API's page_size limit. The preamble must now pre-empt
+    // this so the first call is correct.
+    expect(EXTERNAL_MCP_GUIDANCE).toContain("page_size");
+    expect(EXTERNAL_MCP_GUIDANCE).toContain("25");
+  });
+
+  it("EXTERNAL_MCP_GUIDANCE documents the Sentry search OR/AND limitation", () => {
+    // Round 11: Sentry Error Fixer run 73508ece wasted calls on
+    // `query=...OR...` that return HTTP 400.
+    expect(EXTERNAL_MCP_GUIDANCE).toContain("Sentry");
+    expect(EXTERNAL_MCP_GUIDANCE).toMatch(/OR.{0,20}AND|boolean/i);
+  });
+
+  it("BROWSER_CAPTCHA_PREAMBLE names request_user_help as the FIRST escalation for Cloudflare", () => {
+    // Round 11: X.com / Quora runs were abandoning platforms after a
+    // single 30s wait. The preamble must state that request_user_help
+    // is the FIRST action, not the last.
+    expect(BROWSER_CAPTCHA_PREAMBLE).toContain("request_user_help");
+    expect(BROWSER_CAPTCHA_PREAMBLE).toContain("Cloudflare");
+    expect(BROWSER_CAPTCHA_PREAMBLE).toMatch(/FIRST/);
+  });
+
+  it("BROWSER_PROFILE_PREAMBLE forbids trusting stale compaction UUIDs", () => {
+    // Round 11: runs after context compaction were using browser
+    // instance UUIDs from the summary that had already been cleaned
+    // up by the idle reaper.
+    expect(BROWSER_PROFILE_PREAMBLE).toMatch(/NEVER trust/i);
+    expect(BROWSER_PROFILE_PREAMBLE).toContain("compact");
+    expect(BROWSER_PROFILE_PREAMBLE).toContain("list_instances");
+  });
+
+  it("BROWSER_MCP_PREAMBLE documents the new triple_click tool", () => {
+    // Round 11: triple_click is a new MCP tool (absorbs a
+    // hallucinated tool name). The preamble must document it.
+    expect(BROWSER_MCP_PREAMBLE).toContain("triple_click");
   });
 });

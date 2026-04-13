@@ -84,21 +84,41 @@ class CDPFunctionExecutor:
 
     async def enable_runtime(self, tab: Tab) -> bool:
         """
-        Enables CDP Runtime domain for a tab.
+        Ensure an execution context exists for this tab WITHOUT calling
+        Runtime.enable.
+
+        Round 11 (2026-04-13): The original implementation called
+        ``uc.cdp.runtime.enable()`` here. In 2026, holding the CDP Runtime
+        domain open is the #1 detection vector used by Cloudflare, Reddit's
+        Snoosheriff, and DataDome — they observe the side effects that
+        Runtime.enable has on expressions like
+        ``console.debug(error_with_getter)`` and flag the browser even if no
+        other stealth signal is present. Patchright, rebrowser-patches,
+        ZenDriver, and camoufox all centre their stealth strategy on never
+        calling Runtime.enable.
+
+        nodriver's ``tab.send(uc.cdp.runtime.evaluate(...))`` does NOT
+        actually require Runtime.enable to have been called — the CDP
+        Runtime.evaluate command works standalone, because Chrome
+        maintains one implicit main-world execution context per frame
+        from the moment the page is committed. The old call was
+        defensive, not load-bearing.
+
+        We keep ``enable_runtime`` as a name for backwards compatibility
+        with every callsite in this module, but it is now a no-op that
+        simply returns True. If a future callsite needs a dedicated
+        isolated execution context id, it should call
+        ``Page.createIsolatedWorld(frameId=...)`` directly and use the
+        returned ``executionContextId`` — NOT Runtime.enable.
 
         Args:
             tab (Tab): The browser tab.
 
         Returns:
-            bool: True if enabled, False otherwise.
+            bool: Always True. The method no longer calls any CDP command.
         """
-        try:
-            await tab.send(uc.cdp.runtime.enable())
-            debug_logger.log_info("cdp_function_executor", "enable_runtime", f"Runtime enabled for tab")
-            return True
-        except Exception as e:
-            debug_logger.log_error("cdp_function_executor", "enable_runtime", e)
-            return False
+        # Intentional no-op. See docstring above.
+        return True
 
     async def list_cdp_commands(self) -> List[str]:
         """

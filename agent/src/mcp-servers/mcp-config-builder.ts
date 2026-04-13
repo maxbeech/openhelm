@@ -38,11 +38,13 @@ export const BROWSER_MCP_PREAMBLE =
   "   - `warnings` is empty.\n" +
   "   If verified is false OR warnings mention a search input OR editor_kind is `input-search`, DO NOT click submit — go back, use `find_on_page` with a more specific phrase, and retry.\n" +
   "C. After clicking any submit/post/publish/reply button, your VERY NEXT call MUST be `get_page_digest`. Confirm the editor closed, the new comment/post appears, or a success toast is visible. If none of those are true, the submission did NOT succeed — do not claim success. Retry or report the blocker.\n" +
-  "D. Collapsed comment widgets (Reddit, Twitter, LinkedIn) are handled automatically: `paste_text`/`type_text` detect both hidden editors AND visible trigger wrappers (custom elements like `<faceplate-textarea-input>`, `<shreddit-composer>`), click them, wait for the real editor to mount, and auto-fall-back to a generic `textarea, [contenteditable]` scan to find the revealed editor. You do NOT need to manually switch selectors after clicking a composer trigger — just pass the same selector you used for `find_on_page` / `click_element` and paste_text will re-target. If paste_text still returns `verified: false` after auto-expand, check `resolved_target.fallback_editor_used` and `activator_clicked` — if both are true and it STILL failed, the composer wants a real mouse gesture: call `click_element` on the activator selector, then `get_page_digest`, then retry. Do NOT give up after a single failed paste_text — retry at least twice with different approaches before abandoning the thread.\n" +
-  "E. `find_on_page(query)` is the most reliable way to locate a specific piece of UI. It accepts plain text (case-insensitive), CSS selectors, and XPath (starting with `//`), and always returns a `selector_hint` of the form `[data-oh-find=\"1\"]` or similar that you can pass directly to `click_element`/`paste_text`. Note: on Reddit, find_on_page for 'Join the conversation' returns a selector for the trigger WRAPPER, not the editor itself — but paste_text handles this automatically (see rule D). Use the same selector_hint for both `click_element` and the subsequent `paste_text`.\n\n" +
+  "D. Collapsed comment widgets (Reddit, Twitter, LinkedIn) are handled automatically: `paste_text`/`type_text` detect both hidden editors AND visible trigger wrappers (custom elements like `<faceplate-textarea-input>`, `<shreddit-composer>`), click them, wait for the real editor to mount, and auto-fall-back to a generic `textarea, [contenteditable]` scan to find the revealed editor. You do NOT need to manually switch selectors after clicking a composer trigger — just pass the same selector you used for `find_on_page` / `click_element` and paste_text will re-target. Framework-guarded editors (Lexical, ProseMirror on Reddit DM; React Fiber controlled inputs on LinkedIn) are handled by an automatic 5-step ladder (execCommand → InputEvent → ClipboardEvent → CDP insertText → keyboard Cmd/Ctrl+V → React native-setter for controlled inputs). The verification dict's `method_used` field names which technique actually landed — `execCommand` (fastest, works on most pages), `input_event` / `clipboard_event` (Lexical/ProseMirror), `react_native_setter` (LinkedIn message composer and other React-controlled inputs), `cdp_insert_text` / `keyboard_paste` (last-resort fallbacks). If paste_text still returns `verified: false` after auto-expand, check `resolved_target.fallback_editor_used` and `activator_clicked` — if both are true and it STILL failed, the composer wants a real mouse gesture: call `click_element` on the activator selector, then `get_page_digest`, then retry. Do NOT give up after a single failed paste_text — retry at least twice with different approaches before abandoning the thread.\n" +
+  "E. `find_on_page(query)` is the most reliable way to locate a specific piece of UI. It accepts plain text (case-insensitive), CSS selectors, and XPath (starting with `//`), and always returns a `selector_hint` of the form `[data-oh-find=\"1\"]` or similar that you can pass directly to `click_element`/`paste_text`. Note: on Reddit, find_on_page for 'Join the conversation' returns a selector for the trigger WRAPPER, not the editor itself — but paste_text handles this automatically (see rule D). Use the same selector_hint for both `click_element` and the subsequent `paste_text`.\n" +
+  "E3. `triple_click(instance_id, selector)` selects the full line / paragraph under an element via three rapid synthesised mouse events (clickCount 1→2→3). Use it when you need to highlight existing text in an input before typing over it (triple-click selects everything in an `<input>`, the whole paragraph in a contenteditable). Pair with `type_text` / `paste_text` — those already auto-clear when `clear_first=true`, so triple_click is only needed when you want the browser's native selection-replace behaviour (e.g. when a framework fights your clear).\n" +
+  "E2. Shadow DOM inputs (old reddit login, custom web-component auth forms, some legacy CMS logins) are now reachable automatically — the resolver walks open shadow roots and `paste_text`/`type_text`/`find_on_page` see shadow-hosted elements as if they were in the flat DOM. If you spot `is_shadow_hosted: true` in the `resolved_target`, no special handling is needed — just paste as normal.\n\n" +
   "PLATFORM ANTI-AUTOMATION BLOCKERS (mandatory — do not waste turns):\n" +
   "F. Reddit signup-modal overlay: When browsing a Reddit thread without a valid logged-in session, Reddit injects a full-screen 'Sign up' modal over the comment form. If `get_page_digest` shows 'Sign up' / 'Continue with Google' prominently near the comment area, OR if `paste_text` returns `verified: false` on a Reddit comment target more than once, the session is NOT valid — STOP trying to paste. Do one of: (a) call `check_session(instance_id, \"reddit.com\")` — if `logged_in: false`, call `request_user_help` with reason `\"Reddit session expired — please log in manually\"` and poll. (b) If `request_user_help` is not appropriate for this job, STOP and report `blocker: \"reddit_session_expired\"` as the final status. Do NOT attempt to submit comments via execute_script, clipboard hacks, or DOM manipulation — Reddit's reCAPTCHA on comment submission will block those too.\n" +
-  "G. LinkedIn Lexical/ProseMirror editor: LinkedIn's message composer uses a contenteditable editor that ignores `execCommand`, clipboard paste, AND JavaScript DOM mutation. If `paste_text` returns `verified: false` on a LinkedIn message target after 2 attempts (one with `find_on_page(\"Write a message\")`, one with `find_on_page(\"Message\")`), STOP. Do NOT try `execute_script` with manual DOM rewrites — those will fail silently or crash the page. Instead: click the message composer to focus it, then call `type_text` with `humanize=false` and a short `delay_ms` to dispatch real character keystrokes via CDP — this is the only input path LinkedIn accepts. If that ALSO fails after 2 attempts, STOP and report `blocker: \"linkedin_message_composer\"`. Do not pivot to a different contact.\n" +
+  "G. LinkedIn message composer: The 5-step paste ladder (rule D) auto-handles React-controlled inputs via the native-setter trick. On `paste_text`, look for `method_used: \"react_native_setter\"` in the result — that's the expected method when targeting LinkedIn. If `paste_text` returns `verified: false` on a LinkedIn message target after 2 attempts (one with `find_on_page(\"Write a message\")`, one with `find_on_page(\"Message\")`), fall through to `type_text` with `humanize=false, delay_ms=15` — it will run the same ladder including the react_native_setter path. If that ALSO fails, STOP and report `blocker: \"linkedin_message_composer\"`. Do not pivot to a different contact.\n" +
   "H. LinkedIn connection-modal button: The 'Send without a note' button on LinkedIn's connection modal sometimes swallows programmatic clicks. If `click_element` on that button returns success but the modal is still visible on the next `get_page_digest`, retry ONCE using `find_on_page(\"Send without a note\")` to get a fresh selector. If still blocked, STOP and report `blocker: \"linkedin_connection_modal\"`. Do NOT call `execute_script` to simulate the click — LinkedIn filters synthetic MouseEvents on this control.\n" +
   "I. GENERAL RULE: any time a platform is actively blocking automation (reCAPTCHA on submit, overlaid modal, editor ignoring input), after AT MOST 2 structured retries you MUST STOP and report the specific blocker as the run's final status. Burning 20+ turns on a blocked platform is worse than a clean refusal — the user will see both the attempt and the reason in the run log.\n\n";
 
@@ -78,7 +80,20 @@ export const EXTERNAL_MCP_GUIDANCE =
   "validation error (`URL type view not currently supported`) if you " +
   "leave the view param in, and falling back to the browser to read " +
   "Notion is slow and error-prone — do not do that when a simple URL " +
-  "strip would work.";
+  "strip would work.\n" +
+  "- `mcp__notion__notion-search` `page_size` parameter MUST be ≤25. Notion " +
+  "enforces this server-side and rejects larger values with `MCP error " +
+  "-32602: Invalid arguments for tool notion-search: page_size must be ≤25, " +
+  "expected 25`. Always pass `page_size: 25` (or less) and paginate with " +
+  "the cursor if more results are needed. Do NOT pass `page_size: 100` " +
+  "or any value >25 — it will always fail.\n" +
+  "- `mcp__Sentry__search_issues` and `mcp__Sentry__search_events` do NOT " +
+  "support boolean `OR` / `AND` operators inside the query string. Split " +
+  "multi-clause queries into multiple separate calls and merge the results " +
+  "client-side. A query like `\"error\" OR \"warning\"` returns HTTP 400 " +
+  "with `Error parsing search query: Boolean statements containing \"OR\" " +
+  "or \"AND\" are not supported`. Do NOT use `sentry-cli issues list --first` " +
+  "either — `--first` is not a valid flag for that subcommand.";
 
 /**
  * Prepended to job prompts to instruct Claude on CAPTCHA handling.
@@ -90,6 +105,23 @@ export const BROWSER_CAPTCHA_PREAMBLE =
   "- navigate(), go_back(), go_forward(), and reload_page() automatically detect CAPTCHAs. " +
   "If the response contains captcha_detected=true, you MUST immediately call " +
   "request_user_help with the reason from captcha_action_required. Do NOT close the browser.\n" +
+  "- CLOUDFLARE INTERACTIVE CHALLENGES (X.com, Quora, Discord upstream — these are the ones " +
+  "that have been blocking scheduled runs). Landing on `x.com/account/access`, a 'Just a moment...' " +
+  "interstitial that persists past `reload_page`, any page whose body contains 'Verify you are human' / " +
+  "'Performing security verification' / 'Checking your browser', or a shadow-DOM Turnstile checkbox " +
+  "you can't find via get_page_digest — ALL of these require `request_user_help` as your FIRST " +
+  "action, not your last. Round 11 stealth patches (force-open shadow DOM, Sec-CH-UA alignment) " +
+  "reduce but DO NOT eliminate interactive Turnstile — the behavioural ML scoring it runs after " +
+  "the checkbox click is still beyond any JS patch. Your escalation order on these platforms is:\n" +
+  "  1. `request_user_help(reason=\"cloudflare_interactive\")` — FIRST, not fifth. A visible Chrome " +
+  "window opens; the user clicks the checkbox manually; you resume.\n" +
+  "  2. Poll `take_screenshot` every 30s for up to 15 minutes.\n" +
+  "  3. Only if the 15-minute budget expires, stop and report `blocked on Cloudflare`. \n" +
+  "  DO NOT: try `click_element` on an invisible shadow-DOM checkbox, retry navigate() in a loop, " +
+  "or pivot to a different platform. Abandoning a Cloudflare-blocked run after 30 seconds without " +
+  "calling `request_user_help` is a job failure you are responsible for, NOT a platform limitation. " +
+  "If your job explicitly targets X.com, Quora, or Discord, plan for `request_user_help` as part of " +
+  "the normal flow on those platforms — not as an exception.\n" +
   "- After calling request_user_help, poll with take_screenshot every 30s for up to 15 minutes. " +
   "Output a status line each poll to prevent silence timeout. Do NOT give up after 30 seconds, " +
   "1 minute, or 5 minutes — the user may be away from their machine and needs time to notice " +
@@ -117,7 +149,8 @@ export const BROWSER_PROFILE_PREAMBLE =
   "- DO NOT invent per-task profile names like `\"search_session\"`, `\"hn_browser\"`, `\"reddit_task\"`. Those create brand-new empty profiles every run, which is equivalent to having no profile at all. Reuse existing named profiles or fall back to `default`.\n" +
   "- After spawning, call `check_session(instance_id, domain)` on any site that needs login. If the session is expired, call `auto_login` with the credential name. If auto_login also fails, call `request_user_help` for manual login.\n" +
   "- If the first `navigate` lands on an anti-bot page ('Prove your humanity', 'Just a moment', 'Checking your browser'), DO NOT immediately close the instance and move on. Try: (1) wait 3s and `reload_page` once, (2) if still blocked, re-spawn with the site's dedicated profile (e.g. `profile=\"reddit\"`, `profile=\"xcom\"`) — existing cookies often bypass the check, (3) only call `request_user_help` or abandon the platform if both fail. Do NOT skip a whole target platform after a single flake.\n" +
-  "- CROSS-COMPACTION RECOVERY (critical): if your context has just been compacted (you see a conversation summary at the top and don't remember what you were doing), the Python browser MCP subprocess is still running with your PREVIOUS browser instance and all its cookies/auth still live. BEFORE calling `spawn_browser`, call `list_instances` to see what's already attached. If an instance exists, use its `instance_id` directly — do NOT spawn a fresh browser, as that will force a full re-login and lose whatever work you were in the middle of (CAPTCHA, auth, session state). If you do call `spawn_browser(profile=\"<name>\")` and a live instance is already bound to that profile, the tool will transparently return the existing instance (`reused: true` in the response) — accept that and continue; do NOT treat it as an error.\n\n";
+  "- CROSS-COMPACTION RECOVERY (critical): if your context has just been compacted (you see a conversation summary at the top and don't remember what you were doing), the Python browser MCP subprocess is still running with your PREVIOUS browser instance and all its cookies/auth still live. BEFORE calling `spawn_browser`, call `list_instances` to see what's already attached. If an instance exists, use its `instance_id` directly — do NOT spawn a fresh browser, as that will force a full re-login and lose whatever work you were in the middle of (CAPTCHA, auth, session state). If you do call `spawn_browser(profile=\"<name>\")` and a live instance is already bound to that profile, the tool will transparently return the existing instance (`reused: true` in the response) — accept that and continue; do NOT treat it as an error.\n" +
+  "- NEVER trust a browser `instance_id` UUID that appears in a conversation summary at the top of your compacted context — that UUID may be from a browser instance that was already cleaned up by the idle reaper (5-minute inactivity timeout). After compaction, your FIRST browser-related call MUST be `list_instances` to get the CURRENT live UUID set. If the UUID from your summary is NOT in the live set, discard it from your working memory entirely — subsequent `get_page_digest`, `navigate`, etc. calls on that stale UUID will return `Instance not found: <id>` and waste turns. If the live set is empty, then (and only then) spawn a fresh browser.\n\n";
 
 /**
  * Prepended to job prompts when the browser MCP is available and the job may
@@ -353,13 +386,28 @@ export function buildMcpConfig(runId: string, credentialsFilePath?: string, proj
 }
 
 /**
- * Write the MCP config to a file and return the path.
- * Returns null if no bundled MCP servers are available.
+ * Write the MCP config to a file and return the path + the list of
+ * server names actually written. Returns null if no bundled MCP servers
+ * are available.
+ *
+ * Round 10 (2026-04-12): now returns `{path, serverNames}` instead of
+ * just `path`. Executor uses `serverNames` to filter phantom MCP server
+ * names in the tool-missing detector (Pattern 14). Callers that only
+ * need the path should read the `.path` property.
  *
  * @param credentialsFilePath — forwarded to buildMcpConfig for browser credential injection.
  * @param projectId — forwarded to buildMcpConfig for data tables MCP server.
  */
-export function writeMcpConfigFile(runId: string, credentialsFilePath?: string, projectId?: string): string | null {
+export interface McpConfigFileInfo {
+  path: string;
+  serverNames: string[];
+}
+
+export function writeMcpConfigFile(
+  runId: string,
+  credentialsFilePath?: string,
+  projectId?: string,
+): McpConfigFileInfo | null {
   const config = buildMcpConfig(runId, credentialsFilePath, projectId);
   if (!config) return null;
 
@@ -384,16 +432,17 @@ export function writeMcpConfigFile(runId: string, credentialsFilePath?: string, 
   }
 
   // Verify content is valid JSON and contains expected servers
+  const serverNames = Object.keys(config.mcpServers ?? {});
   try {
     const readBack = readFileSync(configPath, "utf-8");
     const parsed = JSON.parse(readBack);
-    const serverNames = Object.keys(parsed.mcpServers ?? {});
-    console.error(`[mcp-config] verified config for run ${runId}: ${serverNames.join(", ")}`);
+    const diskNames = Object.keys(parsed.mcpServers ?? {});
+    console.error(`[mcp-config] verified config for run ${runId}: ${diskNames.join(", ")}`);
   } catch (err) {
     console.error(`[mcp-config] WARNING: config file validation failed: ${err}`);
   }
 
-  return configPath;
+  return { path: configPath, serverNames };
 }
 
 /** Remove a previously written MCP config file (post-run cleanup). */

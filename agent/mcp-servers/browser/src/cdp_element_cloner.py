@@ -52,9 +52,15 @@ class CDPElementCloner:
         """
         try:
             debug_logger.log_info("cdp_cloner", "extract_complete", f"Starting CDP extraction for {selector}")
+            # Enable DOM and CSS domains (these are safe and required).
+            # Round 11 (2026-04-13): Runtime.enable is NOT called here — it
+            # is a primary CDP detection vector in 2026 (Cloudflare / Reddit
+            # Snoosheriff / DataDome all probe for it). The cloner's CSS /
+            # DOM / DOMDebugger calls below do not depend on the Runtime
+            # domain, so we omit enable() entirely. See Round 11 in
+            # docs/browser/efficiency-improvements.md for the full rationale.
             await tab.send(uc.cdp.dom.enable())
             await tab.send(uc.cdp.css.enable())
-            await tab.send(uc.cdp.runtime.enable())
             doc = await tab.send(uc.cdp.dom.get_document())
             nodes = await tab.send(uc.cdp.dom.query_selector_all(doc.node_id, selector))
             if not nodes:

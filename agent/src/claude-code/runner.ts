@@ -43,6 +43,15 @@ export interface RunnerConfig {
   silenceTimeoutMs?: number;
   /** Called when interactive input is detected */
   onInteractiveDetected?: (reason: string, type: InteractiveDetectionType) => void;
+  /**
+   * Called when the agent emitted a natural completion signal (e.g.
+   * "Task Complete", "## Summary") and then fell silent within the tail
+   * window. The caller should mark the run as succeeded and gracefully
+   * terminate — NOT as a stuck/hitl-killed failure. Round 10 fix for
+   * Pattern 10 (completed blog-post run falsely killed after final
+   * summary message).
+   */
+  onNaturalCompletion?: (reason: string) => void;
   /** Resume a previous session instead of starting fresh */
   resumeSessionId?: string;
   /** Additional environment variables to merge into the spawned process env */
@@ -143,18 +152,33 @@ export function runClaudeCode(
               approxOutputTokens: s.approxOutputTokens,
             }))
           : undefined,
+        naturalCompletion: naturalCompletionFired,
       });
     };
 
     // -- Interactive Detector --
+    let naturalCompletionFired = false;
     const interactiveDetector = new InteractiveDetector({
       silenceTimeoutMs: config.silenceTimeoutMs ?? DEFAULT_SILENCE_TIMEOUT_MS,
       onDetected: (reason, type) => {
         console.error(`[runner] interactive detected (${type}): ${reason}`);
         config.onInteractiveDetected?.(reason, type);
       },
+      onNaturalCompletion: (reason) => {
+        console.error(`[runner] natural completion detected: ${reason}`);
+        naturalCompletionFired = true;
+        config.onNaturalCompletion?.(reason);
+        // The agent has signalled it's done — terminate the process
+        // gracefully. Same path as a normal SIGTERM but the caller
+        // treats it as succeeded, not failed.
+        killProcess(child);
+      },
     });
     interactiveDetector.start();
+    // Capture reference for use elsewhere in the closure (e.g. to check
+    // whether the run ended via natural completion).
+    (child as unknown as { __naturalCompletion: () => boolean }).__naturalCompletion =
+      () => naturalCompletionFired;
 
     // -- stdout streaming (stream-json lines) --
     const stdoutRl = createInterface({ input: child.stdout! });

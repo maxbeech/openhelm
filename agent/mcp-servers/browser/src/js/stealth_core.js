@@ -1,3 +1,174 @@
+// ═══════════════════════════════════════════════════════════════════════
+// ROUND 11 PATCHES (2026-04-13) — MUST run first
+// ═══════════════════════════════════════════════════════════════════════
+// These new patches (30–33) are defensive upgrades that target the
+// 2026-era CDP detection vectors Cloudflare, Reddit (Snoosheriff), and
+// DataDome all exploit — specifically:
+//   • Function.prototype.toString probe ("is this function native code?")
+//   • Closed-mode shadow DOM challenges (Cloudflare Turnstile checkbox)
+//   • document.visibilityState leaking 'hidden' on CDP-driven tabs
+//   • Canvas getImageData fingerprinting (reads raw pixels directly,
+//     bypassing the toDataURL/toBlob overrides in stealth_fingerprint.js)
+// Patches 30 MUST run before any other patch because subsequent
+// patches register themselves with __oh_register() so their toString()
+// values return [native code] even when introspected.
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── 30. Function.prototype.toString global cloak ──────────────────────
+// The canonical bot-detection probe: call .toString() on every native
+// function you care about (Object.defineProperty, Proxy, chrome.runtime
+// methods, etc.) and check whether the source contains "[native code]".
+// Any patch that replaces a native function without also monkey-patching
+// .toString leaks its presence immediately. The old approach was to shim
+// .toString per-function; Round 11 takes the global approach — we wrap
+// Function.prototype.toString once and register patched functions in a
+// WeakSet. For any registered function, toString returns the expected
+// native-code stub. For everything else, we delegate to the original.
+//
+// This pattern is straight from puppeteer-extra-stealth utils
+// (https://github.com/berstend/puppeteer-extra/blob/master/packages/
+//  puppeteer-extra-plugin-stealth/evasions/_utils/index.js) and is the
+// #1 gap Castle.io identifies in nodriver-based stealth frameworks.
+try {
+  var __oh_patched = new WeakSet();
+  var _origFnToString = Function.prototype.toString;
+
+  function _ohFnToString() {
+    // Special-case: asking toString on toString itself must return the
+    // original native source, not recurse.
+    if (this === Function.prototype.toString) {
+      return _origFnToString.call(_origFnToString);
+    }
+    if (__oh_patched.has(this)) {
+      var name = '';
+      try { name = (this.name || ''); } catch (e) {}
+      return 'function ' + name + '() { [native code] }';
+    }
+    return _origFnToString.call(this);
+  }
+
+  Function.prototype.toString = _ohFnToString;
+  __oh_patched.add(Function.prototype.toString);
+
+  // Public helper: every subsequent patch calls window.__oh_register(fn)
+  // after replacing a native function so fn.toString() returns native code.
+  window.__oh_register = function (fn) {
+    try { __oh_patched.add(fn); } catch (e) {}
+    return fn;
+  };
+} catch (e) {}
+
+// ── 31. attachShadow force-open + shadow DOM re-injection ─────────────
+// Cloudflare Turnstile renders its "Verify you are human" checkbox
+// inside a mode:'closed' shadow DOM iframe. CDP cannot query into closed
+// shadow roots from outside — they are browser-enforced. But we run
+// BEFORE any page script (via Page.addScriptToEvaluateOnNewDocument),
+// so we can intercept Element.prototype.attachShadow and force mode:'open'
+// regardless of what the caller passes. When Cloudflare's challenge code
+// subsequently calls attachShadow({mode:'closed'}), it gets an open root
+// instead, and CDP + JS can then reach the checkbox via shadowRoot.
+//
+// Caveat from research: this enables FINDING and CLICKING the checkbox,
+// but Turnstile also applies behavioural ML scoring (mouse path, attention
+// timing) that JS patches alone cannot defeat. Fall back to
+// request_user_help for interactive Turnstile challenges. This patch is a
+// PREREQUISITE for future OS-level mouse-event bypass, not a full fix.
+//
+// Reference: chromedp issue #1608; patchright README "interaction with
+// elements in closed shadow DOMs".
+try {
+  var _origAttachShadow = Element.prototype.attachShadow;
+  function _ohAttachShadow(init) {
+    init = init || {};
+    init.mode = 'open';
+    return _origAttachShadow.call(this, init);
+  }
+  Element.prototype.attachShadow = _ohAttachShadow;
+  if (typeof window.__oh_register === 'function') {
+    window.__oh_register(_ohAttachShadow);
+  }
+
+  // Re-inject chrome.runtime into any existing open shadow roots via a
+  // MutationObserver. This covers the case where a shadow root was
+  // attached before our observer started (e.g. after navigation).
+  try {
+    var _ohReinjectShadow = function (root) {
+      try {
+        if (!root || !root.host) return;
+        // Shadow roots don't have their own window, but pages can query
+        // root.host.ownerDocument.defaultView.chrome which already points
+        // at the main window — Patch 1 already covers that. Nothing to do
+        // here for chrome.runtime per se, but we walk nested shadows so
+        // other patches (via __oh_register) remain consistent across
+        // shadow boundaries.
+        var nested = root.querySelectorAll('*');
+        for (var i = 0; i < Math.min(nested.length, 500); i++) {
+          if (nested[i].shadowRoot) {
+            _ohReinjectShadow(nested[i].shadowRoot);
+          }
+        }
+      } catch (e) {}
+    };
+    var _ohObserver = new MutationObserver(function (mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var added = mutations[i].addedNodes;
+        for (var j = 0; j < added.length; j++) {
+          var n = added[j];
+          if (n && n.shadowRoot) {
+            _ohReinjectShadow(n.shadowRoot);
+          }
+        }
+      }
+    });
+    // Start observing once DOM is ready
+    if (document.documentElement) {
+      _ohObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+      });
+    } else {
+      document.addEventListener('DOMContentLoaded', function () {
+        _ohObserver.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+        });
+      });
+    }
+  } catch (e) {}
+} catch (e) {}
+
+// ── 32. document.hidden + visibilityState always 'visible' ────────────
+// CDP-driven browsers can run with an unfocused or background tab, and
+// document.hidden leaks 'true' / document.visibilityState leaks 'hidden'
+// in those states. Cloudflare's challenge JS reads visibilityState during
+// the "Just a moment" interstitial — if it sees 'hidden', it suspects
+// automated navigation and escalates the challenge.
+try {
+  Object.defineProperty(Document.prototype, 'hidden', {
+    get: function () { return false; },
+    configurable: true,
+  });
+  Object.defineProperty(Document.prototype, 'visibilityState', {
+    get: function () { return 'visible'; },
+    configurable: true,
+  });
+  // Some detectors ALSO check webkitVisibilityState (legacy).
+  try {
+    Object.defineProperty(Document.prototype, 'webkitVisibilityState', {
+      get: function () { return 'visible'; },
+      configurable: true,
+    });
+    Object.defineProperty(Document.prototype, 'webkitHidden', {
+      get: function () { return false; },
+      configurable: true,
+    });
+  } catch (e) {}
+} catch (e) {}
+
+// ═══════════════════════════════════════════════════════════════════════
+// END ROUND 11 PATCHES — legacy patches 1–11 follow
+// ═══════════════════════════════════════════════════════════════════════
+
 // ── 1. chrome.runtime stub ──────────────────────────────────────────────
 // CDP connections omit window.chrome.runtime.  Its absence is used by
 // FingerprintJS and similar tools as a "Developer Tools active" signal.
@@ -202,24 +373,55 @@ try {
 
 // ── 8. navigator.userAgentData mock ───────────────────────────────────
 // Modern Chrome exposes NavigatorUAData. Automated Chrome may report
-// unexpected values or omit brands.  Normalise to match real Chrome.
+// unexpected values or omit brands.  Normalise to match real Chrome
+// AND to match the HTTP Sec-CH-UA-* headers set via Network.setExtraHTTPHeaders
+// in stealth.py (Round 11). The brand list, Chrome major version, and
+// platform name are templated in from Python so both sides agree —
+// fixing the "Franken-fingerprint" mismatch Reddit/Cloudflare exploit.
 try {
   if (navigator.userAgentData) {
+    // Templated from stealth.py::_brand_profile(). Examples:
+    //   __OH_BRAND_LIST__    → [{"brand":"Not)A;Brand","version":"99"},
+    //                           {"brand":"Google Chrome","version":"138"},
+    //                           {"brand":"Chromium","version":"138"}]
+    //   __OH_CHROME_MAJOR__  → 138
+    //   __OH_CHROME_FULL__   → 138.0.7204.101
+    //   __OH_PLATFORM_NAME__ → macOS / Windows / Linux
+    var __ohBrandList = __OH_BRAND_LIST__;
+    var __ohChromeMajor = '__OH_CHROME_MAJOR__';
+    var __ohChromeFull = '__OH_CHROME_FULL__';
+    var __ohPlatformName = '__OH_PLATFORM_NAME__';
+
     var _origGetHEV = navigator.userAgentData.getHighEntropyValues;
     navigator.userAgentData.getHighEntropyValues = function (hints) {
       return _origGetHEV.call(navigator.userAgentData, hints).then(function (values) {
-        // Ensure "Google Chrome" brand is present
-        if (values.brands && !values.brands.some(function (b) {
-          return b.brand === 'Google Chrome';
-        })) {
-          values.brands.push({ brand: 'Google Chrome', version: values.uaFullVersion || '136' });
-        }
+        // Replace brands entirely with the consistent brand list.
+        // This ensures the JS side matches the HTTP Sec-CH-UA header.
+        values.brands = __ohBrandList.slice();
+        values.fullVersionList = __ohBrandList.map(function (b) {
+          return { brand: b.brand, version: b.brand === 'Not)A;Brand' ? '99.0.0.0' : __ohChromeFull };
+        });
+        values.uaFullVersion = __ohChromeFull;
+        values.platform = __ohPlatformName;
         return values;
       });
     };
     navigator.userAgentData.getHighEntropyValues.toString = function () {
       return 'function getHighEntropyValues() { [native code] }';
     };
+
+    // Also normalise the low-entropy brands getter so pages that read
+    // navigator.userAgentData.brands directly see the consistent list.
+    try {
+      Object.defineProperty(navigator.userAgentData, 'brands', {
+        get: function () { return __ohBrandList.slice(); },
+        configurable: true,
+      });
+      Object.defineProperty(navigator.userAgentData, 'platform', {
+        get: function () { return __ohPlatformName; },
+        configurable: true,
+      });
+    } catch (e) {}
   }
 } catch (e) {}
 

@@ -26,6 +26,10 @@ import type {
 const MAX_TOOL_LOOP_ITERATIONS = 5;
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_LLM_RETRIES = 2;
+// Cap individual tool result payloads to prevent context overflow when job
+// prompts or list results are large. Anything beyond this limit is truncated
+// with a note so the LLM knows the data was clipped.
+const MAX_TOOL_RESULT_CHARS = 4000;
 
 const PROMPT_TOO_LONG_PATTERNS = [
   "prompt is too long",
@@ -78,15 +82,22 @@ async function callLlmWithRetry(config: LlmCallConfig): Promise<LlmCallResult> {
   throw lastErr;
 }
 
+/** Truncate a serialized tool result to prevent context overflow. */
+function truncateToolResult(raw: string): string {
+  if (raw.length <= MAX_TOOL_RESULT_CHARS) return raw;
+  return raw.slice(0, MAX_TOOL_RESULT_CHARS) + `\n… [truncated ${raw.length - MAX_TOOL_RESULT_CHARS} chars]`;
+}
+
 /** Format DB message history into a conversation string for the LLM. */
 function formatHistoryForLlm(history: ChatMessage[]): string {
   return history.map((m) => {
     const role = m.role === "user" ? "User" : "Assistant";
     let text = `${role}: ${m.content}`;
     if (m.toolResults && m.toolResults.length > 0) {
-      const results = m.toolResults.map((r) =>
-        `[Tool: ${r.tool}]\n${r.error ? `Error: ${r.error}` : JSON.stringify(r.result, null, 2)}`
-      ).join("\n");
+      const results = m.toolResults.map((r) => {
+        const payload = r.error ? `Error: ${r.error}` : JSON.stringify(r.result, null, 2);
+        return `[Tool: ${r.tool}]\n${truncateToolResult(payload)}`;
+      }).join("\n");
       text += `\n\n[Tool results]\n${results}`;
     }
     return text;
@@ -388,10 +399,12 @@ export async function handleChatMessage(
       break;
     }
 
-    // Build tool exchange for next iteration
-    const resultsText = readResults.map((r) =>
-      `<tool_result id="${r.callId}" tool="${r.tool}">\n${r.error ? `Error: ${r.error}` : JSON.stringify(r.result, null, 2)}\n</tool_result>`
-    ).join("\n");
+    // Build tool exchange for next iteration — truncate each result payload to
+    // avoid blowing the context window when list_jobs / list_runs return large JSON.
+    const resultsText = readResults.map((r) => {
+      const payload = r.error ? `Error: ${r.error}` : JSON.stringify(r.result, null, 2);
+      return `<tool_result id="${r.callId}" tool="${r.tool}">\n${truncateToolResult(payload)}\n</tool_result>`;
+    }).join("\n");
     toolExchange = [
       toolExchange,
       `Assistant: ${rawResponse}`,
@@ -468,7 +481,10 @@ export async function handleChatMessage(
     pendingActions: pendingActions.length > 0 ? pendingActions : undefined,
   });
 
-  console.error(`[chat] assistant content (${displayContent.length} chars): ${JSON.stringify(displayContent)}`);
+  // Log assistant message for debugging (using console.log not console.error — this is informational)
+  if (process.env.DEBUG_CHAT) {
+    console.log(`[chat] assistant content (${displayContent.length} chars): ${JSON.stringify(displayContent)}`);
+  }
   emit("chat.messageCreated", { ...assistantMsg, projectId, conversationId: convId });
   if (pendingActions.length > 0) {
     emit("chat.actionPending", { messageId: assistantMsg.id, actions: pendingActions, projectId, conversationId: convId });

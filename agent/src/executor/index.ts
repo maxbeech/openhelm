@@ -474,7 +474,7 @@ export class Executor {
       if (job.correctionNote) {
         snapshotRunCorrectionNote(runId, job.correctionNote);
       }
-      effectivePrompt = job.prompt;
+      effectivePrompt = `\n\n===== TASK (execute now) =====\n\n${job.prompt}\n\n===== END TASK =====\n\n`;
 
       // Inject global prompt (applies to all jobs; user-configurable in Settings)
       const globalPromptSetting = getSetting("global_prompt");
@@ -698,6 +698,12 @@ export class Executor {
 
     // ── MCP config (bundled browser + data tables servers) ──
     let mcpConfigPath: string | undefined;
+    // Names of MCP servers configured for this run. Used by the
+    // tool-missing detector to filter phantom server names (Round 10,
+    // Pattern 14 — Dream 100 Discovery was marked failed because
+    // Claude hallucinated `mcp__WebSearch__*` calls against a server
+    // that doesn't exist in the config).
+    let configuredMcpServers: string[] = [];
     let hasBrowserMcp = false;
     try {
       const { isVenvReady, isSourceAvailable, setupBrowserMcpVenv } =
@@ -722,8 +728,10 @@ export class Executor {
       // Passed via --mcp-config to ADD on top of the user's existing MCP environment.
       const { writeMcpConfigFile } = await import("../mcp-servers/mcp-config-builder.js");
       const { existsSync: fsExists } = await import("fs");
-      mcpConfigPath = writeMcpConfigFile(runId, hasBrowserMcp ? browserCredentialsFilePath : undefined, job.projectId) ?? undefined;
-      if (mcpConfigPath) {
+      const mcpInfo = writeMcpConfigFile(runId, hasBrowserMcp ? browserCredentialsFilePath : undefined, job.projectId);
+      if (mcpInfo) {
+        mcpConfigPath = mcpInfo.path;
+        configuredMcpServers = mcpInfo.serverNames;
         // Pre-flight check: verify the config file exists and is readable.
         // This catches race conditions where cleanup or filesystem issues
         // cause "No such tool available" errors that waste entire runs.
@@ -732,6 +740,7 @@ export class Executor {
         } else {
           console.error(`[executor] WARNING: MCP config file missing after write: ${mcpConfigPath}`);
           mcpConfigPath = undefined;
+          configuredMcpServers = [];
         }
       }
     } catch (err) {
@@ -816,6 +825,20 @@ export class Executor {
           this.hitlKilledRuns.set(runId, type);
           handleInteractiveDetected(runId, reason, controller);
         },
+        onNaturalCompletion: (reason) => {
+          // Round 10 (2026-04-12): agent emitted a completion signal and
+          // then fell silent within the tail window. Log it for the run
+          // viewer and let the runner terminate gracefully — the run
+          // will be marked succeeded in onRunCompleted via the
+          // `naturalCompletion` flag on the result object. Crucially,
+          // we do NOT populate hitlKilledRuns here, so the downstream
+          // failure-classification logic treats this as a clean exit.
+          createRunLog({
+            runId,
+            stream: "stderr",
+            text: `[natural completion] ${reason}`,
+          });
+        },
       },
       controller.signal,
     );
@@ -872,7 +895,7 @@ export class Executor {
     }
 
     // Handle completion (includes async summary generation)
-    await this.onRunCompleted(runId, job, result, timeoutMs, recentStderr);
+    await this.onRunCompleted(runId, job, result, timeoutMs, recentStderr, configuredMcpServers);
 
     // Try to process the next item in the queue
     this.processNext();
@@ -941,6 +964,7 @@ export class Executor {
     result: ClaudeCodeRunResult,
     timeoutMs?: number,
     recentStderr?: string[],
+    configuredMcpServers: string[] = [],
   ): Promise<void> {
     // Release sleep prevention for this run
     if (isPowerManagementEnabled()) {
@@ -959,12 +983,32 @@ export class Executor {
     this.hitlKilledRuns.delete(runId);
     const isHitlKill = hitlKillType !== null;
 
+    // Round 10 (2026-04-12): natural-completion path. If the agent
+    // emitted a completion signal ("Task Complete", "## Summary") and
+    // then fell silent within the tail window, the runner sends SIGTERM
+    // and sets `naturalCompletion = true` in the result. Treat this as
+    // a clean exit (full outcome-assessment path) even though
+    // `result.killed` is technically true and the exit code is 143
+    // (SIGTERM). Fixes Pattern 10 (completed blog-post run falsely
+    // killed after final summary).
+    const isNaturalCompletion = result.naturalCompletion === true;
+    if (isNaturalCompletion) {
+      createRunLog({
+        runId,
+        stream: "stderr",
+        text:
+          "Run ended via natural completion (agent emitted a completion " +
+          "signal and fell silent). Treating as a clean exit; outcome " +
+          "assessment will run on the existing logs.",
+      });
+    }
+
     // Determine final status
     let finalStatus: RunStatus;
     let outcomeAssessment: OutcomeAssessment | null = null;
-    if (result.killed && isHitlKill) {
+    if (result.killed && isHitlKill && !isNaturalCompletion) {
       finalStatus = "failed";
-    } else if (result.killed) {
+    } else if (result.killed && !isNaturalCompletion) {
       finalStatus = "cancelled";
     } else if (result.timedOut) {
       finalStatus = "failed";
@@ -973,7 +1017,7 @@ export class Executor {
         stream: "stderr",
         text: "Run timed out. Process was terminated.",
       });
-    } else if (result.exitCode === 0) {
+    } else if (result.exitCode === 0 || isNaturalCompletion) {
       finalStatus = "succeeded";
 
       // MCP tool-missing forces a failure — but ONLY when Claude could not
@@ -994,6 +1038,7 @@ export class Executor {
       const unrecoveredServers = findUnrecoveredMcpServers(
         mcpErrorsByServer,
         result.toolStats,
+        configuredMcpServers,
       );
       if (unrecoveredServers.length > 0) {
         finalStatus = "failed";
@@ -1121,6 +1166,7 @@ export class Executor {
         findUnrecoveredMcpServers(
           countMcpToolMissingErrorsByServer(runId),
           result.toolStats,
+          configuredMcpServers,
         ).length > 0
       ) {
         // MCP tool-missing — Claude reported "No such tool available" in its

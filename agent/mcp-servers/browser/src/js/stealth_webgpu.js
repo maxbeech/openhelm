@@ -143,34 +143,12 @@ try {
   }
 } catch (e) {}
 
-// ── 25. UserAgent Client Hints supplemental (Sec-CH-UA) ────────────────────
-// Ensure all Client Hints headers match User-Agent string.
-// Some sites cross-check these for consistency; mismatch flags bots.
-try {
-  if (navigator.userAgentData && navigator.userAgentData.brands) {
-    var _origGetBrands = Object.getOwnPropertyDescriptor(
-      Object.getPrototypeOf(navigator.userAgentData),
-      'brands'
-    );
-    if (_origGetBrands && _origGetBrands.get) {
-      var _origGet = _origGetBrands.get.bind(navigator.userAgentData);
-      Object.defineProperty(navigator.userAgentData, 'brands', {
-        get: function () {
-          var brands = _origGet();
-          // Ensure "Google Chrome" is present; filter out mock brands
-          var hasChrome = brands.some(function (b) {
-            return b.brand === 'Google Chrome' || b.brand === 'Chromium';
-          });
-          if (!hasChrome) {
-            brands = brands.filter(function (b) {
-              return b.brand !== 'Not_A_Brand' && b.brand !== 'Not;Brand';
-            });
-            brands.push({ brand: 'Google Chrome', version: '136' });
-          }
-          return brands;
-        },
-        configurable: true,
-      });
-    }
-  }
-} catch (e) {}
+// ── 25. UserAgent Client Hints — deferred to Patch 8 ───────────────────────
+// Round 11 (2026-04-13): This patch used to inject a brand list with a
+// hardcoded Chrome major version '136', which mismatched the HTTP
+// Sec-CH-UA-* headers set by stealth.py and created a Franken-fingerprint.
+// Patch 8 in stealth_core.js now handles userAgentData.brands using the
+// templated __OH_BRAND_LIST__ and runs strictly earlier (stealth_core.js
+// loads before stealth_webgpu.js in alphabetical order). We intentionally
+// leave this patch as a no-op so there's no conflicting override.
+// The file numbering is preserved for historical traceability.

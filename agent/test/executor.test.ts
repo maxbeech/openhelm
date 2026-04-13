@@ -664,6 +664,49 @@ describe("Executor timeout default", () => {
   });
 });
 
+describe("Executor task delimiter injection", () => {
+  it("wraps job.prompt in task delimiters so it is not lost in preamble noise", async () => {
+    let capturedPrompt = "";
+    const captureRunner = async (config: RunnerConfig) => {
+      capturedPrompt = config.prompt;
+      config.onLogChunk("stdout", "done");
+      return { exitCode: 0, timedOut: false, killed: false, sessionId: null };
+    };
+
+    const job = createJob({
+      projectId,
+      name: "Delimiter Test Job",
+      prompt: "sudo smc -k ACLC -w 01",
+      scheduleType: "once",
+      scheduleConfig: { fireAt: new Date().toISOString() },
+    });
+    const run = createRun({ jobId: job.id, triggerSource: "manual" });
+
+    queue.enqueue({
+      runId: run.id,
+      jobId: job.id,
+      priority: 0,
+      enqueuedAt: Date.now(),
+    });
+
+    const executor = new Executor(captureRunner);
+    executor.processNext();
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(capturedPrompt).toContain("===== TASK (execute now) =====");
+    expect(capturedPrompt).toContain("sudo smc -k ACLC -w 01");
+    expect(capturedPrompt).toContain("===== END TASK =====");
+    // Task content must appear AFTER the opening delimiter
+    expect(capturedPrompt.indexOf("sudo smc -k ACLC -w 01")).toBeGreaterThan(
+      capturedPrompt.indexOf("===== TASK (execute now) ====="),
+    );
+    // Opening delimiter must appear before closing delimiter
+    expect(capturedPrompt.indexOf("===== TASK (execute now) =====")).toBeLessThan(
+      capturedPrompt.indexOf("===== END TASK ====="),
+    );
+  });
+});
+
 describe("Executor correctionNote prompt building", () => {
   it("appends correctionNote to effective prompt", async () => {
     let capturedPrompt = "";
@@ -697,6 +740,11 @@ describe("Executor correctionNote prompt building", () => {
     await new Promise((r) => setTimeout(r, 100));
 
     expect(capturedPrompt).toContain("do the thing");
+    expect(capturedPrompt).toContain("===== TASK (execute now) =====");
+    expect(capturedPrompt).toContain("===== END TASK =====");
+    expect(capturedPrompt.indexOf("do the thing")).toBeGreaterThan(
+      capturedPrompt.indexOf("===== TASK (execute now) ====="),
+    );
     expect(capturedPrompt).toContain("Always run tests after changes");
   });
 
@@ -949,7 +997,8 @@ describe("Executor global prompt injection", () => {
     executor.processNext();
     await new Promise((r) => setTimeout(r, 150));
 
-    expect(capturedPrompt).toBe("do the thing");
+    expect(capturedPrompt).toContain("do the thing");
+    expect(capturedPrompt).not.toContain("General Guidelines:"); // global_prompt is empty — no guidelines appended
   });
 });
 
@@ -1132,7 +1181,11 @@ describe("Executor browser MCP preamble", () => {
     const tmpDir = mkdtempSync(pathJoin(tmpdir(), "oh-mcp-config-"));
     const tmpConfigPath = pathJoin(tmpDir, "run-test.json");
     writeFileSync(tmpConfigPath, "{}");
-    mockWriteMcpConfigFile.mockReturnValue(tmpConfigPath);
+    // Round 10 (2026-04-12): writeMcpConfigFile returns { path, serverNames }.
+    mockWriteMcpConfigFile.mockReturnValue({
+      path: tmpConfigPath,
+      serverNames: ["openhelm_browser", "openhelm_data"],
+    });
 
     let capturedPrompt = "";
     const captureRunner = async (config: RunnerConfig) => {
@@ -1190,7 +1243,7 @@ describe("Executor browser MCP preamble", () => {
 
     expect(capturedPrompt).not.toContain(BROWSER_MCP_PREAMBLE);
     expect(capturedPrompt).not.toContain(BROWSER_CAPTCHA_PREAMBLE);
-    expect(capturedPrompt).toBe("navigate to example.com");
+    expect(capturedPrompt).toContain("navigate to example.com");
   });
 });
 
@@ -1331,7 +1384,30 @@ describe("Executor MCP tool-missing auto-retry", () => {
    * the run exactly once by enqueuing a fresh manual run with parentRunId set.
    * LLM-driven self-correction is bypassed because it cannot help here (the
    * session has no tools to work with).
+   *
+   * Round 10 (2026-04-12): `findUnrecoveredMcpServers` now filters phantom
+   * server names. The tests here mock `writeMcpConfigFile` to return
+   * `openhelm_browser` as a configured server so the filter recognises the
+   * legitimate failure and still triggers the retry path.
    */
+
+  const mockWriteMcpConfigFile = vi.mocked(writeMcpConfigFile);
+
+  beforeEach(() => {
+    // Round 10: configure openhelm_browser as a real server so the
+    // Round 6 auto-retry path still fires. Use a real temp file so the
+    // executor's pre-flight fsExists check passes.
+    const { writeFileSync, mkdtempSync } = require("fs");
+    const { join: pathJoin } = require("path");
+    const { tmpdir } = require("os");
+    const tmpDir = mkdtempSync(pathJoin(tmpdir(), "oh-mcp-retry-"));
+    const tmpConfigPath = pathJoin(tmpDir, "run-mcp-retry.json");
+    writeFileSync(tmpConfigPath, "{}");
+    mockWriteMcpConfigFile.mockReturnValue({
+      path: tmpConfigPath,
+      serverNames: ["openhelm_browser", "openhelm_data"],
+    });
+  });
 
   /** Runner that writes the MCP tool-missing string to stdout then exits 0. */
   function mockMcpMissingRunner(): (

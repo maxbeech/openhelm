@@ -78,12 +78,25 @@ export function runMigrations(sqlite: Database.Database): void {
       // Split on Drizzle's statement-breakpoint marker first, then on semicolons.
       // Hand-written migrations may lack breakpoints but still have multiple
       // statements separated by semicolons.
+      //
+      // 2026-04-12 (Round 10): chunks containing a CREATE TRIGGER with a
+      // BEGIN ... END block are NOT split on semicolons — the trigger
+      // body has internal semicolons that would fragment into invalid
+      // statements. Such chunks are run via better-sqlite3's `.exec()`
+      // method which accepts multi-statement SQL.
       const chunks = migration.sql.split("--> statement-breakpoint");
       const statements: string[] = [];
       for (const chunk of chunks) {
         // Strip line comments before splitting on semicolons so comment text
         // containing semicolons doesn't produce spurious empty statements.
         const stripped = chunk.replace(/--[^\n]*/g, "");
+        // Detect a trigger body: BEGIN ... END inside the stripped text.
+        // If present, keep the whole chunk as one statement entry.
+        if (/\bBEGIN\b[\s\S]*\bEND\b/i.test(stripped)) {
+          const trimmed = stripped.trim();
+          if (trimmed) statements.push(trimmed);
+          continue;
+        }
         for (const stmt of stripped.split(";")) {
           const trimmed = stmt.trim();
           if (trimmed) statements.push(trimmed);
@@ -91,7 +104,15 @@ export function runMigrations(sqlite: Database.Database): void {
       }
 
       for (const stmt of statements) {
-        sqlite.prepare(stmt).run();
+        // Multi-statement blocks (CREATE TRIGGER ... BEGIN ... END)
+        // must go through `.exec()` — `.prepare()` rejects compound
+        // SQL with "incomplete input". Single statements go through
+        // `.prepare().run()` which catches syntax errors eagerly.
+        if (/\bBEGIN\b[\s\S]*\bEND\b/i.test(stmt)) {
+          sqlite.exec(stmt);
+        } else {
+          sqlite.prepare(stmt).run();
+        }
       }
 
       record.run(migration.idx, migration.tag, new Date().toISOString());
