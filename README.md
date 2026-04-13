@@ -77,6 +77,30 @@ Agent tests use real SQLite databases in temporary directories. Frontend tests u
 
 See [docs/prd.md](docs/prd.md) for the full product requirements.
 
+## Public Demos (`/demo/:slug`)
+
+Cloud mode serves publicly accessible read-only demos at `app.openhelm.ai/demo/:slug`
+(see [docs/plan_13_public_demos.md](docs/plan_13_public_demos.md) for the full design).
+
+**Adding a new demo**:
+1. Write a SQL seed migration under `supabase/migrations/demos/` — use `demo_nike.sql`
+   as a template. Set `is_demo = true` and a unique `demo_slug` on the project row.
+2. Use relative timestamps (`now() - interval '…'`) so the dashboard window stays fresh.
+3. Every `INSERT` must use `ON CONFLICT … DO UPDATE` / `DO NOTHING` so re-running
+   the migration leaves the DB in the same state.
+4. Run `scripts/reset-demo.sh <slug>` to apply the seed against the linked project.
+5. Ensure `enable_anonymous_sign_ins = true` in the Supabase project dashboard.
+
+**Demo hard limits** (tune in `worker/src/demo-rate-limit.ts`):
+- 10 chat messages per anonymous session
+- 50 chat messages per IP per 24h
+- $20/day global chat budget backstop
+
+Anonymous visitors are blocked from every write method by `SupabaseTransport.request()`
+via an allowlist; attempts surface as the `DemoReadOnlyError` signup modal. RLS
+policies in `supabase/migrations/20260414000002_demo_rls_policies.sql` enforce the
+same at the database layer as the authoritative gate.
+
 ## License
 
 OpenHelm is licensed under the **Business Source License 1.1 (BSL 1.1)**.

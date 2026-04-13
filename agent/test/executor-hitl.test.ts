@@ -6,8 +6,7 @@ import { createRun, getRun, listRuns } from "../src/db/queries/runs.js";
 import { setSetting } from "../src/db/queries/settings.js";
 import { JobQueue } from "../src/scheduler/queue.js";
 import { Executor } from "../src/executor/index.js";
-import type { RunnerConfig } from "../src/claude-code/runner.js";
-import type { ClaudeCodeRunResult } from "@openhelm/shared";
+import type { AgentRunConfig, AgentRunResult } from "../src/agent-backend/types.js";
 import type { InteractiveDetectionType } from "../src/claude-code/interactive-detector.js";
 
 let cleanup: () => void;
@@ -73,14 +72,17 @@ beforeEach(() => {
   mockSelfCorrection.mockResolvedValue({ attempted: false, reason: "mock" });
 });
 
-/** Create a runner that triggers onInteractiveDetected then returns killed */
+/** Create a backend run function that triggers interactive_detected then returns killed */
 function hitlRunner(
   type: InteractiveDetectionType,
-): (config: RunnerConfig, signal?: AbortSignal) => Promise<ClaudeCodeRunResult> {
+): (config: AgentRunConfig) => Promise<AgentRunResult> {
   return async (config) => {
-    config.onLogChunk("stdout", "Some output");
-    config.onInteractiveDetected?.(`test reason`, type);
-    return { exitCode: null, timedOut: false, killed: true };
+    config.onStdout?.("Some output");
+    config.onEvent?.({
+      type: "system",
+      data: { kind: "interactive_detected", reason: "test reason", detectionType: type },
+    });
+    return { exitCode: null, timedOut: false, killed: true, sessionId: null, inputTokens: null, outputTokens: null, rateLimitUtilization: null };
   };
 }
 
@@ -136,10 +138,10 @@ describe("Executor HITL kill types and self-correction", () => {
       enqueuedAt: Date.now(),
     });
 
-    // Runner that simulates a timeout
-    const timeoutRunner = async (config: RunnerConfig) => {
-      config.onLogChunk("stdout", "Working...");
-      return { exitCode: null, timedOut: true, killed: false } as ClaudeCodeRunResult;
+    // Backend run function that simulates a timeout
+    const timeoutRunner = async (config: AgentRunConfig): Promise<AgentRunResult> => {
+      config.onStdout?.("Working...");
+      return { exitCode: null, timedOut: true, killed: false, sessionId: null, inputTokens: null, outputTokens: null, rateLimitUtilization: null };
     };
 
     const executor = new Executor(timeoutRunner);

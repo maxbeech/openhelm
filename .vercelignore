@@ -1,0 +1,14 @@
+node_modules
+agent/node_modules
+worker/node_modules
+e2b
+dist
+.git
+src-tauri
+agent/dist
+worker/dist
+*.db
+*.sqlite
+.env
+.env.local
+*.log

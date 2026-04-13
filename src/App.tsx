@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import logoSvg from "./assets/logo.svg";
 import { RefreshCw } from "lucide-react";
 import { agentClient } from "./lib/agent-client";
+import { isLocalMode } from "./lib/mode";
 import * as api from "./lib/api";
 import { friendlyError } from "./lib/utils";
 import { initFrontendSentry, setAnalyticsEnabled } from "./lib/sentry";
@@ -36,7 +37,9 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { slidePageVariants, slidePageTransition } from "./lib/motion";
 import { useNavStore } from "./stores/nav-store";
+import { useDemoStore } from "./stores/demo-store";
 import { OnboardingWizard } from "./components/onboarding/onboarding-wizard";
+import { CloudOnboardingWizard } from "./components/cloud/onboarding-wizard";
 import { AppShell } from "./components/layout/app-shell";
 import { WelcomeView } from "./components/content/welcome-view";
 import { GoalDetailView } from "./components/content/goal-detail-view";
@@ -275,12 +278,15 @@ export default function App() {
       if (eventConvId && eventConvId === activeConvId) {
         if (data.role === "user") {
           // Replace any optimistic placeholder for this conversation with the persisted message.
+          // Sort by createdAt so a concurrently-broadcast assistant message stays after the user message.
           useChatStore.setState((s) => {
             const withoutOptimistic = s.messages.filter(
               (m) => !m.id.startsWith(`pending-${eventConvId}-`),
             );
             if (withoutOptimistic.some((m) => m.id === data.id)) return { messages: withoutOptimistic };
-            return { messages: [...withoutOptimistic, data] };
+            const msgs = [...withoutOptimistic, data];
+            msgs.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+            return { messages: msgs };
           });
         } else {
           // For assistant messages, atomically add message + clear transient
@@ -288,10 +294,12 @@ export default function App() {
           useChatStore.setState((s) => {
             const existing = s.messages.some((m) => m.id === data.id);
             const prev = s.conversationStates[eventConvId!] ?? { sending: false, statusText: null, streamingText: "" };
+            const msgs = existing
+              ? s.messages.map((m) => (m.id === data.id ? data : m))
+              : [...s.messages, data];
+            msgs.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
             return {
-              messages: existing
-                ? s.messages.map((m) => (m.id === data.id ? data : m))
-                : [...s.messages, data],
+              messages: msgs,
               conversationStates: {
                 ...s.conversationStates,
                 [eventConvId!]: { ...prev, sending: false, statusText: null, streamingText: "" },
@@ -577,9 +585,14 @@ export default function App() {
     };
     window.addEventListener("agent:agent.ready", onReady);
     window.addEventListener("agent:agent.terminated", onTerminated);
-    agentClient.start().catch((err) => {
-      console.error("Failed to start agent client:", err);
-    });
+    if (isLocalMode) {
+      agentClient.start().catch((err) => {
+        console.error("Failed to start agent client:", err);
+      });
+    } else {
+      // Cloud mode: AuthGuard already confirmed auth — transport is ready
+      setAgentReady(true);
+    }
     return () => {
       window.removeEventListener("agent:agent.ready", onReady);
       window.removeEventListener("agent:agent.terminated", onTerminated);
@@ -603,25 +616,33 @@ export default function App() {
         const onboardingFlag = await api.getSetting("onboarding_complete").catch(() => null);
         await fetchProjects();
         const projectsList = useProjectStore.getState().projects;
+        const demoState = useDemoStore.getState();
         if (projectsList.length > 0 || onboardingFlag?.value === "true") {
           setOnboardingComplete(true);
           // Backfill flag for existing users who completed onboarding before this flag existed
           if (onboardingFlag?.value !== "true") {
             api.setSetting({ key: "onboarding_complete", value: "true" }).catch(() => {});
           }
-          const saved = await api.getSetting("active_project").catch(() => null);
-          // savedValue: undefined = never set, "" = user chose "All Projects", "<id>" = specific project
-          const savedValue = saved?.value;
-          if (savedValue === undefined) {
-            // No preference stored yet — auto-select when only one project exists
-            setActiveProjectId(projectsList.length === 1 ? projectsList[0].id : null);
-          } else if (!savedValue) {
-            // User explicitly chose "All Projects"
-            setActiveProjectId(null);
+          if (demoState.isDemo && demoState.demoProjectId) {
+            // Demo mode: pin activeProjectId to the demo project regardless of
+            // any saved setting. Skip the settings read to avoid a network
+            // roundtrip that would fail silently for anonymous visitors.
+            setActiveProjectId(demoState.demoProjectId);
           } else {
-            // Specific project — find it (fall back to All Projects if deleted)
-            const activeProj = projectsList.find((p) => p.id === savedValue);
-            setActiveProjectId(activeProj?.id ?? null);
+            const saved = await api.getSetting("active_project").catch(() => null);
+            // savedValue: undefined = never set, "" = user chose "All Projects", "<id>" = specific project
+            const savedValue = saved?.value;
+            if (savedValue === undefined) {
+              // No preference stored yet — auto-select when only one project exists
+              setActiveProjectId(projectsList.length === 1 ? projectsList[0].id : null);
+            } else if (!savedValue) {
+              // User explicitly chose "All Projects"
+              setActiveProjectId(null);
+            } else {
+              // Specific project — find it (fall back to All Projects if deleted)
+              const activeProj = projectsList.find((p) => p.id === savedValue);
+              setActiveProjectId(activeProj?.id ?? null);
+            }
           }
           const savedGroupOrder = await api.getSetting("sidebar_project_group_order").catch(() => null);
           if (savedGroupOrder?.value) {
@@ -819,7 +840,13 @@ export default function App() {
   if (!onboardingComplete) {
     return (
       <TooltipProvider>
-        <OnboardingWizard onComplete={handleOnboardingComplete} />
+        {isLocalMode ? (
+          <OnboardingWizard onComplete={handleOnboardingComplete} />
+        ) : (
+          <div className="flex min-h-screen items-start justify-center overflow-y-auto bg-background py-8">
+            <CloudOnboardingWizard onComplete={handleOnboardingComplete} />
+          </div>
+        )}
       </TooltipProvider>
     );
   }

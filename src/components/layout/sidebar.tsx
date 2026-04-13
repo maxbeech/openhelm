@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { useResizePanel } from "@/hooks/use-resize-panel";
+import { isLocalMode } from "@/lib/mode";
 import { useInboxStore } from "@/stores/inbox-store";
 import { useMemoryStore } from "@/stores/memory-store";
 import { useCredentialStore } from "@/stores/credential-store";
@@ -64,7 +65,7 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
       <div
         data-tauri-drag-region
         onMouseDown={() => { getCurrentWindow().startDragging().catch(() => {}); }}
-        className="flex h-12 shrink-0 items-center border-b border-sidebar-border pl-[96px] pr-4"
+        className={cn("flex h-12 shrink-0 items-center border-b border-sidebar-border pr-4", isLocalMode ? "pl-[96px]" : "pl-4")}
       >
         <img src={logoSvg} alt="OpenHelm" className="pointer-events-none size-6" />
         <h1 className="pointer-events-none ml-1.5 text-sm font-semibold tracking-tight text-white">OpenHelm</h1>

@@ -9,6 +9,10 @@ vi.mock("../src/executor/index.js", () => ({ executor: { processNext: vi.fn() } 
 vi.mock("../src/memory/embeddings.js", () => ({
   generateEmbedding: vi.fn().mockResolvedValue(Array(384).fill(0)),
 }));
+vi.mock("../src/chat/web-fetch.js", () => ({
+  searchWeb: vi.fn(),
+  fetchUrlAsText: vi.fn(),
+}));
 
 import { executeReadTool, executeWriteTool } from "../src/chat/tool-executor.js";
 import type { ChatToolCall } from "@openhelm/shared";
@@ -44,78 +48,78 @@ afterAll(() => {
 });
 
 describe("executeReadTool — list_goals", () => {
-  it("returns goals for project", () => {
-    const result = executeReadTool(makeCall("list_goals"), projectId);
+  it("returns goals for project", async () => {
+    const result = await executeReadTool(makeCall("list_goals"), projectId);
     expect(result.error).toBeUndefined();
     const goals = result.result as any[];
     expect(Array.isArray(goals)).toBe(true);
     expect(goals.some((g) => g.id === goalId)).toBe(true);
   });
 
-  it("filters by status", () => {
-    const result = executeReadTool(makeCall("list_goals", { status: "archived" }), projectId);
+  it("filters by status", async () => {
+    const result = await executeReadTool(makeCall("list_goals", { status: "archived" }), projectId);
     const goals = result.result as any[];
     goals.forEach((g: any) => expect(g.status).toBe("archived"));
   });
 });
 
 describe("executeReadTool — list_jobs", () => {
-  it("returns jobs for project", () => {
-    const result = executeReadTool(makeCall("list_jobs"), projectId);
+  it("returns jobs for project", async () => {
+    const result = await executeReadTool(makeCall("list_jobs"), projectId);
     expect(result.error).toBeUndefined();
     const jobs = result.result as any[];
     expect(jobs.some((j: any) => j.id === jobId)).toBe(true);
   });
 
-  it("filters by goalId", () => {
-    const result = executeReadTool(makeCall("list_jobs", { goalId }), projectId);
+  it("filters by goalId", async () => {
+    const result = await executeReadTool(makeCall("list_jobs", { goalId }), projectId);
     const jobs = result.result as any[];
     jobs.forEach((j: any) => expect(j.goalId).toBe(goalId));
   });
 });
 
 describe("executeReadTool — get_goal", () => {
-  it("returns the goal by ID", () => {
-    const result = executeReadTool(makeCall("get_goal", { goalId }), projectId);
+  it("returns the goal by ID", async () => {
+    const result = await executeReadTool(makeCall("get_goal", { goalId }), projectId);
     expect(result.error).toBeUndefined();
     expect((result.result as any).id).toBe(goalId);
   });
 
-  it("returns error for non-existent goal", () => {
-    const result = executeReadTool(makeCall("get_goal", { goalId: "fake" }), projectId);
+  it("returns error for non-existent goal", async () => {
+    const result = await executeReadTool(makeCall("get_goal", { goalId: "fake" }), projectId);
     expect(result.error).toContain("not found");
   });
 
-  it("returns error when goalId is missing", () => {
-    const result = executeReadTool(makeCall("get_goal", {}), projectId);
+  it("returns error when goalId is missing", async () => {
+    const result = await executeReadTool(makeCall("get_goal", {}), projectId);
     expect(result.error).toBeTruthy();
   });
 });
 
 describe("executeReadTool — get_job", () => {
-  it("returns the job by ID", () => {
-    const result = executeReadTool(makeCall("get_job", { jobId }), projectId);
+  it("returns the job by ID", async () => {
+    const result = await executeReadTool(makeCall("get_job", { jobId }), projectId);
     expect(result.error).toBeUndefined();
     expect((result.result as any).id).toBe(jobId);
   });
 
-  it("returns error for non-existent job", () => {
-    const result = executeReadTool(makeCall("get_job", { jobId: "fake" }), projectId);
+  it("returns error for non-existent job", async () => {
+    const result = await executeReadTool(makeCall("get_job", { jobId: "fake" }), projectId);
     expect(result.error).toContain("not found");
   });
 });
 
 describe("executeReadTool — list_runs", () => {
-  it("returns runs (possibly empty) for project", () => {
-    const result = executeReadTool(makeCall("list_runs"), projectId);
+  it("returns runs (possibly empty) for project", async () => {
+    const result = await executeReadTool(makeCall("list_runs"), projectId);
     expect(result.error).toBeUndefined();
     expect(Array.isArray(result.result)).toBe(true);
   });
 });
 
 describe("executeReadTool — unknown tool", () => {
-  it("returns error for unknown tool name", () => {
-    const result = executeReadTool(makeCall("unknown_tool"), projectId);
+  it("returns error for unknown tool name", async () => {
+    const result = await executeReadTool(makeCall("unknown_tool"), projectId);
     expect(result.error).toContain("Unknown read tool");
   });
 });
@@ -212,5 +216,61 @@ describe("executeWriteTool — unknown tool", () => {
   it("returns error for unknown tool name", async () => {
     const result = await executeWriteTool(makeCall("unknown_write"), projectId);
     expect(result.error).toContain("Unknown write tool");
+  });
+});
+
+describe("executeReadTool — web_search", () => {
+  it("calls searchWeb with query and returns results", async () => {
+    const { searchWeb } = await import("../src/chat/web-fetch.js");
+    const mockResults = [{ title: "Example", url: "https://example.com", snippet: "A site" }];
+    vi.mocked(searchWeb).mockResolvedValueOnce(mockResults);
+
+    const result = await executeReadTool(makeCall("web_search", { query: "test query" }), projectId);
+
+    expect(result.error).toBeUndefined();
+    expect((result.result as { results: unknown[] }).results).toHaveLength(1);
+    expect(vi.mocked(searchWeb)).toHaveBeenCalledWith("test query", undefined);
+  });
+
+  it("passes maxResults when provided", async () => {
+    const { searchWeb } = await import("../src/chat/web-fetch.js");
+    vi.mocked(searchWeb).mockResolvedValueOnce([]);
+
+    await executeReadTool(makeCall("web_search", { query: "q", maxResults: 3 }), projectId);
+
+    expect(vi.mocked(searchWeb)).toHaveBeenCalledWith("q", 3);
+  });
+
+  it("returns error when query is missing", async () => {
+    const result = await executeReadTool(makeCall("web_search", {}), projectId);
+    expect(result.error).toContain("query");
+  });
+});
+
+describe("executeReadTool — web_fetch", () => {
+  it("calls fetchUrlAsText with url and returns result", async () => {
+    const { fetchUrlAsText } = await import("../src/chat/web-fetch.js");
+    const mockFetchResult = { url: "https://example.com", status: 200, contentType: "text/html", text: "Hello world", truncated: false };
+    vi.mocked(fetchUrlAsText).mockResolvedValueOnce(mockFetchResult);
+
+    const result = await executeReadTool(makeCall("web_fetch", { url: "https://example.com" }), projectId);
+
+    expect(result.error).toBeUndefined();
+    expect((result.result as typeof mockFetchResult).text).toBe("Hello world");
+    expect(vi.mocked(fetchUrlAsText)).toHaveBeenCalledWith("https://example.com", undefined);
+  });
+
+  it("passes maxChars when provided", async () => {
+    const { fetchUrlAsText } = await import("../src/chat/web-fetch.js");
+    vi.mocked(fetchUrlAsText).mockResolvedValueOnce({ url: "https://example.com", status: 200, contentType: "text/html", text: "Hi", truncated: false });
+
+    await executeReadTool(makeCall("web_fetch", { url: "https://example.com", maxChars: 500 }), projectId);
+
+    expect(vi.mocked(fetchUrlAsText)).toHaveBeenCalledWith("https://example.com", 500);
+  });
+
+  it("returns error when url is missing", async () => {
+    const result = await executeReadTool(makeCall("web_fetch", {}), projectId);
+    expect(result.error).toContain("url");
   });
 });

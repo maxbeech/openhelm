@@ -1,12 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
+vi.mock("@/lib/mode", () => ({
+  isLocalMode: true,
+  isCloudMode: false,
+}));
+
 vi.mock("@tauri-apps/plugin-updater", () => ({
   check: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/app", () => ({
   getVersion: vi.fn().mockResolvedValue("0.1.1"),
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/stores/updater-store", () => ({

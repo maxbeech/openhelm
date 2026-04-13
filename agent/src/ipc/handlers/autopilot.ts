@@ -14,6 +14,7 @@ import {
   autopilotScanner,
 } from "../../autopilot/index.js";
 import { getSetting } from "../../db/queries/settings.js";
+import { getBackend } from "../../agent-backend/registry.js";
 import type {
   ListAutopilotProposalsParams,
   ApproveAutopilotProposalParams,
@@ -60,7 +61,7 @@ export function registerAutopilotHandlers() {
         scheduleConfig: sj.scheduleConfig,
         source: "system",
         systemCategory: sj.systemCategory,
-        model: "claude-haiku-4-5-20251001",
+        model: getBackend().resolveModel("classification"),
         modelEffort: "low",
       });
       jobIds.push(job.id);

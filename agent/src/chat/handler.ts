@@ -167,6 +167,21 @@ export async function handleChatMessage(
     autoRenameThread(convId, content, projectId);
   }
 
+  // Full-access mode → delegate to the agentic runner, which uses backend.run()
+  // with the same MCP setup (browser, data tables, E2B sandbox) as a scheduled job.
+  if (permissionMode === "bypassPermissions") {
+    const { runChatAgentic } = await import("./agentic-runner.js");
+    return runChatAgentic({
+      projectId,
+      content,
+      conversationId: convId,
+      userMsg,
+      modelOverride,
+      effort,
+      abortSignal,
+    });
+  }
+
   // Emit early "thinking" so the UI shows feedback during async prompt build
   emit("chat.status", { status: "thinking", projectId, conversationId: convId });
 
@@ -375,11 +390,11 @@ export async function handleChatMessage(
     if (readCalls.length > 0) {
       emit("chat.status", { status: "reading", tools: readCalls.map((c) => c.tool), projectId, conversationId: convId });
     }
-    const readResults: ChatToolResult[] = readCalls.map((call) => {
-      const result = executeReadTool(call, projectId);
+    const readResults: ChatToolResult[] = await Promise.all(readCalls.map(async (call) => {
+      const result = await executeReadTool(call, projectId);
       emit("chat.toolExecuted", { callId: call.id, tool: call.tool, result: result.result, projectId, conversationId: convId });
       return result;
-    });
+    }));
     allToolResults.push(...readResults);
 
     // Collect write tools as pending actions (already in allToolCalls from above)

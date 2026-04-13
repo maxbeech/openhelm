@@ -7,6 +7,8 @@ import { deleteSetting, getSetting, setSetting } from "./db/queries/settings.js"
 import { emit, send } from "./ipc/emitter.js";
 import { startDevServer } from "./ipc/dev-server.js";
 import { detectClaudeCode } from "./claude-code/detector.js";
+import { registerBackend } from "./agent-backend/registry.js";
+import { ClaudeCodeBackend } from "./agent-backend/claude-code/index.js";
 import { scheduler } from "./scheduler/index.js";
 import { executor } from "./executor/index.js";
 import { initAgentSentry, captureAgentError } from "./sentry.js";
@@ -43,7 +45,11 @@ try {
   process.exit(1);
 }
 
-// 1b. One-time cleanup: remove legacy API key if stored
+// 1b. Register the active AgentBackend (ClaudeCodeBackend for local/Community/Business tiers)
+registerBackend(new ClaudeCodeBackend());
+console.error("[agent] ClaudeCodeBackend registered");
+
+// 1d. One-time cleanup: remove legacy API key if stored
 try {
   deleteSetting("anthropic_api_key" as any);
 } catch {

@@ -14,7 +14,7 @@ import { collectRunLogs, truncateLogsForAnalysis } from "./summarize.js";
 import { callLlmViaCli } from "./llm-via-cli.js";
 import { extractJson } from "./extract-json.js";
 import { OUTCOME_ASSESSMENT_SCHEMA } from "./schemas.js";
-import { PrintError } from "../claude-code/print.js";
+import { PrintError } from "../agent-backend/errors.js";
 
 export interface OutcomeAssessment {
   accomplished: boolean;

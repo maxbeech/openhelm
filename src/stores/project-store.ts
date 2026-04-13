@@ -12,12 +12,14 @@ interface ProjectState {
     name: string;
     description?: string;
     directoryPath: string;
+    gitUrl?: string;
   }) => Promise<Project>;
   updateProject: (params: {
     id: string;
     name?: string;
     description?: string;
     directoryPath?: string;
+    gitUrl?: string;
   }) => Promise<Project>;
   deleteProject: (id: string) => Promise<void>;
 }

@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 import { ExternalLink, Loader2 } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
-import { getVersion } from "@tauri-apps/api/app";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -12,6 +10,7 @@ import { setRecordingEnabled } from "@/lib/posthog";
 import { ensureNotificationPermission } from "@/lib/notifications";
 import { useUpdater } from "@/hooks/use-updater";
 import { useUpdaterStore } from "@/stores/updater-store";
+import { isLocalMode } from "@/lib/mode";
 import type { NotificationLevel } from "@openhelm/shared";
 
 export function ApplicationSection() {
@@ -36,12 +35,20 @@ export function ApplicationSection() {
   } = useUpdater();
 
   useEffect(() => {
-    getVersion().then(setAppVersion).catch(() => {});
-
-    invoke<boolean>("plugin:autostart|is_enabled")
-      .then(setLaunchAtLogin)
-      .catch(() => setLaunchAtLogin(false))
-      .finally(() => setLaunchLoading(false));
+    if (isLocalMode) {
+      import("@tauri-apps/api/app").then(({ getVersion }) =>
+        getVersion().then(setAppVersion).catch(() => {}),
+      );
+      import("@tauri-apps/api/core").then(({ invoke }) =>
+        invoke<boolean>("plugin:autostart|is_enabled")
+          .then(setLaunchAtLogin)
+          .catch(() => setLaunchAtLogin(false))
+          .finally(() => setLaunchLoading(false)),
+      );
+    } else {
+      setAppVersion("cloud");
+      setLaunchLoading(false);
+    }
 
     api.getSetting("analytics_enabled")
       .then((s) => setAnalyticsEnabledState(s?.value !== "false"))
@@ -62,7 +69,9 @@ export function ApplicationSection() {
   }, []);
 
   const toggleLaunchAtLogin = async (enabled: boolean) => {
+    if (!isLocalMode) return;
     try {
+      const { invoke } = await import("@tauri-apps/api/core");
       await invoke(enabled ? "plugin:autostart|enable" : "plugin:autostart|disable");
       setLaunchAtLogin(enabled);
     } catch (err) {
@@ -99,15 +108,17 @@ export function ApplicationSection() {
       <h3 className="mb-3 font-medium">Application</h3>
       <div className="space-y-4 text-sm text-muted-foreground">
         <p>Version: {appVersion}</p>
-        <div className="flex items-center justify-between">
-          <div>
-            <Label className="text-sm text-foreground">Launch at login</Label>
-            <p className="text-xs text-muted-foreground">
-              Start OpenHelm automatically when you log in.
-            </p>
+        {isLocalMode && (
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm text-foreground">Launch at login</Label>
+              <p className="text-xs text-muted-foreground">
+                Start OpenHelm automatically when you log in.
+              </p>
+            </div>
+            <Switch checked={launchAtLogin} onCheckedChange={toggleLaunchAtLogin} disabled={launchLoading} />
           </div>
-          <Switch checked={launchAtLogin} onCheckedChange={toggleLaunchAtLogin} disabled={launchLoading} />
-        </div>
+        )}
         <div className="flex items-center justify-between gap-4">
           <div>
             <Label className="text-sm text-foreground">Share anonymous error reports</Label>
@@ -154,76 +165,80 @@ export function ApplicationSection() {
             </div>
           </RadioGroup>
         </div>
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <Label className="text-sm text-foreground">Automatically install updates</Label>
-            <p className="text-xs text-muted-foreground">
-              Check for and install new versions when available.
-            </p>
-          </div>
-          <Switch checked={autoUpdateEnabled} onCheckedChange={toggleAutoUpdate} />
-        </div>
-        <div className="space-y-1.5">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8"
-            onClick={handleCheckNow}
-            disabled={status === "checking" || status === "downloading"}
-          >
-            {status === "checking" && <Loader2 className="mr-2 size-3 animate-spin" />}
-            Check for Updates
-          </Button>
-          {status === "not-available" && (
-            <p className="text-xs text-muted-foreground">OpenHelm is up to date.</p>
-          )}
-          {status === "available" && (
-            <div className="flex items-center gap-2">
-              <p className="text-xs text-muted-foreground">Version {updateVersion} available.</p>
-              <Button size="xs" className="h-6 px-2 text-xs" onClick={() => void installUpdate()}>
-                Install &amp; Relaunch
-              </Button>
+        {isLocalMode && (
+          <>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label className="text-sm text-foreground">Automatically install updates</Label>
+                <p className="text-xs text-muted-foreground">
+                  Check for and install new versions when available.
+                </p>
+              </div>
+              <Switch checked={autoUpdateEnabled} onCheckedChange={toggleAutoUpdate} />
             </div>
-          )}
-          {status === "confirming" && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-xs text-muted-foreground">
-                {activeRunCount} active {activeRunCount === 1 ? "run" : "runs"} — runs will auto-resume after update.
-              </p>
-              <Button size="xs" className="h-6 px-2 text-xs" onClick={() => void forceInstallUpdate()}>
-                Update Now
+            <div className="space-y-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={handleCheckNow}
+                disabled={status === "checking" || status === "downloading"}
+              >
+                {status === "checking" && <Loader2 className="mr-2 size-3 animate-spin" />}
+                Check for Updates
               </Button>
-              <Button variant="outline" size="xs" className="h-6 px-2 text-xs" onClick={waitAndInstall}>
-                Wait for Runs
-              </Button>
-              <Button variant="ghost" size="xs" className="h-6 px-2 text-xs" onClick={dismissUpdate}>
-                Later
-              </Button>
+              {status === "not-available" && (
+                <p className="text-xs text-muted-foreground">OpenHelm is up to date.</p>
+              )}
+              {status === "available" && (
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-muted-foreground">Version {updateVersion} available.</p>
+                  <Button size="xs" className="h-6 px-2 text-xs" onClick={() => void installUpdate()}>
+                    Install &amp; Relaunch
+                  </Button>
+                </div>
+              )}
+              {status === "confirming" && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-xs text-muted-foreground">
+                    {activeRunCount} active {activeRunCount === 1 ? "run" : "runs"} — runs will auto-resume after update.
+                  </p>
+                  <Button size="xs" className="h-6 px-2 text-xs" onClick={() => void forceInstallUpdate()}>
+                    Update Now
+                  </Button>
+                  <Button variant="outline" size="xs" className="h-6 px-2 text-xs" onClick={waitAndInstall}>
+                    Wait for Runs
+                  </Button>
+                  <Button variant="ghost" size="xs" className="h-6 px-2 text-xs" onClick={dismissUpdate}>
+                    Later
+                  </Button>
+                </div>
+              )}
+              {status === "waiting" && (
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    Waiting for {activeRunCount} {activeRunCount === 1 ? "run" : "runs"} to finish…
+                  </p>
+                  <Button size="xs" className="h-6 px-2 text-xs" onClick={() => void forceInstallUpdate()}>
+                    Update Now
+                  </Button>
+                  <Button variant="ghost" size="xs" className="h-6 px-2 text-xs" onClick={dismissUpdate}>
+                    Cancel
+                  </Button>
+                </div>
+              )}
+              {status === "downloading" && (
+                <p className="text-xs text-muted-foreground">Downloading update…</p>
+              )}
+              {status === "ready" && (
+                <p className="text-xs text-muted-foreground">Installing update… relaunching shortly.</p>
+              )}
+              {status === "error" && (
+                <p className="text-xs text-destructive">{error ?? "Update check failed"}</p>
+              )}
             </div>
-          )}
-          {status === "waiting" && (
-            <div className="flex items-center gap-2">
-              <p className="text-xs text-muted-foreground">
-                Waiting for {activeRunCount} {activeRunCount === 1 ? "run" : "runs"} to finish…
-              </p>
-              <Button size="xs" className="h-6 px-2 text-xs" onClick={() => void forceInstallUpdate()}>
-                Update Now
-              </Button>
-              <Button variant="ghost" size="xs" className="h-6 px-2 text-xs" onClick={dismissUpdate}>
-                Cancel
-              </Button>
-            </div>
-          )}
-          {status === "downloading" && (
-            <p className="text-xs text-muted-foreground">Downloading update…</p>
-          )}
-          {status === "ready" && (
-            <p className="text-xs text-muted-foreground">Installing update… relaunching shortly.</p>
-          )}
-          {status === "error" && (
-            <p className="text-xs text-destructive">{error ?? "Update check failed"}</p>
-          )}
-        </div>
+          </>
+        )}
         <div className="flex gap-4">
           <a
             href="https://openhelm.ai"

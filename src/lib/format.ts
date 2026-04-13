@@ -55,7 +55,12 @@ export function formatSchedule(
   }
 }
 
-export function describeCron(expr: string): string {
+export function describeCron(expr: string | undefined | null): string {
+  // Guard against malformed config (missing expression). Historically the
+  // caller was trusted to pass a string; cloud-mode seeds and hand-written
+  // data make that no longer a safe assumption, and a thrown TypeError here
+  // took down the whole view tree.
+  if (typeof expr !== "string" || expr.length === 0) return "Cron: (invalid)";
   const parts = expr.split(" ");
   if (parts.length < 5) return `Cron: ${expr}`;
 

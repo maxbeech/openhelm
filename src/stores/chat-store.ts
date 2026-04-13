@@ -4,9 +4,9 @@ import * as api from "@/lib/api";
 import { friendlyError } from "@/lib/utils";
 
 export const CHAT_MODELS = [
-  { value: "haiku", label: "Haiku" },
-  { value: "sonnet", label: "Sonnet" },
-  { value: "opus", label: "Opus" },
+  { value: "haiku", label: "Fast" },
+  { value: "sonnet", label: "Balanced" },
+  { value: "opus", label: "Advanced" },
 ] as const;
 
 export type ChatModelValue = typeof CHAT_MODELS[number]["value"];
@@ -20,9 +20,8 @@ export const CHAT_EFFORTS = [
 export type ChatEffortValue = typeof CHAT_EFFORTS[number]["value"];
 
 export const CHAT_PERMISSION_MODES = [
-  { value: "plan", label: "Read-only", description: "Web search, file read" },
-  { value: "auto", label: "Auto", description: "Claude decides" },
-  { value: "bypassPermissions", label: "Full access", description: "All tools allowed" },
+  { value: "plan", label: "Read-only", description: "Read data + web search" },
+  { value: "bypassPermissions", label: "Full access", description: "Full agentic tools" },
 ] as const;
 
 export type ChatPermissionModeValue = typeof CHAT_PERMISSION_MODES[number]["value"];
@@ -177,6 +176,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         };
       });
     } catch (err) {
+      console.error("[chat-store] createThread failed:", err);
       set({ error: friendlyError(err, "Failed to create thread") });
     }
   },
@@ -255,7 +255,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       convId = get().activeConversationId;
     }
     if (!convId) {
-      set({ error: "Failed to start conversation" });
+      // createThread already set a specific error; only set generic fallback if not.
+      if (!get().error) set({ error: "Failed to start conversation" });
       return;
     }
 

@@ -247,7 +247,20 @@ export type SettingKey =
   | "inbox_backfill_v4"
   | "low_token_mode"
   | "claude_weekly_reset_dow"
-  | "claude_weekly_reset_hour";
+  | "claude_weekly_reset_hour"
+  // LLM provider settings (Goose backend)
+  | "goose_provider"
+  | "goose_api_key"
+  | "goose_model_planning"
+  | "goose_model_execution"
+  | "goose_model_classification"
+  | "goose_model_chat"
+  // LLM provider settings (Claude Code backend)
+  | "claude_model_planning"
+  | "claude_model_classification"
+  // CLI error monitor circuit breaker (consecutive transient error tracking)
+  | "cli_error_consecutive_count"
+  | "cli_error_first_at";
 
 export interface Setting {
   key: SettingKey;
@@ -262,6 +275,8 @@ export interface CreateProjectParams {
   name: string;
   description?: string;
   directoryPath: string;
+  /** Cloud mode: git repository URL cloned into E2B sandbox at run start. */
+  gitUrl?: string;
 }
 
 export interface UpdateProjectParams {
@@ -269,6 +284,8 @@ export interface UpdateProjectParams {
   name?: string;
   description?: string;
   directoryPath?: string;
+  /** Cloud mode: git repository URL. */
+  gitUrl?: string;
 }
 
 // Goals
@@ -569,6 +586,8 @@ export interface SendChatMessageParams {
   model?: string;
   modelEffort?: "low" | "medium" | "high";
   permissionMode?: string;
+  /** Active demo slug — only set when the sender is inside /demo/:slug. */
+  demoSlug?: string;
 }
 
 export interface ApproveChatActionParams {
@@ -1056,6 +1075,35 @@ export interface SetupBrowserProfileResult {
   launched: boolean;
   /** User-facing message. */
   message: string;
+  /**
+   * Cloud mode only: E2B Desktop sandbox id. Identifies the session for
+   * later finalize/cancel RPCs. Undefined in local Tauri mode (Chrome runs
+   * on the user's machine and is keyed by credentialId instead).
+   */
+  sandboxId?: string;
+  /**
+   * Cloud mode only: browser-embeddable signed noVNC URL for the sandbox's
+   * live desktop. The frontend renders this in an iframe so the user can
+   * log in and solve CAPTCHAs inside the sandbox.
+   */
+  streamUrl?: string;
+  /** Cloud mode only: epoch ms after which the setup session times out. */
+  expiresAt?: number;
+}
+
+export interface FinalizeBrowserProfileParams {
+  sandboxId: string;
+}
+
+export interface FinalizeBrowserProfileResult {
+  credentialId: string;
+  status: "likely_logged_in" | "no_cookies_detected";
+  storageKey: string;
+  verifiedAt: string;
+}
+
+export interface CancelBrowserSetupCloudParams {
+  sandboxId: string;
 }
 
 export type BrowserSetupStatus =
