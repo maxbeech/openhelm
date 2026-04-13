@@ -142,3 +142,54 @@ export function getBrowserMcpPaths(): BrowserMcpPaths | null {
   if (!isVenvReady()) return null;
   return { pythonPath: VENV_PYTHON, serverModule: SERVER_MODULE, cwd: BROWSER_MCP_DIR };
 }
+
+/**
+ * Pre-warm the browser MCP Python import graph into OS disk cache so the
+ * first real ``spawn_browser`` call pays a fast (<2s) cold-start instead of
+ * the 15–25s nodriver+stealth+handler graph cold import. Call fire-and-forget
+ * at agent startup.
+ *
+ * Implementation: spawn the venv Python with ``-c "import <graph>"``. Python
+ * parses the bytecode, walks imports, and exits. The next ``uv.start(config)``
+ * call elsewhere benefits from the warm .pyc cache in the filesystem page
+ * cache. This is the cheapest reliable way we've found to defeat the MCP
+ * registration race condition without restructuring the server module.
+ *
+ * Budgeted: 30s hard ceiling. If pre-warm itself runs slow, the next job
+ * run's MCP init will still succeed (the imports are progressively hotter
+ * after each attempt).
+ *
+ * Non-fatal — failures are logged and ignored.
+ */
+export async function preWarmBrowserMcp(): Promise<void> {
+  try {
+    const paths = getBrowserMcpPaths();
+    if (!paths) return;
+    // Import the same module graph server.py imports at top level. Any
+    // ImportError is silently absorbed by the Python process — we only
+    // care that the modules land in disk cache.
+    const preImport = [
+      "import nodriver as uc",
+      "import fastmcp",
+      // These are the browser MCP handler modules — the expensive ones.
+      "import sys; sys.path.insert(0, 'src')",
+      "import browser_manager",
+      "import dom_handler",
+      "import stealth",
+      "import profile_manager",
+      "import process_cleanup",
+      "import captcha_detector",
+      "import network_interceptor",
+    ].join("; ");
+    await execFileAsync(
+      paths.pythonPath,
+      ["-c", preImport],
+      { cwd: paths.cwd, timeout: 30_000 },
+    );
+    console.error("[browser-mcp] pre-warmed Python import graph");
+  } catch (err) {
+    // Non-fatal: if pre-warm fails the actual MCP spawn will still work,
+    // just with a longer cold-start budget.
+    console.error("[browser-mcp] pre-warm failed (non-fatal):", err);
+  }
+}

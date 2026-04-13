@@ -569,91 +569,128 @@ class BrowserManager:
         3. Creates a fresh WebSocket connection to the first page target
         4. Re-injects stealth patches and updates the stored tab reference
 
+        Round 12 (2026-04-13): now retries the `/json/list` + websocket
+        connect sequence up to 3 times with 0.5/1.0/1.5s backoff. Chrome's
+        debug endpoint sometimes refuses connections for ~1-2s after a
+        renderer crash while it re-negotiates targets, and a single attempt
+        was dropping us into "please close and spawn a new one" when the
+        browser would have recovered on its own. Also captures detailed
+        diagnostics (last_known_url, profile, attempt_count) for debug
+        logs so root-cause analysis is possible after the fact.
+
         Returns the reconnected Tab, or None if reconnection failed.
         """
         browser = data['browser']
         options = data.get('options')
+        instance_state = data.get('instance')
+        last_known_url = getattr(instance_state, 'current_url', None) or ""
 
         # Check the browser process is still alive
         if not self._is_browser_alive(browser, instance_id):
             debug_logger.log_info(
                 "browser_manager", "_reconnect_tab",
-                f"Browser process dead for {instance_id} — cannot reconnect"
+                f"Browser process dead for {instance_id} (last url: "
+                f"{last_known_url!r}) — cannot reconnect"
             )
             return None
 
-        try:
-            host = browser.config.host or "127.0.0.1"
-            port = browser.config.port
-            if not port:
-                return None
+        host = browser.config.host or "127.0.0.1"
+        port = browser.config.port
+        if not port:
+            return None
 
-            debug_logger.log_info(
-                "browser_manager", "_reconnect_tab",
-                f"Attempting CDP reconnect to {host}:{port} for {instance_id}"
-            )
+        import urllib.request
+        import nodriver.cdp as cdp
 
-            # Fetch available targets from Chrome's JSON debug endpoint
-            import urllib.request
-            req = urllib.request.Request(f"http://{host}:{port}/json/list")
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                targets = json.loads(resp.read().decode())
-
-            # Find a page target to reconnect to
-            page_target = None
-            for t in targets:
-                if t.get("type") == "page":
-                    page_target = t
-                    break
-
-            if not page_target:
-                debug_logger.log_warning(
+        last_error: Optional[Exception] = None
+        for attempt in range(3):
+            try:
+                if attempt > 0:
+                    await asyncio.sleep(0.5 * attempt)
+                debug_logger.log_info(
                     "browser_manager", "_reconnect_tab",
-                    f"No page targets found on {host}:{port}"
+                    f"Reconnect attempt {attempt + 1}/3 on {host}:{port} for "
+                    f"{instance_id} (last url: {last_known_url!r})"
                 )
-                return None
 
-            ws_url = page_target.get("webSocketDebuggerUrl")
-            if not ws_url:
-                return None
+                # Fetch available targets from Chrome's JSON debug endpoint
+                req = urllib.request.Request(f"http://{host}:{port}/json/list")
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    targets = json.loads(resp.read().decode())
 
-            # Create a new Tab connected to the existing page
-            import nodriver.cdp as cdp
-            target_info = cdp.target.TargetInfo(
-                target_id=cdp.target.TargetID(page_target["id"]),
-                type_=page_target.get("type", "page"),
-                title=page_target.get("title", ""),
-                url=page_target.get("url", ""),
-                attached=False,
-                can_access_opener=False,
-            )
+                # Prefer a page target that matches the previously known URL;
+                # fall back to any page target. This avoids reconnecting to
+                # a devtools pane or a blank new-tab page when the original
+                # workflow was on a specific URL the agent cared about.
+                page_target = None
+                if last_known_url:
+                    for t in targets:
+                        if t.get("type") == "page" and t.get("url", "").startswith(last_known_url[:60]):
+                            page_target = t
+                            break
+                if page_target is None:
+                    for t in targets:
+                        if t.get("type") == "page":
+                            page_target = t
+                            break
 
-            new_tab = Tab(ws_url, target=target_info, browser=browser)
-            await new_tab.connect()
+                if not page_target:
+                    last_error = Exception(
+                        f"No page targets on {host}:{port} (found "
+                        f"{[t.get('type') for t in targets]})"
+                    )
+                    debug_logger.log_warning(
+                        "browser_manager", "_reconnect_tab",
+                        f"Attempt {attempt + 1}/3: {last_error}"
+                    )
+                    continue
 
-            # Re-inject stealth patches
-            await self._configure_tab(new_tab, options or BrowserOptions())
+                ws_url = page_target.get("webSocketDebuggerUrl")
+                if not ws_url:
+                    last_error = Exception("Page target has no websocket URL")
+                    continue
 
-            # Update stored references
-            async with self._lock:
-                if instance_id in self._instances:
-                    self._instances[instance_id]['tab'] = new_tab
-                    instance = self._instances[instance_id]['instance']
-                    instance.state = BrowserState.READY
-                    instance.update_activity()
+                # Create a new Tab connected to the existing page
+                target_info = cdp.target.TargetInfo(
+                    target_id=cdp.target.TargetID(page_target["id"]),
+                    type_=page_target.get("type", "page"),
+                    title=page_target.get("title", ""),
+                    url=page_target.get("url", ""),
+                    attached=False,
+                    can_access_opener=False,
+                )
 
-            debug_logger.log_info(
-                "browser_manager", "_reconnect_tab",
-                f"CDP reconnected successfully for {instance_id}"
-            )
-            return new_tab
+                new_tab = Tab(ws_url, target=target_info, browser=browser)
+                await new_tab.connect()
 
-        except Exception as e:
-            debug_logger.log_warning(
-                "browser_manager", "_reconnect_tab",
-                f"Reconnection failed for {instance_id}: {e}"
-            )
-            return None
+                # Re-inject stealth patches
+                await self._configure_tab(new_tab, options or BrowserOptions())
+
+                # Update stored references
+                async with self._lock:
+                    if instance_id in self._instances:
+                        self._instances[instance_id]['tab'] = new_tab
+                        instance = self._instances[instance_id]['instance']
+                        instance.state = BrowserState.READY
+                        instance.update_activity()
+
+                debug_logger.log_info(
+                    "browser_manager", "_reconnect_tab",
+                    f"CDP reconnected successfully for {instance_id} "
+                    f"(attempt {attempt + 1}, url: {page_target.get('url', '')!r})"
+                )
+                return new_tab
+
+            except Exception as e:
+                last_error = e
+                continue
+
+        debug_logger.log_warning(
+            "browser_manager", "_reconnect_tab",
+            f"All reconnect attempts failed for {instance_id} on "
+            f"{host}:{port}: {last_error}"
+        )
+        return None
 
     @staticmethod
     def _is_browser_alive(browser, instance_id: str) -> bool:
@@ -774,10 +811,28 @@ class BrowserManager:
         instance = data.get('instance')
         if instance:
             instance.state = BrowserState.ERROR
+
+        # Round 12 (2026-04-13): include process-alive state and last
+        # known URL in the error message so the agent knows whether the
+        # underlying Chrome is dead (must spawn fresh) vs just the CDP
+        # socket (reconnect already tried, failed, must respawn anyway but
+        # less likely to succeed again). The `process_alive` hint also
+        # helps the caller decide whether to reuse the same profile or
+        # fall back to a different one.
+        last_known_url = getattr(instance, 'current_url', None) or "unknown"
+        browser = data.get('browser')
+        proc_alive = "unknown"
+        try:
+            if browser is not None:
+                proc_alive = "yes" if self._is_browser_alive(browser, instance_id) else "no"
+        except Exception:
+            pass
         raise Exception(
             f"Browser CDP connection lost for instance {instance_id}. "
             f"The browser process may have crashed or the connection timed out. "
-            f"Please close this instance and spawn a new one."
+            f"Please close this instance and spawn a new one. "
+            f"(process_alive={proc_alive}, last_url={last_known_url!r}, "
+            f"last_error={last_error!r})"
         )
 
     async def get_browser(self, instance_id: str) -> Optional[Browser]:

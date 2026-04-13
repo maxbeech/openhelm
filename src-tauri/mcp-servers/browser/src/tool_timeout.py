@@ -26,6 +26,14 @@ EXTENDED_TIMEOUT_TOOLS = frozenset({
     "navigate",
     "click_element",
     "paste_text",
+    # spawn_browser has 4 internal retries with 1.5/3/4.5s backoff plus up
+    # to 30s per attempt — a 60s ceiling was getting hit mid-retry chain
+    # (Run 9 had 3 consecutive 60s timeouts before a 4th spawn succeeded).
+    # 120s lets the retry chain finish naturally without external abort.
+    "spawn_browser",
+    # auto_login waits up to 15s for post-submit LoadEventFired plus any
+    # field-detection retries — 60s cuts too close when the page is slow.
+    "auto_login",
 })
 
 # Tools that need a long timeout (character-by-character typing can take minutes)

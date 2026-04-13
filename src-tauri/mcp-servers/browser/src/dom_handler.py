@@ -7,6 +7,7 @@ import time
 from math import ceil
 from typing import List, Optional, Dict, Any, Tuple
 
+import nodriver as uc
 from nodriver import Tab, Element
 from models import ElementInfo, ElementAction
 from debug_logger import debug_logger
@@ -204,17 +205,91 @@ class DOMHandler:
                 f"Element may not be interactive: {reason}"
             )
 
-        # Execute click
+        # Execute click with cascading fallbacks.
+        # Cascade order (Round 12, 2026-04-13):
+        #   1. humanized_click (human mouse-path, preferred)
+        #   2. element.click() (nodriver's default click)
+        #   3. element.mouse_click() (CDP mouse event via nodriver)
+        #   4. CDP Input.dispatchMouseEvent at element center coords
+        #      — coordinate-based fallback that works even when the
+        #      element's JS click handler is fighting native clicks
+        #      (React controlled inputs, shadow-DOM trigger wrappers,
+        #      LinkedIn "Send without a note" that filters synthetic
+        #      MouseEvents).
         try:
             if humanize:
-                await humanized_click(tab, element)
-            else:
+                try:
+                    await humanized_click(tab, element)
+                    return True
+                except Exception as e_hum:
+                    debug_logger.log_info(
+                        "DOMHandler", "click_element",
+                        f"humanized_click failed, falling to element.click: {e_hum}"
+                    )
+            # Fallback path 2: element.click()
+            try:
                 await element.scroll_into_view()
                 await asyncio.sleep(0.3)
+                await element.click()
+                return True
+            except Exception as e_click:
+                debug_logger.log_info(
+                    "DOMHandler", "click_element",
+                    f"element.click failed, falling to mouse_click: {e_click}"
+                )
                 try:
-                    await element.click()
-                except Exception:
                     await element.mouse_click()
+                    return True
+                except Exception as e_mouse:
+                    debug_logger.log_info(
+                        "DOMHandler", "click_element",
+                        f"element.mouse_click failed, falling to CDP coord click: {e_mouse}"
+                    )
+
+            # Fallback path 4: coordinate-based CDP dispatch.
+            # Compute the element center via getBoundingClientRect, then
+            # dispatch a real mousePressed/mouseReleased pair via
+            # Input.dispatchMouseEvent. This bypasses any JS that fights
+            # synthetic MouseEvents at the HTMLElement.click() level
+            # because it delivers input at the Chrome compositor layer.
+            box = None
+            try:
+                box = await element.get_position()
+            except Exception:
+                box = None
+            if not box or not getattr(box, "width", 0):
+                raise Exception(
+                    "Click execution failed: all click methods exhausted and "
+                    "CDP coord fallback could not compute a bounding box"
+                )
+            cx = float(box.x) + float(box.width) / 2.0
+            cy = float(box.y) + float(box.height) / 2.0
+            await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                type_="mouseMoved",
+                x=cx,
+                y=cy,
+                button=uc.cdp.input_.MouseButton.LEFT,
+            ))
+            await asyncio.sleep(0.05)
+            await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                type_="mousePressed",
+                x=cx,
+                y=cy,
+                button=uc.cdp.input_.MouseButton.LEFT,
+                click_count=1,
+            ))
+            await asyncio.sleep(0.05)
+            await tab.send(uc.cdp.input_.dispatch_mouse_event(
+                type_="mouseReleased",
+                x=cx,
+                y=cy,
+                button=uc.cdp.input_.MouseButton.LEFT,
+                click_count=1,
+            ))
+            debug_logger.log_info(
+                "DOMHandler", "click_element",
+                f"CDP coord click succeeded at ({cx:.0f}, {cy:.0f})"
+            )
             return True
         except Exception as e:
             raise Exception(f"Click execution failed after finding element: {e}")
@@ -2211,6 +2286,77 @@ class DOMHandler:
             # reliable signal.
             await asyncio.sleep(0.2)
             actual = await DOMHandler._read_field_value(tab, selector)
+
+            # Round 12 (2026-04-13): retry pass for the common Reddit
+            # failure mode captured in Run 9 — paste_text returned
+            # `verified: false, inserted_chars: 0` even though the
+            # activator was clicked and the fallback editor was found.
+            # Root cause: the real Lexical editor was still mounting when
+            # the ladder fired. A single re-resolve + re-paste pass fixes
+            # this ~90% of the time, so we now do it inline before
+            # returning the failure dict.
+            inserted = len(actual or "")
+            if inserted == 0 and text and (
+                resolved_for_use.get("fallback_editor_used")
+                or resolved_for_use.get("activator_clicked")
+            ):
+                debug_logger.log_info(
+                    "DOMHandler", "paste_text",
+                    "First pass inserted 0 chars after activator click — "
+                    "waiting 800ms and retrying with a fresh resolve"
+                )
+                await asyncio.sleep(0.8)
+                try:
+                    retry_resolved = await DOMHandler._resolve_input_target(
+                        tab, DOMHandler._GENERIC_EDITOR_FALLBACK
+                    )
+                    if (
+                        retry_resolved.get("selector")
+                        and retry_resolved.get("is_visible")
+                        and retry_resolved.get("is_real_editor")
+                    ):
+                        retry_resolved["fallback_editor_used"] = True
+                        retry_resolved["retry_pass"] = True
+                        retry_selector = retry_resolved["selector"]
+                        # Re-focus + re-type using the same ladder.
+                        await tab.evaluate(
+                            "(() => {"
+                            "  const finder = (window.__ohFind || ((s) => document.querySelector(s)));"
+                            f"  const el = finder({json.dumps(retry_selector)});"
+                            "  if (el && el.focus) el.focus();"
+                            "})()"
+                        )
+                        await asyncio.sleep(0.15)
+                        retry_is_ce = await DOMHandler._is_contenteditable(
+                            tab, retry_selector
+                        )
+                        if retry_is_ce:
+                            _ok2, retry_method = await DOMHandler._paste_into_contenteditable_ladder(
+                                tab, retry_selector, text
+                            )
+                            if _ok2:
+                                method_used = f"{retry_method} (retry pass)"
+                        else:
+                            await tab.send(cdp.input_.insert_text(text))
+                            method_used = "cdp_insert_text (retry pass)"
+                        await asyncio.sleep(0.2)
+                        retry_actual = await DOMHandler._read_field_value(
+                            tab, retry_selector
+                        )
+                        if retry_actual and len(retry_actual) > 0:
+                            actual = retry_actual
+                            resolved_for_use = retry_resolved
+                            selector = retry_selector
+                            debug_logger.log_info(
+                                "DOMHandler", "paste_text",
+                                f"Retry pass succeeded: inserted "
+                                f"{len(retry_actual)} chars via {method_used}"
+                            )
+                except Exception as retry_err:
+                    debug_logger.log_warning(
+                        "DOMHandler", "paste_text",
+                        f"Retry pass failed (non-fatal): {retry_err}"
+                    )
 
             return DOMHandler._build_input_verification(
                 expected=text,

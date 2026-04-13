@@ -28,7 +28,16 @@ PROFILES_META = os.path.join(PROFILES_ROOT, "profiles.json")
 # Maximum number of seconds `wait_for_unlock` will poll before giving up.
 # Long enough to cover a typical short run's cleanup tail but short enough
 # that we don't deadlock the scheduler.
-LOCK_WAIT_DEFAULT_SECONDS = 15.0
+#
+# Round 12 (2026-04-13): raised from 15s -> 45s. In the manual-run incident
+# on 2026-04-13 eight runs fired within the same 30-second window, all
+# targeting the same Reddit/default profiles, and the 15s ceiling dropped
+# us into the "Profile X is already in use" error immediately after the
+# first contender grabbed the lock. 45s is long enough for any realistic
+# 2-3-way contention to serialise through cleanly (per-run spawn takes
+# ~8-15s once Chrome is warm) while still short enough that a true
+# deadlocked lock holder surfaces as an error within a minute.
+LOCK_WAIT_DEFAULT_SECONDS = 45.0
 LOCK_WAIT_POLL_INTERVAL_SECONDS = 0.5
 
 

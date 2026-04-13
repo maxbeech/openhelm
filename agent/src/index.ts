@@ -20,6 +20,8 @@ import { usageService } from "./usage/service.js";
 import { cleanupOrphanedConfigs } from "./mcp-servers/mcp-config-builder.js";
 import { cleanupOrphanedBrowserCredentials } from "./credentials/browser-credentials.js";
 import { cleanupOrphanedBrowserPids } from "./mcp-servers/browser-cleanup.js";
+import { preWarmBrowserMcp } from "./mcp-servers/browser-setup.js";
+import { migrateLegacyBrowserMcpKey } from "./claude-code/mcp-config.js";
 import { preWarmEmbedder } from "./memory/embeddings.js";
 
 // Injected at build time by esbuild define — see agent/scripts/build.mjs
@@ -90,6 +92,27 @@ try {
   // Non-fatal — directory may not exist yet
 }
 
+// 1e. One-shot migration: rename legacy ``openhelm-browser`` MCP key in
+// ~/.claude.json to the canonical ``openhelm_browser``. Round 12 fix for
+// the dual-config bug where Claude silently called the dash variant
+// (credential-less) during job runs, producing
+// "No browser credential named X is available" on auto_login.
+// See docs/browser/efficiency-improvements.md Round 12.
+try {
+  const result = migrateLegacyBrowserMcpKey();
+  if (result === "migrated") {
+    console.error(
+      "[agent] migrated legacy 'openhelm-browser' MCP key -> 'openhelm_browser' in ~/.claude.json",
+    );
+  } else if (result === "error") {
+    console.error(
+      "[agent] could not migrate legacy MCP key (non-fatal): file unparseable or write failed",
+    );
+  }
+} catch (err) {
+  console.error("[agent] legacy MCP key migration failed (non-fatal):", err);
+}
+
 // 2. Register all IPC handlers
 registerAllHandlers();
 
@@ -155,6 +178,12 @@ console.error(`[agent] ready, listening for IPC on stdin (${elapsed()})`);
 
 // 5c. Pre-warm embedding model so first chat message doesn't pay load cost
 preWarmEmbedder();
+
+// 5d. Pre-warm the browser MCP Python import graph so the first spawn
+// doesn't hit the 15-25s nodriver/stealth cold-import timeout. Round 12
+// fix for the MCP registration race that caused tool-missing errors in
+// the very first job run after agent startup. Fire-and-forget.
+preWarmBrowserMcp();
 
 // 6. Auto-detect Claude Code CLI in background (non-blocking)
 detectClaudeCode()

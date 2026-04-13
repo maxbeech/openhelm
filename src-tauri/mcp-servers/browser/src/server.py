@@ -519,8 +519,14 @@ async def spawn_browser(
             # still held after the timeout we fall through to `acquire_lock`
             # which raises the usual "already in use" error.
             if _pm.is_profile_locked(profile):
+                # Round 12 (2026-04-13): default raised from 15s -> 45s to
+                # survive 8-way simultaneous runs targeting the same profile
+                # (Reddit/default on the 2026-04-13 manual-run incident).
                 wait_budget = float(
-                    os.environ.get("OPENHELM_PROFILE_LOCK_WAIT_SECONDS", "15")
+                    os.environ.get(
+                        "OPENHELM_PROFILE_LOCK_WAIT_SECONDS",
+                        str(_pm.LOCK_WAIT_DEFAULT_SECONDS),
+                    )
                 )
                 freed = _pm.wait_for_unlock(profile, timeout_seconds=wait_budget)
                 if freed:
@@ -1944,13 +1950,66 @@ async def list_browser_credentials() -> List[Dict[str, str]]:
     ]
 
 
+def _resolve_credential_name(name: str) -> Optional[str]:
+    """
+    Fuzzy-match a credential lookup so agents don't fail with
+    "No browser credential named 'X' is available" when the stored name is
+    "X (Twitter)" and similar near-misses.
+
+    Matching rules, in order:
+      1. Exact match (case-sensitive)
+      2. Case-insensitive exact match
+      3. Case-insensitive prefix match — "X" → "X (Twitter)"
+      4. Case-insensitive substring match — "twitter" → "X (Twitter)"
+      5. Parentheses-stripped match — "X (Twitter)" ↔ "X"
+
+    Returns the canonical stored name on a unique match, or ``None`` if no
+    match or ambiguous (more than one credential matches).
+    """
+    if not name:
+        return None
+    if name in _browser_credentials:
+        return name
+    stored = list(_browser_credentials.keys())
+    if not stored:
+        return None
+    lower = name.strip().lower()
+
+    # 2. case-insensitive exact
+    exact_ci = [s for s in stored if s.lower() == lower]
+    if len(exact_ci) == 1:
+        return exact_ci[0]
+
+    # 3. case-insensitive prefix ("X" matches "X (Twitter)")
+    prefix = [s for s in stored if s.lower().startswith(lower + " ") or s.lower().startswith(lower + "(")]
+    if len(prefix) == 1:
+        return prefix[0]
+
+    # 4. case-insensitive substring
+    substring = [s for s in stored if lower in s.lower()]
+    if len(substring) == 1:
+        return substring[0]
+
+    # 5. parentheses-stripped match (both directions)
+    import re as _re
+    def _strip_parens(s: str) -> str:
+        return _re.sub(r"\s*\([^)]*\)", "", s).strip().lower()
+    stripped_target = _strip_parens(name)
+    if stripped_target:
+        paren_match = [s for s in stored if _strip_parens(s) == stripped_target]
+        if len(paren_match) == 1:
+            return paren_match[0]
+
+    return None
+
+
 @section_tool("credentials")
 async def auto_login(
     instance_id: str,
     credential_name: str,
-    username_selector: str = 'input[type="email"], input[name="username"], input[name="email"], input[name="login"], input[name="acct"], input[name="user"], input[id="username"], input[id="email"], input[id="login"]',
-    password_selector: str = 'input[type="password"], input[name="pw"]',
-    submit_selector: str = 'button[type="submit"], input[type="submit"]',
+    username_selector: str = 'input[type="email"], input[name="username"], input[name="email"], input[name="login"], input[name="acct"], input[name="user"], input[id="username"], input[id="email"], input[id="login"], input[autocomplete="username"], input[autocomplete="email"], input[data-testid="ocfEnterTextTextInput"], input[aria-label*="username" i], input[aria-label*="email" i]',
+    password_selector: str = 'input[type="password"], input[name="pw"], input[autocomplete="current-password"]',
+    submit_selector: str = 'button[type="submit"], input[type="submit"], div[role="button"][data-testid*="LoginForm_Login_Button" i], button[data-testid*="LoginForm_Login_Button" i]',
     delay_ms: int = 80,
 ) -> Dict[str, Any]:
     """
@@ -1961,6 +2020,13 @@ async def auto_login(
 
     After submitting, waits for the page navigation to complete so the
     browser is in a stable state for subsequent tool calls.
+
+    Credential names are fuzzy-matched against the pre-loaded credential
+    store. Common near-misses resolve automatically — e.g. ``"X"`` →
+    ``"X (Twitter)"``, ``"twitter"`` → ``"X (Twitter)"``, ``"reddit"`` →
+    ``"Reddit"``. If the fuzzy match is ambiguous (multiple stored names
+    match), the tool still returns an error with the candidate list so the
+    caller can disambiguate.
 
     Args:
         instance_id (str): Browser instance ID.
@@ -1973,14 +2039,25 @@ async def auto_login(
     Returns:
         Dict[str, Any]: Result with success status and message (never includes credential values).
     """
-    cred = _browser_credentials.get(credential_name)
+    resolved_name = _resolve_credential_name(credential_name)
+    cred = _browser_credentials.get(resolved_name) if resolved_name else None
     if not cred:
         available = list(_browser_credentials.keys())
         return {
             "success": False,
             "error": f"No browser credential named '{credential_name}' is available.",
             "available_credentials": available,
+            "hint": (
+                "Credential names are case-insensitive and accept prefixes "
+                "(e.g. 'X' matches 'X (Twitter)'). Pick one of the available "
+                "names above and retry."
+            ),
         }
+    if resolved_name != credential_name:
+        debug_logger.log_info(
+            "server", "auto_login",
+            f"Credential name '{credential_name}' fuzzy-matched to '{resolved_name}'"
+        )
 
     if cred.get("type") != "username_password":
         return {
@@ -1995,17 +2072,56 @@ async def auto_login(
     username = cred.get("username", "")
     password = cred.get("password", "")
 
+    async def _wait_and_type(
+        field_selector: str,
+        value: str,
+        field_label: str,
+    ) -> Optional[str]:
+        """
+        Attempt to type into a login field with an auto-retry wait loop.
+        Returns None on success, or an error string on failure.
+
+        Pages under Cloudflare interstitial render the <input> elements
+        after the challenge clears (sometimes 1–3 seconds late) — a single
+        type_text call fails with "Element not found" and the caller gives
+        up. We poll for the selector up to 8s before failing, giving the
+        form time to mount even when initial load lands on an interstitial.
+        """
+        import time as _time
+        deadline = _time.monotonic() + 8.0
+        last_error: Optional[Exception] = None
+        attempt = 0
+        while _time.monotonic() < deadline:
+            attempt += 1
+            try:
+                await dom_handler.type_text(
+                    tab, field_selector, value, True, delay_ms, False, False
+                )
+                return None
+            except Exception as e:
+                last_error = e
+                # Only retry "element not found" class errors — other errors
+                # (e.g. element is disabled) are permanent and we exit fast.
+                msg = str(e).lower()
+                if "not found" in msg or "selector matched 0" in msg or "no elements" in msg:
+                    await asyncio.sleep(0.6)
+                    continue
+                # Non-retryable error
+                break
+        return (
+            f"Failed to fill {field_label} field after {attempt} attempts: "
+            f"{str(last_error) if last_error else 'unknown error'}"
+        )
+
     # Type username
-    try:
-        await dom_handler.type_text(tab, username_selector, username, True, delay_ms, False, False)
-    except Exception as e:
-        return {"success": False, "error": f"Failed to fill username field: {str(e)}"}
+    err = await _wait_and_type(username_selector, username, "username")
+    if err:
+        return {"success": False, "error": err}
 
     # Type password
-    try:
-        await dom_handler.type_text(tab, password_selector, password, True, delay_ms, False, False)
-    except Exception as e:
-        return {"success": False, "error": f"Failed to fill password field: {str(e)}"}
+    err = await _wait_and_type(password_selector, password, "password")
+    if err:
+        return {"success": False, "error": err}
 
     # Click submit and wait for resulting page navigation to complete.
     # Without this wait, the next tool call would hit a stale CDP tab
