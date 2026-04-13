@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, type ReactNode } from "react";
-import { isLocalMode } from "../../lib/mode.js";
+import { isLocalMode, isDemoPath } from "../../lib/mode.js";
 import { getSupabaseClient } from "../../lib/supabase-client.js";
 import { LoginPage } from "./login-page.js";
 
@@ -17,6 +17,12 @@ interface AuthGuardProps {
 export function AuthGuard({ children }: AuthGuardProps) {
   // In local mode there's no auth — render immediately
   if (isLocalMode) return <>{children}</>;
+
+  // Demo routes handle their own auth (anonymous sign-in inside DemoRoute).
+  // Do not force a login redirect for /demo/:slug visitors.
+  if (typeof window !== "undefined" && isDemoPath(window.location.pathname)) {
+    return <>{children}</>;
+  }
 
   return <CloudAuthGuard>{children}</CloudAuthGuard>;
 }

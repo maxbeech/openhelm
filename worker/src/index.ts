@@ -22,6 +22,12 @@ import {
   finalizeBrowserSession,
   cancelBrowserSession,
 } from "./credential-setup.js";
+import {
+  DemoRateLimitError,
+  checkDemoRateLimit,
+  extractClientIp,
+  hashIp,
+} from "./demo-rate-limit.js";
 
 // Validate config at import time — throws if required vars are missing
 void config;
@@ -62,9 +68,15 @@ function json(res: ServerResponse, status: number, data: unknown): void {
   res.end(payload);
 }
 
+interface RpcContext {
+  authUserId: string;
+  isAnonymous: boolean;
+  clientIp: string | null;
+}
+
 async function handleRpc(
   body: Record<string, unknown>,
-  authUserId: string,
+  ctx: RpcContext,
   res: ServerResponse,
 ): Promise<void> {
   const { id, method, params } = body as {
@@ -72,8 +84,9 @@ async function handleRpc(
     method: string;
     params: Record<string, unknown>;
   };
+  const authUserId = ctx.authUserId;
 
-  console.error(`[worker] rpc → ${method} (user: ${authUserId.slice(0, 8)}…)`);
+  console.error(`[worker] rpc → ${method} (user: ${authUserId.slice(0, 8)}…${ctx.isAnonymous ? " anon" : ""})`);
   const t0 = Date.now();
 
   try {
@@ -172,16 +185,55 @@ async function handleRpc(
       }
 
       case "chat.send": {
-        const { conversationId, content, model, modelEffort, permissionMode, context } = params as {
-          conversationId: string;
-          content: string;
-          model?: string;
-          modelEffort?: string;
-          permissionMode?: string;
-          context?: unknown;
-        };
+        const { conversationId, content, model, modelEffort, permissionMode, context, demoSlug } =
+          params as {
+            conversationId: string;
+            content: string;
+            model?: string;
+            modelEffort?: string;
+            permissionMode?: string;
+            context?: unknown;
+            demoSlug?: string;
+          };
+
+        // Demo rate limiting — only enforced for anonymous sessions. Real
+        // authenticated users who happen to be visiting a demo URL bypass
+        // this check (they have their own subscription / usage metering).
+        if (ctx.isAnonymous) {
+          if (!demoSlug) {
+            return json(res, 400, {
+              id,
+              error: { code: -32602, message: "Anonymous chat requires a demoSlug" },
+            });
+          }
+          const ipHash = hashIp(ctx.clientIp);
+          const verdict = await checkDemoRateLimit({
+            sessionId: authUserId,
+            ipHash,
+            slug: demoSlug,
+          });
+          if (!verdict.ok) {
+            throw new DemoRateLimitError(verdict.reason);
+          }
+        }
+
+        // Force plan (read-only) permission mode for demo visitors so the
+        // chat tool loop cannot accidentally mutate demo state. Real users
+        // on /demo/:slug keep their requested mode — they're not gated.
+        const effectiveMode = ctx.isAnonymous ? "plan" : permissionMode;
+
         result = await handleChatSend(
-          { conversationId, content, model, modelEffort, permissionMode, context },
+          {
+            conversationId,
+            content,
+            model,
+            modelEffort,
+            permissionMode: effectiveMode,
+            context,
+            demoContext: ctx.isAnonymous && demoSlug
+              ? { slug: demoSlug, ipHash: hashIp(ctx.clientIp) }
+              : undefined,
+          },
           authUserId,
         );
         break;
@@ -263,6 +315,16 @@ async function handleRpc(
     json(res, 200, { id, result });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // Demo rate limit errors use a dedicated code (4290) so the frontend
+    // can intercept them and open the signup modal with the rate-limit copy.
+    if (err instanceof DemoRateLimitError) {
+      console.error(`[worker] rpc ⊗ ${method} demo rate limit: ${err.reason}`);
+      json(res, 200, {
+        id: body.id,
+        error: { code: 4290, message: err.reason },
+      });
+      return;
+    }
     console.error(`[worker] rpc ✗ ${method} (${Date.now() - t0}ms):`, message);
     json(res, 500, { id: body.id, error: { code: -32603, message } });
   }
@@ -289,23 +351,37 @@ function createHttpServer() {
       const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
       if (!token) { json(res, 401, { error: "Unauthorized" }); return; }
 
-      // Decode JWT to extract user ID (no signature verification here;
-      // RLS in Supabase enforces tenant isolation — the worker uses service key)
+      // Decode JWT to extract user ID + anonymous flag. We don't verify
+      // the signature here because the service-role client it fans out
+      // to still enforces RLS via `user_id` comparisons — and the worker
+      // already runs behind Supabase's own auth. Demo rate limiting uses
+      // `is_anonymous` which Supabase Auth stamps into the JWT payload
+      // for sessions created via signInAnonymously().
       let userId: string;
+      let isAnonymous = false;
       try {
         const payload = JSON.parse(
           Buffer.from(token.split(".")[1], "base64url").toString(),
-        );
+        ) as { sub?: string; is_anonymous?: boolean };
         userId = payload.sub as string;
         if (!userId) throw new Error("missing sub");
+        isAnonymous = payload.is_anonymous === true;
       } catch {
         json(res, 401, { error: "Invalid token" });
         return;
       }
 
+      const clientIp = extractClientIp(
+        (req.headers["x-forwarded-for"] as string | undefined) ?? undefined,
+      );
+
       try {
         const body = await readBody(req);
-        await handleRpc(body as Record<string, unknown>, userId, res);
+        await handleRpc(
+          body as Record<string, unknown>,
+          { authUserId: userId, isAnonymous, clientIp },
+          res,
+        );
       } catch (err) {
         json(res, 400, { error: "Bad request" });
       }

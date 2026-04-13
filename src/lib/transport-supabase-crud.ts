@@ -24,6 +24,32 @@ function camelToSnake(s: string): string {
   return s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 }
 
+/**
+ * Keys whose VALUE is JSONB business data that must NOT be recursively
+ * camelized. Otherwise user-defined keys inside JSONB get silently rewritten
+ * (e.g. a data-table column id `spend_gbp` in `columns` would still read
+ * as `spend_gbp`, but the corresponding `spend_gbp` key inside each row's
+ * `data` blob would be rewritten to `spendGbp`, breaking `row.data[col.id]`
+ * lookups across the whole data-tables feature).
+ */
+const JSONB_FIELDS_TO_PRESERVE = new Set<string>([
+  "data",          // data_table_rows.data + messages.tool_calls/results
+  "columns",       // data_tables.columns
+  "config",        // visualizations.config
+  "schedule_config",
+  "scheduleConfig",
+  "tool_calls",
+  "toolCalls",
+  "tool_results",
+  "toolResults",
+  "pending_actions",
+  "pendingActions",
+  "metadata",
+  "tags",
+  "raw_user_meta_data",
+  "rawUserMetaData",
+]);
+
 /** Recursively camelize all keys in a Supabase response object or array. */
 function camelizeKeys(obj: unknown): unknown {
   if (Array.isArray(obj)) return obj.map(camelizeKeys);
@@ -31,7 +57,9 @@ function camelizeKeys(obj: unknown): unknown {
     return Object.fromEntries(
       Object.entries(obj as Record<string, unknown>).map(([k, v]) => [
         snakeToCamel(k),
-        camelizeKeys(v),
+        // Preserve user-defined JSONB blobs as-is — recursive camelization
+        // would rewrite semantic identifiers inside business data.
+        JSONB_FIELDS_TO_PRESERVE.has(k) ? v : camelizeKeys(v),
       ]),
     );
   }
@@ -84,6 +112,22 @@ export async function handleCrudRequest<T>(
     case "projects.get": {
       const { data, error } = await supabase.from("projects").select("*").eq("id", p.id).single();
       return ok(data, error) as T;
+    }
+    case "projects.getBySlug": {
+      // Look up a demo project by its public slug. Unlike projects.get this
+      // filters on is_demo = true so only demo projects are returnable here;
+      // regular projects must be fetched by id.
+      //
+      // `maybeSingle()` returns null (not an error) when no row matches so
+      // the caller can distinguish "unknown slug" from a query failure.
+      const { data, error } = await supabase
+        .from("projects")
+        .select("*")
+        .eq("demo_slug", p.slug)
+        .eq("is_demo", true)
+        .maybeSingle();
+      if (error) throw new Error(`Supabase error (${method}): ${error.message}`);
+      return (data ? camelizeKeys(data) : null) as T;
     }
     case "projects.create": {
       const { data, error } = await supabase
@@ -384,6 +428,68 @@ export async function handleCrudRequest<T>(
         .eq("conversation_id", p.conversationId);
       if (error) throw new Error(error.message);
       return { cleared: true } as T;
+    }
+
+    // ─── Data tables (read-only in cloud + demo) ──────────────────────────
+    case "dataTables.list": {
+      let q = supabase.from("data_tables").select("*");
+      if (p.projectId) q = q.eq("project_id", p.projectId);
+      const { data, error } = await q.order("created_at", { ascending: false });
+      return ok(data, error) as T;
+    }
+    case "dataTables.listAll": {
+      const { data, error } = await supabase
+        .from("data_tables")
+        .select("*")
+        .order("created_at", { ascending: false });
+      return ok(data, error) as T;
+    }
+    case "dataTables.get": {
+      const { data, error } = await supabase
+        .from("data_tables")
+        .select("*")
+        .eq("id", p.id)
+        .single();
+      return ok(data, error) as T;
+    }
+    case "dataTables.listRows": {
+      let q = supabase.from("data_table_rows").select("*").eq("table_id", p.tableId);
+      if (p.limit) q = q.limit(Number(p.limit));
+      if (p.offset) q = q.range(Number(p.offset), Number(p.offset) + Number(p.limit ?? 1000) - 1);
+      const { data, error } = await q.order("sort_order", { ascending: true });
+      return ok(data, error) as T;
+    }
+
+    // ─── Targets ──────────────────────────────────────────────────────────
+    case "targets.list": {
+      let q = supabase.from("targets").select("*");
+      if (p.projectId) q = q.eq("project_id", p.projectId);
+      if (p.goalId) q = q.eq("goal_id", p.goalId);
+      const { data, error } = await q.order("created_at", { ascending: false });
+      return ok(data, error) as T;
+    }
+    case "targets.evaluateAll": {
+      // Returns live evaluation of each target. In cloud mode the demo
+      // surface has no targets seeded, so returning an empty array keeps
+      // downstream views (e.g. job detail "Insights") happy.
+      return [] as T;
+    }
+
+    // ─── Visualizations (read-only in cloud + demo) ───────────────────────
+    case "visualizations.list": {
+      let q = supabase.from("visualizations").select("*");
+      if (p.projectId) q = q.eq("project_id", p.projectId);
+      if (p.goalId) q = q.eq("goal_id", p.goalId);
+      const { data, error } = await q.order("sort_order", { ascending: true });
+      return ok(data, error) as T;
+    }
+    case "visualizations.get": {
+      const { data, error } = await supabase
+        .from("visualizations")
+        .select("*")
+        .eq("id", p.id)
+        .single();
+      return ok(data, error) as T;
     }
 
     default:

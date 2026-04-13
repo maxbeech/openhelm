@@ -15,7 +15,108 @@
 
 import type { Transport } from "./transport.js";
 import { getSupabaseClient, getSession, getWorkerUrl } from "./supabase-client.js";
+import {
+  DEMO_RATE_LIMIT_ERROR_CODE,
+  DemoRateLimitError,
+  DemoReadOnlyError,
+} from "./demo-errors.js";
+import { useDemoStore } from "../stores/demo-store.js";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+
+// ─── Demo write classification ────────────────────────────────────────────────
+//
+// We classify methods into three buckets for demo visitors:
+//
+//  1. LOUD writes → open the signup modal + throw DemoReadOnlyError.
+//     These are user-initiated mutations (create/update/delete/archive/
+//     trigger/send/approve/…). Clicking any of these is a teachable moment.
+//
+//  2. QUIET writes → silently return a synthetic success. These are
+//     persistence writes the app fires during normal navigation
+//     (settings.set to remember the active project, analytics opt-in,
+//     sidebar group order). Showing the signup modal on page load would
+//     be a terrible UX.
+//
+//  3. Reads → pass through normally. Default for anything unclassified,
+//     so adding a new read method "just works" without touching this file.
+//
+// RLS is still the authoritative gate at the DB layer — this is UX polish
+// that turns blocked writes into conversion moments and hides cosmetic
+// persistence writes from the visitor.
+
+const LOUD_WRITE_SUFFIXES = [
+  ".create",
+  ".update",
+  ".delete",
+  ".insert",
+  ".insertRows",
+  ".updateRow",
+  ".deleteRows",
+  ".addColumn",
+  ".renameColumn",
+  ".removeColumn",
+  ".updateColumnConfig",
+  ".archive",
+  ".unarchive",
+  ".restoreDeleted",
+  ".reorder",
+  ".reorderConversations",
+  ".renameConversation",
+  ".deleteConversation",
+  ".createConversation",
+  ".trigger",
+  ".cancel",
+  ".clearByJob",
+  ".resolve",
+  ".dismiss",
+  ".accept",
+  ".approve",
+  ".approveAction",
+  ".approveAll",
+  ".reject",
+  ".rejectAction",
+  ".rejectAll",
+  ".rejectProposal",
+  ".generateForGoal",
+  ".prune",
+  ".clear",
+  ".openInTerminal",
+  ".setupBrowserProfile",
+  ".finalizeBrowserProfile",
+  ".cancelBrowserSetup",
+];
+
+// Explicit names that are user-initiated writes but don't match the suffix list.
+//
+// Notably absent: `chat.send`. In demo mode we WANT chat to work — the
+// worker enforces per-session and per-IP rate limits and forces plan
+// (read-only) permission mode for anonymous users. Blocking it here would
+// break the whole interactive-chat pitch.
+const LOUD_WRITE_EXACT = new Set<string>([
+  "scheduler.pause",
+  "scheduler.resume",
+  "scheduler.setLowTokenMode",
+  "executor.stopAll",
+]);
+
+// Persistence writes that happen silently during navigation.
+const QUIET_WRITE_EXACT = new Set<string>([
+  "settings.set",
+  "settings.delete",
+  "browserMcp.focusBrowser",
+  "power.checkAuth",
+  "permissions.requestTerminalAccess",
+  "permissions.checkTerminalAccess",
+]);
+
+function classifyDemoMethod(method: string): "loud" | "quiet" | "read" {
+  if (QUIET_WRITE_EXACT.has(method)) return "quiet";
+  if (LOUD_WRITE_EXACT.has(method)) return "loud";
+  for (const suffix of LOUD_WRITE_SUFFIXES) {
+    if (method.endsWith(suffix)) return "loud";
+  }
+  return "read";
+}
 
 // ─── Worker RPC ───────────────────────────────────────────────────────────────
 
@@ -65,7 +166,14 @@ async function workerRpc<T>(
     error?: { code: number; message: string };
   };
 
-  if (error) throw new Error(`[${error.code}] ${error.message}`);
+  if (error) {
+    // Demo rate limit hit — surface a dedicated error class so the
+    // global handler can open the signup modal with the right copy.
+    if (error.code === DEMO_RATE_LIMIT_ERROR_CODE) {
+      throw new DemoRateLimitError(error.message);
+    }
+    throw new Error(`[${error.code}] ${error.message}`);
+  }
   return result as T;
 }
 
@@ -127,6 +235,29 @@ export class SupabaseTransport implements Transport {
   async request<T = unknown>(method: string, params?: unknown): Promise<T> {
     const session = await getSession();
     if (!session) throw new Error("Not authenticated");
+
+    // Demo write guard. See classifyDemoMethod() for the 3-bucket model.
+    if (useDemoStore.getState().isDemo) {
+      const verdict = classifyDemoMethod(method);
+      if (verdict === "loud") {
+        // User-initiated mutation. Open the signup modal synchronously —
+        // several stores catch mutation errors and swallow them into their
+        // local error state, so relying on the global unhandledrejection
+        // handler is unreliable. Doing it here guarantees the modal opens.
+        useDemoStore.getState().showSignupModal({
+          trigger: "write_blocked",
+          method,
+        });
+        throw new DemoReadOnlyError(method);
+      }
+      if (verdict === "quiet") {
+        // Persistence write triggered by navigation. Silently no-op with
+        // a synthetic success so the caller's .catch() never fires and
+        // the navigation proceeds normally.
+        return { ok: true, demoNoop: true } as unknown as T;
+      }
+      // verdict === "read": fall through to normal handling.
+    }
 
     // Action methods → Worker
     if (WORKER_METHODS.has(method)) {

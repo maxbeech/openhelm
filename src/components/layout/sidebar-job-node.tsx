@@ -46,6 +46,7 @@ function formatScheduleLabel(job: Job, lowTokenMode: boolean): string {
     }
     case "calendar": {
       const cfg = job.scheduleConfig as ScheduleConfigCalendar;
+      if (typeof cfg?.time !== "string") return "Calendar: (invalid)";
       const [h, m] = cfg.time.split(":").map(Number);
       const ampm = h >= 12 ? "pm" : "am";
       const h12 = h % 12 || 12;

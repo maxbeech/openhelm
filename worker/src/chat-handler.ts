@@ -16,6 +16,8 @@ import { runChatToolLoop } from "./chat/tool-loop.js";
 import { getToolsForMode } from "./chat/tool-schemas.js";
 import { buildCloudChatSystemPrompt } from "./chat/system-prompt.js";
 import { autoRenameThread } from "./chat/auto-rename.js";
+import { recordDemoMessage } from "./demo-rate-limit.js";
+import { calculateRawCostUsd } from "./cost-calculator.js";
 
 const MAX_HISTORY_MESSAGES = 50;
 const DEFAULT_CHAT_MODEL = "haiku";
@@ -27,6 +29,15 @@ interface ChatSendParams {
   modelEffort?: string;
   permissionMode?: string;
   context?: unknown;
+  /**
+   * Present only for anonymous demo visitors. Signals the handler to
+   * meter the message against the per-session / per-IP / global budgets
+   * after the LLM call completes successfully.
+   */
+  demoContext?: {
+    slug: string;
+    ipHash: string;
+  };
 }
 
 interface MessageRow {
@@ -181,6 +192,23 @@ export async function handleChatSend(
     `${llmResponse.inputTokens}in/${llmResponse.outputTokens}out tokens, ` +
     `${llmResponse.toolCalls.length} tool calls`,
   );
+
+  // Demo metering — only after a fully successful LLM call. Failed or
+  // errored runs don't consume a credit so visitors aren't penalised
+  // for our infra problems.
+  if (params.demoContext) {
+    const costUsd = calculateRawCostUsd(
+      model ?? DEFAULT_CHAT_MODEL,
+      llmResponse.inputTokens,
+      llmResponse.outputTokens,
+    );
+    await recordDemoMessage({
+      sessionId: userId,
+      ipHash: params.demoContext.ipHash,
+      slug: params.demoContext.slug,
+      costUsd,
+    });
+  }
 
   return { started: true };
 }

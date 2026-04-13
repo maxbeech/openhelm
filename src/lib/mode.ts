@@ -11,3 +11,14 @@ export const isLocalMode =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 export const isCloudMode = !isLocalMode;
+
+/** True when the given pathname is scoped to a public demo (/demo/:slug/...). */
+export function isDemoPath(pathname: string): boolean {
+  return pathname.startsWith("/demo/");
+}
+
+/** Extract the demo slug from a pathname, or null if not a demo path. */
+export function getDemoSlug(pathname: string): string | null {
+  const match = pathname.match(/^\/demo\/([^/]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}

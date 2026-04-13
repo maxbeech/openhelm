@@ -1,4 +1,5 @@
 import { transport } from "./transport";
+import { useDemoStore } from "../stores/demo-store";
 import type {
   Project,
   Goal,
@@ -120,6 +121,10 @@ export function createProject(params: CreateProjectParams): Promise<Project> {
 
 export function getProject(id: string): Promise<Project> {
   return transport.request<Project>("projects.get", { id });
+}
+
+export function getProjectBySlug(slug: string): Promise<Project | null> {
+  return transport.request<Project | null>("projects.getBySlug", { slug });
 }
 
 export function listProjects(): Promise<Project[]> {
@@ -363,7 +368,12 @@ export function reAuthenticated(): Promise<{
 export function sendChatMessage(
   params: SendChatMessageParams,
 ): Promise<{ started: boolean }> {
-  return transport.request<{ started: boolean }>("chat.send", params);
+  // In demo mode, attach the active slug so the worker can rate-limit
+  // anonymous chat. The store import is safe — it's a tiny Zustand file
+  // with no side effects on module load.
+  const demoSlug = useDemoStore.getState().slug;
+  const payload = demoSlug ? { ...params, demoSlug } : params;
+  return transport.request<{ started: boolean }>("chat.send", payload);
 }
 
 export function cancelChatMessage(

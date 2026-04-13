@@ -567,6 +567,8 @@ export interface SendChatMessageParams {
   model?: string;
   modelEffort?: "low" | "medium" | "high";
   permissionMode?: string;
+  /** Active demo slug — only set when the sender is inside /demo/:slug. */
+  demoSlug?: string;
 }
 
 export interface ApproveChatActionParams {

@@ -37,6 +37,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { slidePageVariants, slidePageTransition } from "./lib/motion";
 import { useNavStore } from "./stores/nav-store";
+import { useDemoStore } from "./stores/demo-store";
 import { OnboardingWizard } from "./components/onboarding/onboarding-wizard";
 import { CloudOnboardingWizard } from "./components/cloud/onboarding-wizard";
 import { AppShell } from "./components/layout/app-shell";
@@ -613,20 +614,28 @@ export default function App() {
         const onboardingFlag = await api.getSetting("onboarding_complete").catch(() => null);
         await fetchProjects();
         const projectsList = useProjectStore.getState().projects;
+        const demoState = useDemoStore.getState();
         if (projectsList.length > 0 || onboardingFlag?.value === "true") {
           setOnboardingComplete(true);
           // Backfill flag for existing users who completed onboarding before this flag existed
           if (onboardingFlag?.value !== "true") {
             api.setSetting({ key: "onboarding_complete", value: "true" }).catch(() => {});
           }
-          const saved = await api.getSetting("active_project");
-          const savedId = saved?.value;
-          const activeProj = projectsList.find((p) => p.id === savedId);
-          // Use saved project, or if only one project exists default to it
-          // instead of "All Projects"
-          setActiveProjectId(
-            activeProj?.id ?? (projectsList.length === 1 ? projectsList[0].id : null),
-          );
+          if (demoState.isDemo && demoState.demoProjectId) {
+            // Demo mode: pin activeProjectId to the demo project regardless of
+            // any saved setting. Skip the settings read to avoid a network
+            // roundtrip that would fail silently for anonymous visitors.
+            setActiveProjectId(demoState.demoProjectId);
+          } else {
+            const saved = await api.getSetting("active_project");
+            const savedId = saved?.value;
+            const activeProj = projectsList.find((p) => p.id === savedId);
+            // Use saved project, or if only one project exists default to it
+            // instead of "All Projects"
+            setActiveProjectId(
+              activeProj?.id ?? (projectsList.length === 1 ? projectsList[0].id : null),
+            );
+          }
           const savedGroupOrder = await api.getSetting("sidebar_project_group_order").catch(() => null);
           if (savedGroupOrder?.value) {
             try { setProjectGroupOrder(JSON.parse(savedGroupOrder.value)); } catch { /* ignore */ }
