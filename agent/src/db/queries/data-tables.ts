@@ -471,7 +471,8 @@ export function listDataTableChanges(params: ListDataTableChangesParams): DataTa
  */
 export function reconcileAllRowCounts(): void {
   const db = getDb();
-  db.prepare(`
+  // Use Drizzle's sql tag — db.prepare() is not available on the Drizzle wrapper.
+  db.run(sql`
     UPDATE data_tables
     SET row_count = (
       SELECT COUNT(*) FROM data_table_rows WHERE data_table_rows.table_id = data_tables.id
@@ -480,7 +481,7 @@ export function reconcileAllRowCounts(): void {
     WHERE row_count != (
       SELECT COUNT(*) FROM data_table_rows WHERE data_table_rows.table_id = data_tables.id
     )
-  `).run();
+  `);
 }
 
 // ─── Helpers ───

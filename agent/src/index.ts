@@ -25,6 +25,7 @@ import { cleanupOrphanedBrowserPids } from "./mcp-servers/browser-cleanup.js";
 import { preWarmBrowserMcp } from "./mcp-servers/browser-setup.js";
 import { migrateLegacyBrowserMcpKey } from "./claude-code/mcp-config.js";
 import { preWarmEmbedder } from "./memory/embeddings.js";
+import { preWarmWhisper } from "./voice/index.js";
 
 // Injected at build time by esbuild define — see agent/scripts/build.mjs
 declare const __OPENHELM_VERSION__: string;
@@ -190,6 +191,11 @@ preWarmEmbedder();
 // fix for the MCP registration race that caused tool-missing errors in
 // the very first job run after agent startup. Fire-and-forget.
 preWarmBrowserMcp();
+
+// 5e. Pre-warm whisper model if voice is enabled (non-blocking)
+preWarmWhisper().catch((err) => {
+  console.error("[agent] whisper pre-warm failed (non-fatal):", err);
+});
 
 // 6. Auto-detect Claude Code CLI in background (non-blocking)
 detectClaudeCode()

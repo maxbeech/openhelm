@@ -113,6 +113,13 @@ import type {
   FinalizeBrowserProfileResult,
   SetLowTokenModeParams,
   SetLowTokenModeResult,
+  StartVoiceParams,
+  VoiceAudioChunkParams,
+  StopVoiceParams,
+  CancelVoiceParams,
+  VoiceApproveParams,
+  GetVoiceSettingsResult,
+  UpdateVoiceSettingsParams,
 } from "@openhelm/shared";
 
 // ─── Projects ───
@@ -892,4 +899,38 @@ export function getInboxTierBoundaries(params: GetInboxTiersParams): Promise<Inb
 
 export function listFutureInboxEvents(params?: ListFutureInboxEventsParams): Promise<InboxEvent[]> {
   return transport.request<InboxEvent[]>("inbox.listFuture", params);
+}
+
+// ─── Voice ───
+
+export function startVoice(params: StartVoiceParams): Promise<{ sessionId: string; started: boolean }> {
+  return agentClient.request<{ sessionId: string; started: boolean }>("voice.start", params);
+}
+
+export function sendVoiceAudioChunk(params: VoiceAudioChunkParams): Promise<{ received: boolean }> {
+  return agentClient.request<{ received: boolean }>("voice.audioChunk", params);
+}
+
+export function stopVoice(params: StopVoiceParams): Promise<{ stopped: boolean }> {
+  return agentClient.request<{ stopped: boolean }>("voice.stop", params);
+}
+
+export function cancelVoice(params: CancelVoiceParams): Promise<{ cancelled: boolean }> {
+  return agentClient.request<{ cancelled: boolean }>("voice.cancel", params);
+}
+
+export function notifyVoiceTtsPlaybackDone(sessionId: string): Promise<{ ok: boolean }> {
+  return agentClient.request<{ ok: boolean }>("voice.ttsPlaybackDone", { sessionId });
+}
+
+export function approveVoiceAction(params: VoiceApproveParams): Promise<{ ok: boolean }> {
+  return agentClient.request<{ ok: boolean }>("voice.approve", params);
+}
+
+export function getVoiceSettings(): Promise<GetVoiceSettingsResult> {
+  return agentClient.request<GetVoiceSettingsResult>("voice.getSettings");
+}
+
+export function updateVoiceSettings(params: UpdateVoiceSettingsParams): Promise<{ updated: boolean }> {
+  return agentClient.request<{ updated: boolean }>("voice.updateSettings", params);
 }

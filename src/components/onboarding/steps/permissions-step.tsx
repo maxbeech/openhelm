@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Bell, Terminal, Shield, CheckCircle2, Loader2 } from "lucide-react";
+import { Bell, Terminal, Shield, Mic, CheckCircle2, Loader2 } from "lucide-react";
 import { ensureNotificationPermission } from "@/lib/notifications";
 import * as api from "@/lib/api";
 
@@ -47,6 +47,18 @@ function PermissionRow({ icon, title, description, status, actionLabel, onAction
 export function PermissionsStep({ onNext }: { onNext: () => void }) {
   const [notifStatus, setNotifStatus] = useState<"idle" | "loading" | "granted">("idle");
   const [terminalStatus, setTerminalStatus] = useState<"idle" | "loading" | "granted">("idle");
+  const [micStatus, setMicStatus] = useState<"idle" | "loading" | "granted">("idle");
+
+  const handleMicAccess = async () => {
+    setMicStatus("loading");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop()); // immediately stop; we just need the permission
+      setMicStatus("granted");
+    } catch {
+      setMicStatus("idle");
+    }
+  };
 
   const handleNotifications = async () => {
     setNotifStatus("loading");
@@ -93,6 +105,15 @@ export function PermissionsStep({ onNext }: { onNext: () => void }) {
           status={terminalStatus}
           actionLabel="Grant Access"
           onAction={handleTerminalAccess}
+        />
+
+        <PermissionRow
+          icon={<Mic className="size-5" />}
+          title="Microphone"
+          description="Used for voice chat — speak to create goals, jobs, and manage your project hands-free."
+          status={micStatus}
+          actionLabel="Allow"
+          onAction={handleMicAccess}
         />
 
         <PermissionRow

@@ -129,6 +129,9 @@ export async function handleChatMessage(
   permissionMode?: string,
   conversationId?: string,
   abortSignal?: AbortSignal,
+  /** Optional: called on each streaming chunk with the full cumulative sanitized text so far.
+   *  Used by VoiceSession to start TTS synthesis before the LLM finishes responding. */
+  onStreamingText?: (fullText: string) => void,
 ): Promise<ChatMessage[]> {
   // Resolve project — null means "All Projects" thread
   const project = projectId ? getProject(projectId) : null;
@@ -343,6 +346,7 @@ export async function handleChatMessage(
         // else: subset/duplicate — iterStreamedText unchanged
         const newFull = fullStreamedText + iterStreamedText;
         emit("chat.streaming", { fullText: newFull, projectId, conversationId: convId });
+        onStreamingText?.(newFull);
       },
       onToolUse: (toolName) => {
         emit("chat.status", { status: "reading", tools: [toolName], projectId, conversationId: convId });
