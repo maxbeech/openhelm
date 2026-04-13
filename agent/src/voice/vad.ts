@@ -11,7 +11,7 @@ import { rms, WHISPER_SAMPLE_RATE } from "./audio-utils.js";
 export interface VadOptions {
   /** Minimum RMS energy to classify a frame as speech (0.0–1.0, default 0.01) */
   threshold?: number;
-  /** Silence duration before speech end is declared, in ms (default 2000) */
+  /** Silence duration before speech end is declared, in ms (default 800) */
   silenceDurationMs?: number;
   /** Minimum speech before VAD can fire, in ms (default 300) */
   minSpeechDurationMs?: number;
@@ -37,7 +37,9 @@ export class Vad {
 
   constructor(opts: VadOptions) {
     this.threshold = opts.threshold ?? 0.01;
-    const silenceMs = opts.silenceDurationMs ?? 2000;
+    // 800ms balances responsiveness vs. false-early-cutoff on natural pauses.
+    // (Was 2000ms — halved to improve end-to-end voice latency.)
+    const silenceMs = opts.silenceDurationMs ?? 800;
     const minSpeechMs = opts.minSpeechDurationMs ?? 300;
     this.silenceFramesThreshold = Math.ceil(silenceMs / FRAME_MS);
     this.minSpeechFrames = Math.ceil(minSpeechMs / FRAME_MS);

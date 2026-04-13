@@ -156,20 +156,26 @@ export class VoiceSession {
   }
 
   private async runLlm(userText: string, provider: Awaited<ReturnType<typeof createVoiceProvider>>): Promise<void> {
-    // Collect sentences synchronously (splitter fires onSentence synchronously during push/end),
-    // then synthesise them one-by-one in order. Sequential synthesis guarantees that shorter
-    // sentences don't finish before longer ones and cause out-of-order audio delivery.
-    // (With parallel synthesis, sentence 2's audio could arrive before sentence 1's and
-    // play first, making the user hear sentence 2 → sentence 1 → which sounds like a repeat.)
-    const sentences: string[] = [];
+    // Streaming TTS overlap: sentences are synthesised as the LLM streams, not after it
+    // finishes. handleChatMessage fires onStreamingText with the full cumulative sanitized
+    // text on every chunk. We diff against what we've already seen to get the delta, push
+    // the delta into the SentenceSplitter, and immediately chain a synthesis task for each
+    // complete sentence that emerges. Synthesis tasks are chained sequentially on synthChain
+    // so sentences always play in arrival order regardless of individual synthesis durations.
+    let lastSeenTextLen = 0;
+    let synthChain: Promise<void> = Promise.resolve();
 
     const splitter = new SentenceSplitter({
       onSentence: (sentence) => {
-        sentences.push(sentence);
+        // Chain onto previous synthesis promise to guarantee ordered playback
+        synthChain = synthChain.then(async () => {
+          if (this.disposed || this.abortController.signal.aborted) return;
+          await this.synthesizeSentence(sentence, provider).catch((err) =>
+            console.error("[voice] tts error:", err));
+        });
       },
     });
 
-    // Intercept streaming text to feed sentence splitter
     const messages = await handleChatMessage(
       this.projectId,
       userText,
@@ -179,28 +185,24 @@ export class VoiceSession {
       "plan",
       this.conversationId,
       this.abortController.signal,
+      (fullText) => {
+        // Compute delta: only the text we haven't fed to the splitter yet
+        if (fullText.length > lastSeenTextLen) {
+          splitter.push(fullText.slice(lastSeenTextLen));
+          lastSeenTextLen = fullText.length;
+        }
+      },
     );
 
-    // The LLM streaming goes through chat.streaming events, not returned text.
-    // We need a different approach: hook into the text via the IPC emit.
-    // For now, synthesize the final assistant message content.
-    const assistantMsg = messages.find((m) => m.role === "assistant");
-    if (assistantMsg?.content) {
-      splitter.push(assistantMsg.content);
-    }
+    // Flush any partial sentence remaining after LLM stream ends
     splitter.end();
 
-    // Synthesise each sentence in order so audio chunks arrive at the frontend
-    // in sentence order and play back correctly.
-    for (const sentence of sentences) {
-      if (this.disposed || this.abortController.signal.aborted) break;
-      await this.synthesizeSentence(sentence, provider).catch((err) =>
-        console.error("[voice] tts error:", err));
-    }
+    // Wait for all queued sentence synthesis to complete
+    await synthChain;
 
     // Emit session-level final sentinel: empty samples + final=true.
-    // The AudioPlayback on the frontend only fires onFinished when it receives
-    // this sentinel AND all previously enqueued nodes have drained.
+    // AudioPlayback.onFinished only fires when it receives this AND all
+    // previously enqueued audio nodes have drained.
     emit("voice.ttsChunk", {
       sessionId: this.sessionId,
       chunk: float32ToBase64(new Float32Array(0)),
@@ -210,6 +212,7 @@ export class VoiceSession {
     });
 
     // Check for pending actions
+    const assistantMsg = messages.find((m) => m.role === "assistant");
     if (assistantMsg?.pendingActions?.length) {
       const spokenSummary = buildSpokenSummary(assistantMsg.pendingActions);
       this.pendingApproval = {

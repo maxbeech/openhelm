@@ -129,13 +129,13 @@ describe("callLlmViaCli — permissionMode passthrough", () => {
 });
 
 describe("callLlmViaCli — chat tier timeout", () => {
-  it("uses 300s timeout for chat tier", async () => {
+  it("uses 600s timeout for chat tier", async () => {
     runClaudeCodePrintMock.mockResolvedValueOnce({ text: "hi", exitCode: 0 });
 
     await callLlmViaCli({ model: "chat", systemPrompt: "s", userMessage: "hello" });
 
     expect(runClaudeCodePrintMock).toHaveBeenCalledWith(
-      expect.objectContaining({ timeoutMs: 300_000 }),
+      expect.objectContaining({ timeoutMs: 600_000 }),
     );
   });
 });

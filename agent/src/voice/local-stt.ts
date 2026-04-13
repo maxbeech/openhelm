@@ -94,9 +94,13 @@ export class LocalVoiceProvider implements VoiceProvider {
       }
 
       // Constructor: new Whisper(modelPath, { gpu: true })
+      // gpu: true requests Metal acceleration on macOS — smart-whisper logs
+      // whether it actually activated. If the timing below is >1s per ~5s of
+      // audio, Metal is likely not active and the build lacks Metal support.
+      console.error("[voice/stt] loading whisper model (gpu: true):", modelPath);
       const instance = new WhisperClass(modelPath, { gpu: true });
       this.whisper = instance;
-      console.error("[voice/stt] whisper model loaded:", modelPath);
+      console.error("[voice/stt] whisper model ready:", modelPath);
       return instance;
     })();
 
@@ -107,9 +111,18 @@ export class LocalVoiceProvider implements VoiceProvider {
   async transcribe(pcm: Float32Array): Promise<TranscribeResult> {
     const whisper = await this.getWhisper();
 
+    // Time the transcription to help diagnose whether GPU acceleration is active.
+    // On Apple Silicon with Metal: expect ~200-500ms for a 5-10s utterance.
+    // On CPU-only: expect ~1000-3000ms for the same.
+    const t0 = Date.now();
+
     // smart-whisper 0.8.x: transcribe(pcm, opts) → task; await task.result for segments
     const task = await whisper.transcribe(pcm, { language: "en" });
     const segments: Array<{ text: string }> = await task.result;
+
+    const durationSec = (pcm.length / 16000).toFixed(1);
+    const inferMs = Date.now() - t0;
+    console.error(`[voice/stt] transcribed ${durationSec}s audio in ${inferMs}ms`);
 
     const text = Array.isArray(segments)
       ? segments.map((s) => s.text).join(" ").trim()
