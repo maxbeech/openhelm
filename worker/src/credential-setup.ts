@@ -84,8 +84,11 @@ export async function setupBrowserSession(
     "--password-store=basic",
     `"${url}"`,
   ].join(" ");
+  // Ubuntu 22.04's chromium-browser apt package is a snap shim that fails in
+  // containers, so the template installs google-chrome-stable instead.
+  // DISPLAY=:0 was set on the sandbox by the desktop SDK when Xvfb started.
   await sandbox.commands.run(
-    `nohup chromium ${chromeFlags} > /tmp/chromium.log 2>&1 &`,
+    `DISPLAY=:0 nohup google-chrome-stable ${chromeFlags} > /tmp/chromium.log 2>&1 &`,
     { background: true },
   );
 
@@ -150,8 +153,8 @@ export async function finalizeBrowserSession(
     apiKey: config.e2bApiKey,
   });
 
-  // Gracefully close Chromium so the Cookies SQLite file flushes.
-  await sandbox.commands.run("pkill -TERM chromium || true");
+  // Gracefully close Chrome so the Cookies SQLite file flushes.
+  await sandbox.commands.run("pkill -TERM -f 'chrome|chromium' || true");
   await new Promise((r) => setTimeout(r, 1_500));
 
   // Classify on the actual Cookies file size inside the profile — mirrors

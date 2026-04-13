@@ -333,16 +333,32 @@ async function main(): Promise<void> {
     console.error(`[worker] HTTP server listening on :${config.port}`);
   });
 
-  // Graceful shutdown
-  const shutdown = () => {
-    console.error("[worker] shutting down");
+  // Graceful shutdown.
+  //
+  // Must complete in well under tsx watch's force-kill grace period (~5s) or
+  // the process gets SIGKILL'd mid-flight and concurrently cascades the kill
+  // across the whole dev stack. `server.close()` on its own waits for every
+  // in-flight request and keep-alive socket to close naturally — a long RPC
+  // like credential.setupBrowserProfile (~8s to spawn an E2B sandbox) would
+  // hang shutdown forever — so we also force-close existing connections.
+  let shuttingDown = false;
+  const shutdown = (signal: NodeJS.Signals) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.error(`[worker] shutting down (${signal})`);
     stopScheduler();
+    // Stop accepting new connections AND kill existing ones. Without the
+    // second call Node will wait indefinitely for keep-alive sockets.
     server.close(() => process.exit(0));
-    setTimeout(() => process.exit(1), 10_000);
+    server.closeAllConnections();
+    // Belt-and-braces: if something in the close path is still blocking
+    // after 2s (well inside tsx watch's force-kill window), exit anyway.
+    // unref() so this timer never keeps the event loop alive on its own.
+    setTimeout(() => process.exit(0), 2_000).unref();
   };
 
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 
   console.error("[worker] ready");
 }

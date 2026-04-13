@@ -9,7 +9,7 @@
     "shared"
   ],
   "scripts": {
-    "predev": "lsof -ti tcp:1420 2>/dev/null | xargs kill -9 2>/dev/null; exit 0",
+    "predev": "if lsof -ti tcp:1420 >/dev/null 2>&1; then echo ''; echo 'Port 1420 is already in use — something else is running there (probably an existing vite / dev:cloud).'; echo 'Stop it first:  kill $(lsof -ti tcp:1420)'; echo ''; exit 1; fi",
     "dev": "vite",
     "dev:local": "npm --workspace=agent run build && tauri dev",
     "dev:cloud": "concurrently -n 'vite,worker' -c 'cyan,yellow' --kill-others-on-fail \"vite\" \"dotenv -e .env.local -- npm --prefix worker run dev\"",

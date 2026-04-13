@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
+vi.mock("@/lib/mode", () => ({
+  isLocalMode: true,
+  isCloudMode: false,
+}));
+
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockResolvedValue(false),
 }));
