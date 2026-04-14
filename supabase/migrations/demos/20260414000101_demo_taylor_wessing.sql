@@ -363,7 +363,8 @@ VALUES
    28200, 4310, now() - interval '10 days')
 ON CONFLICT (id) DO UPDATE
   SET status = EXCLUDED.status, summary = EXCLUDED.summary,
-      started_at = EXCLUDED.started_at, finished_at = EXCLUDED.finished_at;
+      started_at = EXCLUDED.started_at, finished_at = EXCLUDED.finished_at,
+      created_at = EXCLUDED.created_at;
 
 -- ── 6. Run logs (one fleshed-out failure → correction sequence) ─────
 

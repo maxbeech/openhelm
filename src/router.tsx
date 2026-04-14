@@ -2,12 +2,15 @@
  * Top-level router for OpenHelm.
  *
  * Strategy: minimal BrowserRouter wrap that routes `/demo/:slug/*` to the
- * public demo experience and delegates every other path to the existing
- * Zustand-driven <App>. This keeps the massive existing ContentView-based
- * navigation intact while enabling URL-scoped demo entry points.
+ * public demo experience and delegates every other path to <App>.
  *
- * Progressive migration to per-view routes (e.g. /goal/:id, /job/:id) can
- * happen in follow-up PRs without touching this file's structure.
+ * In-app pages (/inbox, /dashboard, /goals/:id, /jobs/:id, /data/:id, …)
+ * are not enumerated here as individual <Route>s. Instead, `useUrlSync`
+ * in `src/hooks/use-url-sync.ts` keeps the URL and the Zustand-driven
+ * `contentView`/selection state in sync on top of this single catch-all.
+ * This preserves the existing ContentView render tree + slide animations
+ * while giving every page a real URL for back/forward, refresh, and deep
+ * links.
  */
 
 import { lazy, Suspense } from "react";

@@ -390,12 +390,14 @@ const EVENT_HANDLERS: Record<string, HandlerFn> = {
  * Inserts events for runs and open dashboard items from the last 90 days.
  * v4 adds a repair step for run events that were created with empty projectId
  * (caused by executor omitting jobId from run.statusChanged events).
+ * v5 replays open dashboard items that were stranded by the autopilot post-run
+ * handler forgetting to emit dashboard.created (captain_insight items).
  * Guarded by the versioned settings key — runs only once per version.
  */
 export function runBackfillIfNeeded(): void {
   try {
     // Use versioned key so we can re-run backfill after fixing bugs
-    if (getSetting("inbox_backfill_v4")) return;
+    if (getSetting("inbox_backfill_v5")) return;
 
     const db = getDb();
     const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
@@ -523,7 +525,7 @@ export function runBackfillIfNeeded(): void {
       repairedCount++;
     }
 
-    setSetting("inbox_backfill_v4", new Date().toISOString());
+    setSetting("inbox_backfill_v5", new Date().toISOString());
     process.stderr.write(
       `[inbox-bridge] backfill complete: ${historicRuns.length} runs, ${openItems.length} alerts, ${repairedCount} repaired\n`,
     );

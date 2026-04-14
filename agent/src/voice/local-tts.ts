@@ -9,11 +9,12 @@
 
 import { spawn } from "child_process";
 import { join } from "path";
-import { existsSync, statSync, readFileSync, unlinkSync, mkdtempSync } from "fs";
+import { existsSync, statSync, readFileSync, unlinkSync, rmdirSync, mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import type { SynthesizeOptions, TtsChunk } from "./provider.js";
 import type { TtsEngine } from "@openhelm/shared";
 import { PIPER_SAMPLE_RATE } from "./audio-utils.js";
+import { extractWavPcmFloat32, int16ToFloat32 } from "./pcm-utils.js";
 
 // Resolve piper binary — bundled by Tauri as an externalBin.
 // process.argv[1] is the agent script path, so dirname(argv[1]) is the binaries directory.
@@ -50,39 +51,6 @@ function getPiperModelPath(voice: string): string {
 
 const DEFAULT_PIPER_VOICE = "en_US-lessac-medium";
 
-/**
- * Parse a WAV buffer and extract the PCM data chunk as Float32Array.
- * Handles WAV files output by macOS `say` with LEF32 (32-bit float LE) format.
- */
-function extractWavPcmFloat32(buf: Buffer): Float32Array {
-  // Walk RIFF chunks to find "data"
-  let offset = 12; // skip RIFF header (4+4+4)
-  while (offset + 8 <= buf.length) {
-    const id = buf.toString("ascii", offset, offset + 4);
-    const size = buf.readUInt32LE(offset + 4);
-    if (id === "data") {
-      const dataStart = offset + 8;
-      const dataEnd = Math.min(dataStart + size, buf.length);
-      const dataLen = (dataEnd - dataStart) & ~3; // align to 4 bytes
-      const floats = new Float32Array(dataLen / 4);
-      for (let i = 0; i < floats.length; i++) {
-        floats[i] = buf.readFloatLE(dataStart + i * 4);
-      }
-      return floats;
-    }
-    offset += 8 + size + (size & 1); // chunks are word-aligned
-  }
-  return new Float32Array(0);
-}
-
-/** Convert signed 16-bit LE PCM buffer to Float32Array */
-function int16ToFloat32(buf: Buffer): Float32Array {
-  const out = new Float32Array(buf.length / 2);
-  for (let i = 0; i < out.length; i++) {
-    out[i] = buf.readInt16LE(i * 2) / 32768;
-  }
-  return out;
-}
 
 export class LocalTts {
   private readonly engine: TtsEngine;
@@ -162,7 +130,13 @@ export class LocalTts {
 
       child.on("close", (code) => {
         if (spawnFailed) return; // already handled by error event → synthesizeSay
-        // Flush remaining audio
+        if (code !== 0 && code !== null) {
+          // Non-zero exit: reject without emitting a final chunk — the partial
+          // audio already streamed via onChunk(final: false) is the best we have.
+          reject(new Error(`[voice/tts] piper exited with code ${code}`));
+          return;
+        }
+        // Flush remaining audio only on clean exit
         if (chunks.length > 0) {
           const merged = Buffer.concat(chunks);
           const floats = int16ToFloat32(merged);
@@ -170,11 +144,7 @@ export class LocalTts {
         } else {
           onChunk({ samples: new Float32Array(0), sampleRate: PIPER_SAMPLE_RATE, final: true });
         }
-        if (code !== 0 && code !== null) {
-          reject(new Error(`[voice/tts] piper exited with code ${code}`));
-        } else {
-          resolve();
-        }
+        resolve();
       });
 
       // Send text to piper via stdin — skip if spawn already failed
@@ -224,6 +194,7 @@ export class LocalTts {
           reject(err);
         } finally {
           try { unlinkSync(outFile); } catch { /* ignore */ }
+          try { rmdirSync(tmpDir); } catch { /* ignore */ }
         }
       });
     });

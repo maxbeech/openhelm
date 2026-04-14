@@ -27,7 +27,19 @@ function makeSupabaseMock() {
         lte: () => ({
           eq: () => ({
             eq: () => ({
-              data: table === "jobs" ? db.jobs.filter((j) => j.is_enabled && !j.is_archived) : db.runs,
+              // Third eq is the demo-project filter (projects.is_demo = false).
+              // The mock honours the `is_demo_project` flag on test jobs so
+              // demo-project jobs are excluded the same way PostgREST would
+              // filter them via the projects!inner join.
+              eq: () => ({
+                data: table === "jobs"
+                  ? db.jobs.filter((j) => j.is_enabled && !j.is_archived && !j.is_demo_project)
+                  : db.runs,
+                error: null,
+              }),
+              data: table === "jobs"
+                ? db.jobs.filter((j) => j.is_enabled && !j.is_archived && !j.is_demo_project)
+                : db.runs,
               error: null,
             }),
           }),
@@ -168,6 +180,20 @@ describe("Scheduler tick — run creation", () => {
     await tick(onRunReady);
 
     expect(db.runs.length).toBe(0);
+  });
+
+  it("skips jobs belonging to demo projects", async () => {
+    // Demo projects ship with is_enabled=true cron jobs for display purposes
+    // only. The scheduler must never actually execute them — otherwise the
+    // worker pounds on demo jobs with no real credentials and fills the demo
+    // dashboard with failed runs.
+    db.jobs.push(makeJob({ is_demo_project: true }));
+
+    const onRunReady = jest.fn<() => void>();
+    await tick(onRunReady);
+
+    expect(db.runs.length).toBe(0);
+    expect(onRunReady).not.toHaveBeenCalled();
   });
 });
 

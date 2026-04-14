@@ -64,6 +64,7 @@ export class LocalVoiceProvider implements VoiceProvider {
   private whisperLoading: Promise<any> | null = null;
   private tts: LocalTts;
   private readonly ttsEngine: TtsEngine;
+  private _disposed = false;
 
   constructor(ttsEngine: TtsEngine) {
     this.ttsEngine = ttsEngine;
@@ -99,7 +100,11 @@ export class LocalVoiceProvider implements VoiceProvider {
       // audio, Metal is likely not active and the build lacks Metal support.
       console.error("[voice/stt] loading whisper model (gpu: true):", modelPath);
       const instance = new WhisperClass(modelPath, { gpu: true });
-      this.whisper = instance;
+      // If dispose() was called while loading, don't cache — avoid a second
+      // concurrent load overwriting the first and leaking the earlier instance.
+      if (!this._disposed) {
+        this.whisper = instance;
+      }
       console.error("[voice/stt] whisper model ready:", modelPath);
       return instance;
     })();
@@ -140,6 +145,7 @@ export class LocalVoiceProvider implements VoiceProvider {
   }
 
   dispose(): void {
+    this._disposed = true;
     this.tts.dispose();
     this.whisper = null;
     this.whisperLoading = null;

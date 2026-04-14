@@ -15,6 +15,8 @@ import {
   addColumn,
   renameColumn,
   removeColumn,
+  updateColumn,
+  reorderColumns,
   listDataTableChanges,
   getTablesWithEmbeddings,
   updateTableEmbedding,
@@ -71,8 +73,11 @@ describe("Data Table CRUD", () => {
     expect(table.id).toBeTruthy();
     expect(table.name).toBe("Customers");
     expect(table.description).toBe("Prospective leads");
-    expect(table.columns).toHaveLength(3);
+    // 3 user columns + 2 auto-injected timestamp columns.
+    expect(table.columns).toHaveLength(5);
     expect(table.columns[0].id).toBe("col_name");
+    expect(table.columns.find((c) => c.type === "created_time")).toBeDefined();
+    expect(table.columns.find((c) => c.type === "updated_time")).toBeDefined();
     expect(table.rowCount).toBe(0);
     expect(table.createdBy).toBe("user");
 
@@ -247,8 +252,9 @@ describe("Data Table Schema Operations", () => {
     const newCol: DataTableColumn = { id: "col_email", name: "Email", type: "email", config: {} };
     const updated = addColumn({ tableId: table.id, column: newCol });
 
-    expect(updated.columns).toHaveLength(4);
-    expect(updated.columns[3].id).toBe("col_email");
+    // 3 user + 2 auto-injected timestamps + 1 newly added = 6.
+    expect(updated.columns).toHaveLength(6);
+    expect(updated.columns.find((c) => c.id === "col_email")).toBeDefined();
   });
 
   it("renames a column", () => {
@@ -265,7 +271,8 @@ describe("Data Table Schema Operations", () => {
     const table = createDataTable({ projectId: project.id, name: "T", columns: TEST_COLUMNS });
 
     const updated = removeColumn({ tableId: table.id, columnId: "col_revenue" });
-    expect(updated.columns).toHaveLength(2);
+    // 3 user + 2 auto-injected timestamps - 1 removed = 4.
+    expect(updated.columns).toHaveLength(4);
     expect(updated.columns.find((c) => c.id === "col_revenue")).toBeUndefined();
   });
 
@@ -292,6 +299,132 @@ describe("Data Table Schema Operations", () => {
     // Row data still has the orphaned key (by design — data is preserved)
     const rows = getDataTableRows({ tableId: table.id });
     expect(rows[0].data.col_revenue).toBe(5000);
+  });
+
+  it("updateColumn merges a width patch into a single column", () => {
+    const project = createTestProject();
+    const table = createDataTable({ projectId: project.id, name: "T", columns: TEST_COLUMNS });
+
+    const updated = updateColumn({
+      tableId: table.id,
+      columnId: "col_revenue",
+      patch: { width: 240 },
+    });
+
+    const col = updated.columns.find((c) => c.id === "col_revenue");
+    expect(col?.width).toBe(240);
+    // Other columns untouched
+    expect(updated.columns.find((c) => c.id === "col_name")?.width).toBeUndefined();
+  });
+
+  it("updateColumn preserves the id even if the patch tries to change it", () => {
+    const project = createTestProject();
+    const table = createDataTable({ projectId: project.id, name: "T", columns: TEST_COLUMNS });
+
+    // Patch omits id (it's excluded from the type) — verify the original id is kept.
+    const updated = updateColumn({
+      tableId: table.id,
+      columnId: "col_name",
+      patch: { name: "Company" },
+    });
+
+    const col = updated.columns.find((c) => c.id === "col_name");
+    expect(col?.name).toBe("Company");
+    expect(col?.id).toBe("col_name");
+  });
+
+  it("updateColumn throws when column is missing", () => {
+    const project = createTestProject();
+    const table = createDataTable({ projectId: project.id, name: "T", columns: TEST_COLUMNS });
+
+    expect(() =>
+      updateColumn({ tableId: table.id, columnId: "nonexistent", patch: { width: 200 } }),
+    ).toThrow("Column not found");
+  });
+
+  it("reorderColumns rearranges user columns and preserves timestamp columns at the end", () => {
+    const project = createTestProject();
+    const table = createDataTable({ projectId: project.id, name: "T", columns: TEST_COLUMNS });
+
+    // Provide all 5 IDs (3 user + 2 timestamp) in the order we want.
+    const allIds = table.columns.map((c) => c.id);
+    const userIds = allIds.filter((id) => !id.startsWith("__"));
+    const tsIds = allIds.filter((id) => id.startsWith("__"));
+    const nextIds = ["col_revenue", "col_name", "col_status", ...tsIds];
+    expect(userIds).toEqual(["col_name", "col_status", "col_revenue"]);
+
+    const updated = reorderColumns({
+      tableId: table.id,
+      columnIds: nextIds,
+    });
+
+    expect(updated.columns.map((c) => c.id)).toEqual(nextIds);
+  });
+
+  it("reorderColumns keeps unmentioned columns at the end (defensive)", () => {
+    const project = createTestProject();
+    const table = createDataTable({ projectId: project.id, name: "T", columns: TEST_COLUMNS });
+
+    const updated = reorderColumns({
+      tableId: table.id,
+      columnIds: ["col_revenue"],
+    });
+
+    expect(updated.columns[0].id).toBe("col_revenue");
+    // 3 user + 2 timestamp auto-injected = 5.
+    expect(updated.columns).toHaveLength(5);
+  });
+
+  it("createDataTable auto-injects Created and Updated columns at the end", () => {
+    const project = createTestProject();
+    const table = createDataTable({ projectId: project.id, name: "T", columns: TEST_COLUMNS });
+
+    const last = table.columns[table.columns.length - 1];
+    const secondLast = table.columns[table.columns.length - 2];
+    expect(secondLast.type).toBe("created_time");
+    expect(last.type).toBe("updated_time");
+  });
+
+  it("createDataTable does not duplicate timestamp columns when caller supplies them", () => {
+    const project = createTestProject();
+    const customTimestamps: DataTableColumn[] = [
+      ...TEST_COLUMNS,
+      { id: "my_created", name: "Added On", type: "created_time", config: {} },
+      { id: "my_updated", name: "Changed On", type: "updated_time", config: {} },
+    ];
+    const table = createDataTable({ projectId: project.id, name: "T", columns: customTimestamps });
+    // Should stay at 5 (the 3 user + caller-supplied 2 timestamps), not 7.
+    expect(table.columns).toHaveLength(5);
+    expect(table.columns.filter((c) => c.type === "created_time")).toHaveLength(1);
+    expect(table.columns.filter((c) => c.type === "updated_time")).toHaveLength(1);
+    expect(table.columns.find((c) => c.type === "created_time")?.id).toBe("my_created");
+  });
+
+  it("removed timestamp columns do not reappear on later operations", () => {
+    const project = createTestProject();
+    const table = createDataTable({ projectId: project.id, name: "T", columns: TEST_COLUMNS });
+
+    // Find the auto-injected Created column and remove it.
+    const createdCol = table.columns.find((c) => c.type === "created_time");
+    expect(createdCol).toBeDefined();
+    const afterRemove = removeColumn({ tableId: table.id, columnId: createdCol!.id });
+    expect(afterRemove.columns.find((c) => c.type === "created_time")).toBeUndefined();
+
+    // Subsequent addColumn shouldn't bring it back.
+    const afterAdd = addColumn({
+      tableId: table.id,
+      column: { id: "col_note", name: "Note", type: "text", config: {} },
+    });
+    expect(afterAdd.columns.find((c) => c.type === "created_time")).toBeUndefined();
+  });
+
+  it("reorderColumns throws when a provided id does not exist", () => {
+    const project = createTestProject();
+    const table = createDataTable({ projectId: project.id, name: "T", columns: TEST_COLUMNS });
+
+    expect(() =>
+      reorderColumns({ tableId: table.id, columnIds: ["col_revenue", "col_missing"] }),
+    ).toThrow("Column not found");
   });
 });
 

@@ -22,7 +22,7 @@
       "entitlements": "./Entitlements.plist"
     },
     "targets": "all",
-    "externalBin": ["binaries/agent", "binaries/piper"],
+    "externalBin": ["binaries/agent"],
     "resources": ["bundled-node-modules/**/*", "bundled-node/**/*", "mcp-servers/browser/**/*"],
     "icon": [
       "icons/32x32.png",

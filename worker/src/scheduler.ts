@@ -51,12 +51,18 @@ export async function tick(onRunReady: OnRunReady): Promise<void> {
   const supabase = getSupabase();
   const now = new Date().toISOString();
 
+  // Demo projects are never executed: their jobs carry synthetic schedules
+  // only for display. PostgREST inner-join filter on projects.is_demo excludes
+  // them without a second query.
   const { data: dueJobs, error } = await supabase
     .from("jobs")
-    .select("id, user_id, project_id, schedule_type, schedule_config, prompt")
+    .select(
+      "id, user_id, project_id, schedule_type, schedule_config, prompt, projects!inner(is_demo)",
+    )
     .lte("next_fire_at", now)
     .eq("is_enabled", true)
-    .eq("is_archived", false);
+    .eq("is_archived", false)
+    .eq("projects.is_demo", false);
 
   if (error) {
     console.error("[scheduler] tick query failed:", error.message);

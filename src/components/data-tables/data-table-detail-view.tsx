@@ -7,6 +7,9 @@ import type { DataTable, DataTableColumn, DataTableColumnType } from "@openhelm/
 import type { RelatedTableData } from "./relation-cell";
 import { DataTableGrid } from "./data-table-grid";
 import { DataTableAddColumn } from "./data-table-add-column";
+import { useDataTableColumns } from "./use-data-table-columns";
+import type { SortState } from "./data-table-sort";
+import { loadSortState, saveSortState } from "./data-table-sort";
 
 interface Props {
   tableId: string;
@@ -19,6 +22,21 @@ export function DataTableDetailView({ tableId }: Props) {
   const [showAddColumn, setShowAddColumn] = useState(false);
   const [projectTables, setProjectTables] = useState<DataTable[]>([]);
   const [relatedData, setRelatedData] = useState<Map<string, RelatedTableData>>(new Map());
+  // Sort state is persisted per-table in localStorage.
+  const [sortState, setSortState] = useState<SortState | null>(() => loadSortState(tableId));
+
+  // When the tableId changes (navigating between tables), reload the persisted sort for that table.
+  useEffect(() => {
+    setSortState(loadSortState(tableId));
+  }, [tableId]);
+
+  const handleSortChange = useCallback(
+    (next: SortState | null) => {
+      setSortState(next);
+      saveSortState(tableId, next);
+    },
+    [tableId],
+  );
 
   // Fetch table metadata, rows, and project tables
   useEffect(() => {
@@ -81,6 +99,8 @@ export function DataTableDetailView({ tableId }: Props) {
     if (table) fetchRelatedData(table.columns);
   }, [table?.columns, fetchRelatedData]);
 
+  const columnOps = useDataTableColumns(tableId, table, setTable);
+
   const handleAddRow = useCallback(async () => {
     if (!table) return;
     const emptyRow: Record<string, unknown> = {};
@@ -102,27 +122,13 @@ export function DataTableDetailView({ tableId }: Props) {
     api.getDataTable(tableId).then(setTable).catch(console.error);
   }, [deleteRows, fetchRows, tableId]);
 
-  const handleColumnAdded = useCallback(async (name: string, type: DataTableColumnType, config?: Record<string, unknown>) => {
-    const column: DataTableColumn = {
-      id: `col_${crypto.randomUUID().slice(0, 8)}`,
-      name,
-      type,
-      config: config ?? {},
-    };
-    await api.addDataTableColumn({ tableId, column });
-    api.getDataTable(tableId).then(setTable).catch(console.error);
-    setShowAddColumn(false);
-  }, [tableId]);
-
-  const handleColumnRemove = useCallback(async (columnId: string) => {
-    await api.removeDataTableColumn({ tableId, columnId });
-    api.getDataTable(tableId).then(setTable).catch(console.error);
-  }, [tableId]);
-
-  const handleColumnConfigUpdate = useCallback(async (columnId: string, config: Record<string, unknown>) => {
-    const updated = await api.updateDataTableColumnConfig({ tableId, columnId, config });
-    setTable(updated);
-  }, [tableId]);
+  const handleColumnAdded = useCallback(
+    async (name: string, type: DataTableColumnType, config?: Record<string, unknown>) => {
+      await columnOps.addColumn(name, type, config);
+      setShowAddColumn(false);
+    },
+    [columnOps],
+  );
 
   if (!table) {
     return (
@@ -171,10 +177,14 @@ export function DataTableDetailView({ tableId }: Props) {
           columns={table.columns}
           rows={currentRows}
           loading={rowsLoading}
+          sortState={sortState}
+          onSortChange={handleSortChange}
           onCellChange={handleCellChange}
           onDeleteRow={handleDeleteRow}
-          onColumnRemove={handleColumnRemove}
-          onColumnConfigUpdate={handleColumnConfigUpdate}
+          onColumnRemove={columnOps.removeColumn}
+          onColumnConfigUpdate={columnOps.updateColumnConfig}
+          onColumnResize={columnOps.resizeColumn}
+          onColumnsReorder={columnOps.reorderColumns}
           relatedData={relatedData}
         />
       </div>

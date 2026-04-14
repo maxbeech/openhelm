@@ -93,6 +93,18 @@ export class ClaudeCodeBackend implements AgentBackend {
           }
         },
 
+        // Pure assistant prose — excludes [Tool: …] markers and tool results
+        // that onLogChunk("stdout", …) contains. Surfaced as an `assistant`
+        // AgentEvent so chat UIs see clean text (not raw tool invocations).
+        // Matches the GooseBackend contract for `onEvent(type:"assistant")`.
+        onAssistantText: (text) => {
+          config.onEvent?.({
+            type: "assistant",
+            data: { text },
+            text,
+          });
+        },
+
         onInteractiveDetected: (reason, type: InteractiveDetectionType) => {
           const event: AgentEvent = {
             type: "system",

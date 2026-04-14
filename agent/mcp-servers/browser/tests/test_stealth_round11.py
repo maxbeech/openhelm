@@ -267,13 +267,12 @@ class TestPatch31ShadowDOM:
 class TestPatch32Visibility:
     def test_document_hidden_always_false(self):
         js = _read(JS_DIR / "stealth_core.js")
-        # defineProperty on Document.prototype.hidden with get → false
-        m = re.search(
-            r"defineProperty\(Document\.prototype,\s*'hidden'[^)]*get:\s*function\s*\(\)\s*\{\s*return false",
-            js,
-            re.DOTALL,
-        )
-        assert m, "document.hidden getter must always return false"
+        # defineProperty on Document.prototype.hidden with a getter that returns false.
+        # Round 13 refactored to a named getter (_ohHiddenGetter) registered
+        # with __oh_register, so we check for the named function + defineProperty.
+        assert "_ohHiddenGetter" in js, "document.hidden getter must be defined as _ohHiddenGetter"
+        assert "defineProperty(Document.prototype, 'hidden'" in js
+        assert "return false" in js
 
     def test_visibility_state_always_visible(self):
         js = _read(JS_DIR / "stealth_core.js")

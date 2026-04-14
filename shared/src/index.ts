@@ -245,6 +245,7 @@ export type SettingKey =
   | "inbox_backfill_v2"
   | "inbox_backfill_v3"
   | "inbox_backfill_v4"
+  | "inbox_backfill_v5"
   | "low_token_mode"
   | "claude_weekly_reset_dow"
   | "claude_weekly_reset_hour"
@@ -1469,6 +1470,23 @@ export interface UpdateDataTableColumnConfigParams {
   runId?: string;
 }
 
+/** Merges a partial patch into a single column (width, name, config, etc.). */
+export interface UpdateDataTableColumnParams {
+  tableId: string;
+  columnId: string;
+  patch: Partial<Omit<DataTableColumn, "id">>;
+  actor?: DataTableChangeActor;
+  runId?: string;
+}
+
+/** Reorders the columns array by matching IDs in the given order. */
+export interface ReorderDataTableColumnsParams {
+  tableId: string;
+  columnIds: string[];
+  actor?: DataTableChangeActor;
+  runId?: string;
+}
+
 export interface ListDataTableChangesParams {
   tableId: string;
   limit?: number;
@@ -1704,6 +1722,8 @@ export interface GetInboxTiersParams {
 export interface ListFutureInboxEventsParams {
   projectId?: string | null;
   limit?: number;
+  /** Only return occurrences strictly after this ISO timestamp (for pagination). */
+  after?: string;
 }
 
 // Re-export tiering utilities so they're accessible from @openhelm/shared

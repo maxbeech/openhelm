@@ -25,7 +25,9 @@ try {
         return adapter;
       });
     };
-    navigator.gpu.requestAdapter.toString = _origRequestAdapter.toString.bind(_origRequestAdapter);
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(navigator.gpu.requestAdapter);
+    }
   }
 } catch (e) {}
 
@@ -56,7 +58,9 @@ try {
         success(fakePosition);
       } catch (e) {}
     };
-    navigator.geolocation.getCurrentPosition.toString = _origGetCurrentPosition.toString.bind(_origGetCurrentPosition);
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(navigator.geolocation.getCurrentPosition);
+    }
 
     var _origWatchPosition = navigator.geolocation.watchPosition.bind(
       navigator.geolocation
@@ -79,7 +83,9 @@ try {
       } catch (e) {}
       return 1; // Return a dummy watch ID
     };
-    navigator.geolocation.watchPosition.toString = _origWatchPosition.toString.bind(_origWatchPosition);
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(navigator.geolocation.watchPosition);
+    }
 
     var _origClearWatch = navigator.geolocation.clearWatch.bind(
       navigator.geolocation
@@ -88,7 +94,9 @@ try {
       // Silently succeed
       return undefined;
     };
-    navigator.geolocation.clearWatch.toString = _origClearWatch.toString.bind(_origClearWatch);
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(navigator.geolocation.clearWatch);
+    }
   }
 } catch (e) {}
 
@@ -98,6 +106,17 @@ try {
 try {
   if (typeof document.fonts !== 'undefined' && typeof FontFaceSet !== 'undefined') {
     var _origCheck = document.fonts.check.bind(document.fonts);
+    var __ohFontSeed = __STEALTH_SEED__;
+    // Deterministic hash for font name → consistent boolean per session.
+    // Uses the same __stealthHash pattern from stealth_fingerprint.js.
+    function __ohFontHash(str) {
+      var h = __ohFontSeed;
+      for (var i = 0; i < str.length; i++) {
+        h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+      }
+      h = ((h >>> 16) ^ h) * 0x45d9f3b;
+      return (h >>> 16) ^ h;
+    }
     document.fonts.check = function (font) {
       // Return true for common fonts (assume they exist)
       var commonFonts = ['Arial', 'Helvetica', 'Times New Roman', 'Courier New', 'Georgia', 'Verdana'];
@@ -107,10 +126,14 @@ try {
           return true;
         }
       }
-      // Randomize answer for non-standard fonts (~60% true)
-      return Math.random() > 0.4;
+      // Session-stable answer for non-standard fonts (~60% true).
+      // Uses seeded hash instead of Math.random() so the same font name
+      // always produces the same result within one page load.
+      return (__ohFontHash(fontName) & 0xFFFF) / 0xFFFF > 0.4;
     };
-    document.fonts.check.toString = _origCheck.toString.bind(_origCheck);
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(document.fonts.check);
+    }
   }
 } catch (e) {}
 
@@ -130,16 +153,16 @@ try {
         });
       }, 1);
     };
-    window.requestIdleCallback.toString = function () {
-      return 'function requestIdleCallback() { [native code] }';
-    };
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(window.requestIdleCallback);
+    }
 
     window.cancelIdleCallback = function (id) {
       clearTimeout(id);
     };
-    window.cancelIdleCallback.toString = function () {
-      return 'function cancelIdleCallback() { [native code] }';
-    };
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(window.cancelIdleCallback);
+    }
   }
 } catch (e) {}
 

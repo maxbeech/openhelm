@@ -1,13 +1,23 @@
 FROM node:20-slim AS builder
 WORKDIR /app
 
-COPY package.json ./
-# Install all deps (including devDeps) so esbuild and tsc are available at build time
+# Copy all package files BEFORE npm install so workspaces are recognized
+COPY package.json package-lock.json ./
+COPY worker/package.json ./worker/
+COPY shared/package.json ./shared/
+COPY shared/tsconfig.json ./shared/
+COPY tsconfig.json tsconfig.node.json ./
+
+# Install all deps (including devDeps) so esbuild is available at build time
 RUN npm install
 
-COPY src/ ./src/
-COPY tsconfig.json ./
-RUN npm run build
+# Copy source code after dependencies are installed
+COPY shared/src ./shared/src/
+COPY worker/src ./worker/src/
+COPY worker/tsconfig.json ./worker/
+
+# Build worker
+RUN npm --prefix worker run build
 
 # Prune to production deps only before copying to final image
 RUN npm prune --omit=dev
@@ -18,8 +28,8 @@ WORKDIR /app
 
 # Copy only production node_modules and built output
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/worker/dist ./dist
+COPY --from=builder /app/worker/package.json ./package.json
 
 # Non-root user for security
 RUN useradd -m worker && chown -R worker:worker /app

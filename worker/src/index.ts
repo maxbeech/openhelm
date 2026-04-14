@@ -32,6 +32,17 @@ import {
 // Validate config at import time — throws if required vars are missing
 void config;
 
+// Global crash guards. A single bad async error (e.g. a known upstream
+// regression inside @supabase/realtime-js teardown) must not kill the whole
+// worker and cascade into a restart-count limit on Fly. Log and keep going.
+process.on("unhandledRejection", (reason) => {
+  const msg = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
+  console.error("[worker] unhandledRejection:", msg);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[worker] uncaughtException:", err.stack ?? err.message);
+});
+
 // ─── Run queue ───────────────────────────────────────────────────────────────
 
 // Minimal in-process queue; the real queue is the runs table in Supabase.

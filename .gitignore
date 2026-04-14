@@ -50,3 +50,5 @@ CLAUDE.local.md
 /~/.openhelm/browser-sessions
 /~/.openhelm
 .vercel
+.env*.local
+/.claude

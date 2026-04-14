@@ -8,6 +8,7 @@
 
 import { getJob, archiveJob } from "../db/queries/jobs.js";
 import { createDashboardItem } from "../db/queries/dashboard-items.js";
+import { emit } from "../ipc/emitter.js";
 import { getAutopilotMode } from "./index.js";
 import type { Run, DashboardItemType } from "@openhelm/shared";
 
@@ -27,7 +28,7 @@ export function handleAutopilotRunCompleted(run: Run): boolean {
   const mode = getAutopilotMode();
 
   if (run.status === "succeeded" && run.summary) {
-    createDashboardItem({
+    const item = createDashboardItem({
       runId: run.id,
       jobId: run.jobId,
       projectId: job.projectId,
@@ -35,6 +36,10 @@ export function handleAutopilotRunCompleted(run: Run): boolean {
       title: `Autopilot: ${job.name.replace("Investigate: ", "")}`,
       message: run.summary,
     });
+    // Emit so the inbox-bridge mirrors this into inbox_events — matches
+    // every other dashboard-item producer (executor, mcp-monitor, etc.).
+    // Without this, proactive autopilot findings never reach the Inbox.
+    emit("dashboard.created", item);
   } else if (run.status === "failed" || run.status === "permanent_failure") {
     // Investigation itself failed — log but don't create dashboard noise
     console.error(

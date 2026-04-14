@@ -68,14 +68,10 @@ try {
       return p;
     };
 
-    // Preserve toString so fingerprinters checking for native code don't
-    // see "function createOffer() { [proxy] }".
-    try {
-      _origRTCPC.prototype.createOffer.toString =
-        _origCreateOffer.toString.bind(_origCreateOffer);
-      _origRTCPC.prototype.createAnswer.toString =
-        _origCreateAnswer.toString.bind(_origCreateAnswer);
-    } catch (e) {}
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(_origRTCPC.prototype.createOffer);
+      window.__oh_register(_origRTCPC.prototype.createAnswer);
+    }
   }
 } catch (e) {}
 
@@ -159,9 +155,8 @@ try {
       }
       return _origPermQuery(params);
     };
-    try {
-      navigator.permissions.query.toString =
-        _origPermQuery.toString.bind(_origPermQuery);
-    } catch (e) {}
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(navigator.permissions.query);
+    }
   }
 } catch (e) {}

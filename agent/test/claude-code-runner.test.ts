@@ -1,3 +1,4 @@
+import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
@@ -259,6 +260,31 @@ describe("runClaudeCode", () => {
     const output = stdoutCalls.map(([, text]: [string, string]) => text).join(" ");
     expect(output).toContain("--append-system-prompt");
     expect(output).toContain("Use openhelm_browser for all browser tasks.");
+  });
+});
+
+describe("runClaudeCode MCP timeout budget (Round 14, 2026-04-14)", () => {
+  it("sets MCP_TIMEOUT to at least 120000ms when not overridden", () => {
+    // Round 14 raised this from 60000 to 120000 because the 60s cap was
+    // still getting hit under concurrent spawn load when the OS had paged
+    // out the Python import graph and multiple jobs fired simultaneously.
+    // Source-level assertion keeps the guarantee stable against regressions
+    // without needing to spawn a real subprocess to observe its env.
+    const runnerPath = resolve(__dirname, "..", "src", "claude-code", "runner.ts");
+    const src = readFileSync(runnerPath, "utf8");
+    const match = src.match(/env\.MCP_TIMEOUT = ["'](\d+)["']/);
+    expect(match).not.toBeNull();
+    const value = Number(match![1]);
+    expect(value).toBeGreaterThanOrEqual(120_000);
+  });
+
+  it("sets MCP_TOOL_TIMEOUT to at least 120000ms when not overridden", () => {
+    const runnerPath = resolve(__dirname, "..", "src", "claude-code", "runner.ts");
+    const src = readFileSync(runnerPath, "utf8");
+    const match = src.match(/env\.MCP_TOOL_TIMEOUT = ["'](\d+)["']/);
+    expect(match).not.toBeNull();
+    const value = Number(match![1]);
+    expect(value).toBeGreaterThanOrEqual(120_000);
   });
 });
 

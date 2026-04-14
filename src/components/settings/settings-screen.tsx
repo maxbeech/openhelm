@@ -6,6 +6,7 @@ import { AutopilotSection } from "./autopilot-section";
 import { ApplicationSection } from "./application-section";
 import { PermissionsSection } from "./permissions-section";
 import { DataSection } from "./data-section";
+import { CloudAccountSection } from "./cloud-account-section";
 import { isCloudMode } from "@/lib/mode";
 import { UsageDashboard } from "@/components/cloud/usage-dashboard";
 import { PlanManager } from "@/components/cloud/plan-manager";
@@ -16,6 +17,8 @@ export function SettingsScreen() {
       <div className="mx-auto max-w-2xl p-6">
         <h2 className="mb-6 text-xl font-semibold">Settings</h2>
         <div className="space-y-8">
+          <CloudAccountSection />
+          <Separator />
           <PlanManager />
           <Separator />
           <UsageDashboard />

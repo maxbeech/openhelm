@@ -424,3 +424,58 @@ export function listDueJobsForInbox(
     .all()
     .map(rowToJob);
 }
+
+export interface FutureJobOccurrence {
+  job: Job;
+  fireAt: string;
+}
+
+/**
+ * Expand enabled jobs' schedules into future occurrences for the inbox timeline.
+ * Iterates `computeNextFireAt` forward from `after` until we've collected `limit`
+ * occurrences globally, sorted by fire time. Per-job cap prevents a fast interval
+ * from starving other jobs.
+ */
+export function listFutureJobOccurrences(
+  projectId: string | null,
+  after: string,
+  limit = 50,
+): FutureJobOccurrence[] {
+  const db = getDb();
+  const conditions = [eq(jobs.isEnabled, true), isNotNull(jobs.nextFireAt)];
+  if (projectId) conditions.push(eq(jobs.projectId, projectId));
+
+  const enabledJobs = db
+    .select()
+    .from(jobs)
+    .where(and(...conditions))
+    .all()
+    .map(rowToJob);
+
+  if (enabledJobs.length === 0) return [];
+
+  const afterDate = new Date(after);
+  const perJobCap = Math.max(10, Math.ceil(limit / Math.max(1, enabledJobs.length)) * 3);
+  const occurrences: FutureJobOccurrence[] = [];
+
+  for (const job of enabledJobs) {
+    let cursor = afterDate;
+    for (let i = 0; i < perJobCap; i++) {
+      let next: string | null;
+      try {
+        next = computeNextFireAt(job.scheduleType, job.scheduleConfig, cursor);
+      } catch {
+        break;
+      }
+      if (!next) break;
+      const nextDate = new Date(next);
+      // Guard against non-advancing schedules
+      if (nextDate <= cursor) break;
+      occurrences.push({ job, fireAt: next });
+      cursor = new Date(nextDate.getTime() + 1);
+    }
+  }
+
+  occurrences.sort((a, b) => a.fireAt.localeCompare(b.fireAt));
+  return occurrences.slice(0, limit);
+}

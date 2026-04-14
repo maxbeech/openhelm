@@ -185,7 +185,7 @@ def is_profile_locked(name: str) -> bool:
     A lock is considered *stale* (and is silently cleared) if any of these
     are true:
 
-    - The lock file is older than 10 minutes.
+    - The lock file is older than 2 minutes (Round 13: reduced from 10 min).
     - The recorded PID is no longer alive.
     - The recorded PID is alive but belongs to a *different* process than
       the one that originally took the lock (PID reuse). We detect this by
@@ -198,7 +198,7 @@ def is_profile_locked(name: str) -> bool:
         return False
     try:
         mtime = os.path.getmtime(lp)
-        if time.time() - mtime > 600:
+        if time.time() - mtime > 120:
             os.remove(lp)
             return False
 

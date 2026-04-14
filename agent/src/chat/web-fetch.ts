@@ -13,6 +13,30 @@ const DEFAULT_MAX_RESULTS = 5;
 const FETCH_TIMEOUT_MS = 15_000;
 const USER_AGENT = "OpenHelm-Chat/1.0 (+https://openhelm.app)";
 
+/**
+ * Patterns for private/loopback/link-local addresses that must not be fetched.
+ * Prevents Server-Side Request Forgery via prompt injection from fetched pages.
+ */
+const BLOCKED_URL_PATTERNS = [
+  /^https?:\/\/localhost[:/]/i,
+  /^https?:\/\/127\./,
+  /^https?:\/\/0\./,
+  /^https?:\/\/\[::1]/i,          // IPv6 loopback
+  /^https?:\/\/169\.254\./,       // Link-local / AWS IMDS
+  /^https?:\/\/10\./,
+  /^https?:\/\/172\.(1[6-9]|2\d|3[01])\./,
+  /^https?:\/\/192\.168\./,
+  /^https?:\/\/100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,  // CGNAT (RFC 6598)
+];
+
+function assertNotBlockedUrl(url: string): void {
+  for (const pattern of BLOCKED_URL_PATTERNS) {
+    if (pattern.test(url)) {
+      throw new Error(`web_fetch: requests to private/internal addresses are not allowed (${url})`);
+    }
+  }
+}
+
 export interface FetchUrlResult {
   url: string;
   status: number;
@@ -45,6 +69,7 @@ export async function fetchUrlAsText(url: string, maxChars?: number): Promise<Fe
   if (!/^https?:\/\//i.test(url)) {
     throw new Error(`web_fetch: only http(s) URLs are allowed (got: ${url})`);
   }
+  assertNotBlockedUrl(url);
   const limit = maxChars && maxChars > 0 ? maxChars : DEFAULT_MAX_CHARS;
 
   const res = await fetch(url, {

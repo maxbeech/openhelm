@@ -39,6 +39,12 @@ export interface RunnerConfig {
   modelEffort?: "low" | "medium" | "high";
   /** Called for each log chunk (stream, text) */
   onLogChunk: (stream: "stdout" | "stderr", text: string) => void;
+  /**
+   * Called with pure assistant prose only — excludes `[Tool: name]` markers
+   * and tool_result content that `onLogChunk("stdout", …)` contains. Used
+   * by chat UIs that should not display raw tool invocations/results.
+   */
+  onAssistantText?: (text: string) => void;
   /** Silence timeout in milliseconds (default: 180s) */
   silenceTimeoutMs?: number;
   /** Called when interactive input is detected */
@@ -102,9 +108,18 @@ export function runClaudeCode(
     // Code's default MCP init timeout is tight enough that we occasionally
     // see "No such tool available: mcp__openhelm_browser__*" on the very
     // first run after the app is launched (see Phase 6 / Round 6 notes in
-    // docs/browser/efficiency-improvements.md). Only set these when the
+    // docs/browser/efficiency-improvements.md).
+    //
+    // Round 14 (2026-04-14): raised from 60000 → 120000. Prod log analysis
+    // of run `52e1b7f8` showed the 60s cap still gets hit under concurrent
+    // spawn load — when the OS has paged out the Python import graph and
+    // multiple jobs fire simultaneously, the process subprocess spawn + cold
+    // import can overrun 60s. 120s is generous enough for any legitimate
+    // cold start while still short enough that a truly broken MCP server
+    // surfaces within ~2 minutes (vs. the auto-retry cost of burning a full
+    // run and then Claude Code's silence-timeout). Only set these when the
     // caller hasn't explicitly overridden them.
-    if (!env.MCP_TIMEOUT) env.MCP_TIMEOUT = "60000";
+    if (!env.MCP_TIMEOUT) env.MCP_TIMEOUT = "120000";
     if (!env.MCP_TOOL_TIMEOUT) env.MCP_TOOL_TIMEOUT = "120000";
 
     const child = spawn(config.binaryPath, args, {
@@ -227,6 +242,10 @@ export function runClaudeCode(
           interactiveDetector.processLine(parsed.text);
         } else if (parsed.isResult && parsed.isError && parsed.text) {
           config.onLogChunk("stderr", `Claude Code error: ${parsed.text}`);
+        }
+        // Forward pure assistant prose separately for chat UIs.
+        if (parsed.assistantText && !parsed.isResult) {
+          config.onAssistantText?.(parsed.assistantText);
         }
       }
     });

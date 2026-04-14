@@ -6,7 +6,8 @@
   "type": "module",
   "workspaces": [
     "agent",
-    "shared"
+    "shared",
+    "worker"
   ],
   "scripts": {
     "predev": "if lsof -ti tcp:1420 >/dev/null 2>&1; then echo ''; echo 'Port 1420 is already in use — something else is running there (probably an existing vite / dev:cloud).'; echo 'Stop it first:  kill $(lsof -ti tcp:1420)'; echo ''; exit 1; fi",

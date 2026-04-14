@@ -50,6 +50,8 @@ import type {
   RenameDataTableColumnParams,
   RemoveDataTableColumnParams,
   UpdateDataTableColumnConfigParams,
+  UpdateDataTableColumnParams,
+  ReorderDataTableColumnsParams,
   Target,
   TargetEvaluation,
   CreateTargetParams,
@@ -799,6 +801,14 @@ export function updateDataTableColumnConfig(params: UpdateDataTableColumnConfigP
   return transport.request<DataTable>("dataTables.updateColumnConfig", params);
 }
 
+export function updateDataTableColumn(params: UpdateDataTableColumnParams): Promise<DataTable> {
+  return transport.request<DataTable>("dataTables.updateColumn", params);
+}
+
+export function reorderDataTableColumns(params: ReorderDataTableColumnsParams): Promise<DataTable> {
+  return transport.request<DataTable>("dataTables.reorderColumns", params);
+}
+
 export function countDataTables(projectId: string): Promise<{ count: number }> {
   return transport.request<{ count: number }>("dataTables.count", { projectId });
 }
@@ -904,33 +914,33 @@ export function listFutureInboxEvents(params?: ListFutureInboxEventsParams): Pro
 // ─── Voice ───
 
 export function startVoice(params: StartVoiceParams): Promise<{ sessionId: string; started: boolean }> {
-  return agentClient.request<{ sessionId: string; started: boolean }>("voice.start", params);
+  return transport.request<{ sessionId: string; started: boolean }>("voice.start", params);
 }
 
 export function sendVoiceAudioChunk(params: VoiceAudioChunkParams): Promise<{ received: boolean }> {
-  return agentClient.request<{ received: boolean }>("voice.audioChunk", params);
+  return transport.request<{ received: boolean }>("voice.audioChunk", params);
 }
 
 export function stopVoice(params: StopVoiceParams): Promise<{ stopped: boolean }> {
-  return agentClient.request<{ stopped: boolean }>("voice.stop", params);
+  return transport.request<{ stopped: boolean }>("voice.stop", params);
 }
 
 export function cancelVoice(params: CancelVoiceParams): Promise<{ cancelled: boolean }> {
-  return agentClient.request<{ cancelled: boolean }>("voice.cancel", params);
+  return transport.request<{ cancelled: boolean }>("voice.cancel", params);
 }
 
 export function notifyVoiceTtsPlaybackDone(sessionId: string): Promise<{ ok: boolean }> {
-  return agentClient.request<{ ok: boolean }>("voice.ttsPlaybackDone", { sessionId });
+  return transport.request<{ ok: boolean }>("voice.ttsPlaybackDone", { sessionId });
 }
 
 export function approveVoiceAction(params: VoiceApproveParams): Promise<{ ok: boolean }> {
-  return agentClient.request<{ ok: boolean }>("voice.approve", params);
+  return transport.request<{ ok: boolean }>("voice.approve", params);
 }
 
 export function getVoiceSettings(): Promise<GetVoiceSettingsResult> {
-  return agentClient.request<GetVoiceSettingsResult>("voice.getSettings");
+  return transport.request<GetVoiceSettingsResult>("voice.getSettings");
 }
 
 export function updateVoiceSettings(params: UpdateVoiceSettingsParams): Promise<{ updated: boolean }> {
-  return agentClient.request<{ updated: boolean }>("voice.updateSettings", params);
+  return transport.request<{ updated: boolean }>("voice.updateSettings", params);
 }

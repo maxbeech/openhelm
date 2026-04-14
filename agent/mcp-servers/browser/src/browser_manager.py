@@ -414,15 +414,31 @@ class BrowserManager:
                 data['instance'].update_activity()
             return data
 
-    async def list_instances(self) -> List[BrowserInstance]:
+    async def list_instances(self, include_errored: bool = False) -> List[BrowserInstance]:
         """
         List all browser instances.
 
+        Round 14 (2026-04-14): By default, instances in ERROR state are
+        excluded. This makes `_reconcile_profile_locks` in server.py see
+        crashed-browser entries as "gone" and release their profile locks
+        on the next pass, so agents recover from a Reddit/X CDP crash
+        automatically via a plain `spawn_browser(profile=<same>)` call
+        instead of being told "profile already in use" forever.
+
+        Pass `include_errored=True` to get the raw instance list for
+        debugging or cleanup logic.
+
         Returns:
-            List[BrowserInstance]: List of all browser instances.
+            List[BrowserInstance]: List of live browser instances.
         """
         async with self._lock:
-            return [data['instance'] for data in self._instances.values()]
+            if include_errored:
+                return [data['instance'] for data in self._instances.values()]
+            return [
+                data['instance']
+                for data in self._instances.values()
+                if data['instance'].state != BrowserState.ERROR
+            ]
 
     async def close_instance(self, instance_id: str) -> bool:
         """
@@ -827,13 +843,75 @@ class BrowserManager:
                 proc_alive = "yes" if self._is_browser_alive(browser, instance_id) else "no"
         except Exception:
             pass
+
+        # Round 14 (2026-04-14): schedule an async cleanup of the dead
+        # instance so the next spawn_browser(profile=<same>) transparently
+        # gets a fresh browser instead of being told "profile already in
+        # use" forever. Prior to this, a Reddit / anti-bot CDP crash left
+        # a zombie entry in `_instances` AND in `_instance_profiles`, so
+        # every subsequent spawn attempt on the same profile returned the
+        # zombie (via the cross-compaction reuse path) and the agent was
+        # stuck until the 5-minute idle reaper ran. Now we fire-and-forget
+        # a cleanup coroutine that calls `close_instance` (which tears
+        # down Chrome, removes from `_instances`, and lets the server's
+        # profile-lock reconciler release the lock on its next pass).
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(self._cleanup_dead_instance(instance_id, proc_alive))
+        except Exception as cleanup_err:
+            debug_logger.log_warning(
+                "browser_manager", "get_tab",
+                f"Failed to schedule dead-instance cleanup for {instance_id}: {cleanup_err}"
+            )
+
         raise Exception(
             f"Browser CDP connection lost for instance {instance_id}. "
             f"The browser process may have crashed or the connection timed out. "
-            f"Please close this instance and spawn a new one. "
+            f"The dead instance is being auto-cleaned up — your next "
+            f"`spawn_browser(profile=<same>)` call will transparently return "
+            f"a fresh browser. Do NOT call `close_instance` manually; it "
+            f"races the auto-cleanup and produces confusing errors. "
             f"(process_alive={proc_alive}, last_url={last_known_url!r}, "
             f"last_error={last_error!r})"
         )
+
+    async def _cleanup_dead_instance(self, instance_id: str, proc_alive: str) -> None:
+        """Close a zombie instance that failed CDP validation + reconnect.
+
+        Round 14 (2026-04-14): When `get_tab` determines an instance is
+        unrecoverable (process_alive=no, or CDP reconnect failed), this
+        fire-and-forget coroutine removes the entry from `_instances` so
+        the next `spawn_browser` call doesn't reuse it via the
+        cross-compaction recovery path. Runs outside the caller's error
+        path to avoid blocking the exception-raising code.
+        """
+        try:
+            # Give the caller's exception a moment to propagate cleanly
+            # before we tear down the instance dict under them.
+            await asyncio.sleep(0.1)
+            debug_logger.log_info(
+                "browser_manager", "cleanup_dead_instance",
+                f"Auto-cleaning dead instance {instance_id} "
+                f"(process_alive={proc_alive})"
+            )
+            await self.close_instance(instance_id)
+        except Exception as e:
+            # Last-resort: yank from the dict even if close_instance fails
+            # so we don't leak zombies forever.
+            debug_logger.log_warning(
+                "browser_manager", "cleanup_dead_instance",
+                f"close_instance failed for {instance_id}: {e} — "
+                f"forcing removal from _instances"
+            )
+            try:
+                async with self._lock:
+                    self._instances.pop(instance_id, None)
+                try:
+                    persistent_storage.remove_instance(instance_id)
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
     async def get_browser(self, instance_id: str) -> Optional[Browser]:
         """

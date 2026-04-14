@@ -14,6 +14,8 @@ import type {
   RenameDataTableColumnParams,
   RemoveDataTableColumnParams,
   UpdateDataTableColumnConfigParams,
+  UpdateDataTableColumnParams,
+  ReorderDataTableColumnsParams,
   ListDataTableChangesParams,
 } from "@openhelm/shared";
 
@@ -277,6 +279,29 @@ export function registerDataTableHandlers() {
 
     const table = dtQueries.updateColumnConfig(p);
     scheduleEmbeddingUpdate(table.id);
+    emit("dataTable.updated", table);
+    return table;
+  });
+
+  registerHandler("dataTables.updateColumn", (params) => {
+    const p = params as UpdateDataTableColumnParams;
+    if (!p?.tableId) throw new Error("tableId is required");
+    if (!p?.columnId) throw new Error("columnId is required");
+    if (!p?.patch) throw new Error("patch is required");
+
+    const table = dtQueries.updateColumn(p);
+    // Patches that touch name trigger re-embedding; width alone doesn't.
+    if (p.patch.name !== undefined) scheduleEmbeddingUpdate(table.id);
+    emit("dataTable.updated", table);
+    return table;
+  });
+
+  registerHandler("dataTables.reorderColumns", (params) => {
+    const p = params as ReorderDataTableColumnsParams;
+    if (!p?.tableId) throw new Error("tableId is required");
+    if (!Array.isArray(p?.columnIds)) throw new Error("columnIds must be an array");
+
+    const table = dtQueries.reorderColumns(p);
     emit("dataTable.updated", table);
     return table;
   });

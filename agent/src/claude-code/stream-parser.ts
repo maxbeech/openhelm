@@ -43,6 +43,13 @@ export interface ParsedLogEntry {
   rateLimitUtilization?: number;
   /** Tool names from tool_use blocks in this assistant turn (empty array = pure text turn) */
   toolNames?: string[];
+  /**
+   * Pure text from assistant-turn `text` blocks only — excludes the
+   * `[Tool: name]` markers and `tool_result` content that `text` contains.
+   * Used to stream clean assistant prose to chat UIs that should not show
+   * tool invocations or their raw results.
+   */
+  assistantText?: string;
 }
 
 /**
@@ -122,10 +129,12 @@ export function parseStreamLine(line: string): ParsedLogEntry | null {
 
     const parts: string[] = [];
     const toolNames: string[] = [];
+    const assistantTextParts: string[] = [];
 
     for (const block of content) {
       if (block.type === "text" && block.text) {
         parts.push(block.text);
+        if (type === "assistant") assistantTextParts.push(block.text);
       } else if (block.type === "tool_use") {
         parts.push(`[Tool: ${block.name}]`);
         toolNames.push(block.name);
@@ -144,6 +153,7 @@ export function parseStreamLine(line: string): ParsedLogEntry | null {
       inputTokens: usage?.input_tokens,
       outputTokens: usage?.output_tokens,
       toolNames: type === "assistant" ? toolNames : undefined,
+      assistantText: assistantTextParts.length > 0 ? assistantTextParts.join("\n") : undefined,
     };
   }
 

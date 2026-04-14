@@ -2118,9 +2118,46 @@ async def auto_login(
     if err:
         return {"success": False, "error": err}
 
-    # Type password
+    # Type password — with multi-step form support (Round 13, 2026-04-14).
+    # Sites like X/Twitter use a sequential login: enter email → click
+    # "Next" → password field appears. If the password field isn't found
+    # on the first try, look for an intermediate "Next"/"Continue" button,
+    # click it, wait for the form transition, then retry password.
     err = await _wait_and_type(password_selector, password, "password")
-    if err:
+    if err and ("not found" in err.lower() or "matched 0" in err.lower()):
+        # Multi-step: look for an intermediate button
+        intermediate_clicked = False
+        try:
+            # Use JS to find a button whose text matches common intermediate labels.
+            # nodriver doesn't support :has-text() so we evaluate JS directly.
+            js_find_next = """
+                (function() {
+                    var btns = document.querySelectorAll('button, div[role="button"], input[type="submit"]');
+                    for (var i = 0; i < btns.length; i++) {
+                        var txt = (btns[i].textContent || btns[i].value || '').trim();
+                        if (/^(Next|Continue|Sign in|Log in|Submit)$/i.test(txt)) {
+                            return btns[i];
+                        }
+                    }
+                    return null;
+                })()
+            """
+            next_btn = await tab.evaluate(js_find_next)
+            if next_btn:
+                await next_btn.click()
+                intermediate_clicked = True
+                # Wait for form transition/animation
+                await asyncio.sleep(1.5)
+        except Exception:
+            pass
+
+        if intermediate_clicked:
+            # Retry password with a fresh deadline
+            err = await _wait_and_type(password_selector, password, "password")
+        # If still failing, return the error
+        if err:
+            return {"success": False, "error": err}
+    elif err:
         return {"success": False, "error": err}
 
     # Click submit and wait for resulting page navigation to complete.

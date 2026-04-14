@@ -27,6 +27,7 @@ import { useVisualizationStore } from "./stores/visualization-store";
 import { useInboxStore } from "./stores/inbox-store";
 import { useLowTokenModeStore } from "./stores/low-token-mode-store";
 import { useAgentEvent } from "./hooks/use-agent-event";
+import { useUrlSync } from "./hooks/use-url-sync";
 import type { RunStatus, ChatMessage, DashboardItem, InboxEvent, Memory, Credential, DataTable, Visualization } from "@openhelm/shared";
 import {
   notifyDashboardItem,
@@ -87,6 +88,10 @@ function useRotatingPhrase(phrases: string[], intervalMs = 2500): string {
 }
 
 export default function App() {
+  // Two-way sync between app-store navigation state and the browser URL.
+  // Must run before any early return so deep links hydrate the store before
+  // the splash screen renders the wrong view.
+  useUrlSync();
   const { setShouldCheckUpdates } = useUpdaterStore();
   const {
     contentView,
@@ -103,6 +108,7 @@ export default function App() {
     setProjectGroupOrder,
   } = useAppStore();
   const navDirection = useNavStore((s) => s.navDirection);
+  const isDemo = useDemoStore((s) => s.isDemo);
   const { projects, fetchProjects } = useProjectStore();
   const { goals, fetchGoals } = useGoalStore();
   const { fetchJobs, updateJobInStore } = useJobStore();
@@ -614,9 +620,15 @@ export default function App() {
         // Check the persisted onboarding flag first — this survives updates
         // even if projects can't be loaded momentarily
         const onboardingFlag = await api.getSetting("onboarding_complete").catch(() => null);
-        await fetchProjects();
-        const projectsList = useProjectStore.getState().projects;
         const demoState = useDemoStore.getState();
+        // In demo mode DemoRoute has already seeded the project store with
+        // the one resolved demo project. Calling fetchProjects() here would
+        // roundtrip to a list that now filters out demo projects, wiping the
+        // seeded state and leaving the sidebar empty.
+        if (!demoState.isDemo) {
+          await fetchProjects();
+        }
+        const projectsList = useProjectStore.getState().projects;
         if (projectsList.length > 0 || onboardingFlag?.value === "true") {
           setOnboardingComplete(true);
           // Backfill flag for existing users who completed onboarding before this flag existed
@@ -852,8 +864,12 @@ export default function App() {
   }
 
   const hasGoals = goals.length > 0;
-  // Show welcome only when on dashboard view, no goals, no chat activity, and a specific project is selected
+  // Show welcome only when on dashboard view, no goals, no chat activity, and a specific project is selected.
+  // Never in demo mode (demo projects always have seeded goals, and the transient
+  // "no goals yet" window before the fetch resolves would otherwise flip the
+  // AnimatePresence key, wedging mode="wait" in an empty state).
   const showWelcome =
+    !isDemo &&
     contentView === "dashboard" &&
     !hasGoals &&
     chatMessages.length === 0 &&
@@ -889,7 +905,10 @@ export default function App() {
           )}
           {contentView === "dashboard" && (
             <motion.div
-              key={showWelcome ? "welcome" : "dashboard"}
+              // Stable key — welcome vs dashboard is picked inside, so a
+              // transient goals-fetch "no goals yet" window never flips the
+              // AnimatePresence child and wedges mode="wait".
+              key="dashboard"
               custom={navDirection}
               variants={slidePageVariants}
               initial="initial"

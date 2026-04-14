@@ -39,6 +39,7 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
   const nowMarkerRef = useRef<HTMLDivElement>(null);
   const unreadMarkerRef = useRef<HTMLDivElement | null>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
+  const bottomSentinelRef = useRef<HTMLDivElement>(null);
   const [nowVisible, setNowVisible] = useState(true);
   const [nowAboveViewport, setNowAboveViewport] = useState(false);
   const prevScrollHeight = useRef(0);
@@ -55,10 +56,13 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
     tierBoundaries,
     hasMorePast,
     loadingPast,
+    hasMoreFuture,
+    loadingFuture,
     fetchOlderEvents,
+    fetchMoreFutureEvents,
     setTierThreshold,
     lastReadAt,
-    topTierMinImportance,
+    visitBoundary,
     markReadUpTo,
     scrollToNowToken,
     inboxConversationId,
@@ -241,14 +245,28 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
     [futureEvents, filterEvent],
   );
 
-  // ID of the first unread event in the visible list (for placing the unread marker)
-  const firstUnreadEventId = useMemo(() => {
-    if (!lastReadAt) return null;
-    const first = visibleEvents.find(
-      (e) => e.importance >= topTierMinImportance && e.eventAt > lastReadAt,
-    );
+  // "Last visited" marker placement:
+  //   - If visitBoundary is null (very first inbox visit ever) → no marker.
+  //   - If there's at least one past event with eventAt > visitBoundary,
+  //     render the marker BEFORE that event (boundary shows where new activity starts).
+  //   - If all past events are <= visitBoundary → render the marker at the end
+  //     of past events (right before Now), so the user still sees where they
+  //     left off even when nothing new has arrived.
+  //   - Importance is NOT part of this calculation — the divider is about time,
+  //     not the zoom level.
+  const markerFirstEventId = useMemo(() => {
+    if (!visitBoundary) return null;
+    const first = visibleEvents.find((e) => e.eventAt > visitBoundary);
     return first?.id ?? null;
-  }, [visibleEvents, lastReadAt, topTierMinImportance]);
+  }, [visibleEvents, visitBoundary]);
+
+  const showMarkerAtEnd = useMemo(() => {
+    if (!visitBoundary) return false;
+    if (markerFirstEventId) return false;
+    // All loaded events are at or before the visit boundary — show the marker
+    // between past events and Now (only makes sense if there ARE past events).
+    return visibleEvents.length > 0;
+  }, [visitBoundary, markerFirstEventId, visibleEvents.length]);
 
   // Group visible events by date
   const dateGroups = useMemo(() => groupEventsByDate(visibleEvents), [visibleEvents]);
@@ -288,12 +306,17 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
         });
       });
     } else {
+      // Wait for the marker/Now refs to be populated — they're rendered inside
+      // date-group blocks that mount after the first paint. Double rAF ensures
+      // the layout is measured before we try scrollIntoView.
       requestAnimationFrame(() => {
-        if (unreadMarkerRef.current) {
-          unreadMarkerRef.current.scrollIntoView({ block: "start" });
-        } else {
-          nowMarkerRef.current?.scrollIntoView({ block: "center" });
-        }
+        requestAnimationFrame(() => {
+          if (unreadMarkerRef.current) {
+            unreadMarkerRef.current.scrollIntoView({ block: "center" });
+          } else {
+            nowMarkerRef.current?.scrollIntoView({ block: "center" });
+          }
+        });
       });
     }
   }, [loading, events]);
@@ -319,22 +342,43 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
     return () => obs.disconnect();
   }, []);
 
-  // Infinite scroll: load older events when top sentinel is visible
+  // Infinite scroll: load older events when top sentinel is visible.
+  // `root: container` is critical — without it the observer uses the viewport
+  // and never fires reliably while scrolling inside the overflow-y-auto div.
+  // `rootMargin` pre-loads a viewport height early so the user doesn't stall.
   useEffect(() => {
     const el = topSentinelRef.current;
-    if (!el) return;
+    const container = containerRef.current;
+    if (!el || !container) return;
     const obs = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting && hasMorePast && !loadingPast) {
-          prevScrollHeight.current = containerRef.current?.scrollHeight ?? 0;
+          prevScrollHeight.current = container.scrollHeight;
           fetchOlderEvents(projectId);
         }
       },
-      { threshold: 0.1 },
+      { root: container, rootMargin: "600px 0px 0px 0px", threshold: 0 },
     );
     obs.observe(el);
     return () => obs.disconnect();
   }, [hasMorePast, loadingPast, fetchOlderEvents, projectId]);
+
+  // Infinite scroll: load more future events when bottom sentinel is visible.
+  useEffect(() => {
+    const el = bottomSentinelRef.current;
+    const container = containerRef.current;
+    if (!el || !container) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && hasMoreFuture && !loadingFuture) {
+          fetchMoreFutureEvents(projectId);
+        }
+      },
+      { root: container, rootMargin: "0px 0px 600px 0px", threshold: 0 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [hasMoreFuture, loadingFuture, fetchMoreFutureEvents, projectId]);
 
   // Preserve scroll position when prepending past events
   useLayoutEffect(() => {
@@ -422,22 +466,27 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
         <div key={date}>
           <InboxTimeHeader date={date} />
           {dateEvents.map((event) => {
-            const isFirstUnread = event.id === firstUnreadEventId;
+            const isMarkerTarget = event.id === markerFirstEventId;
+            // Highlight unread styling against the stable visitBoundary so the
+            // highlight doesn't disappear as the mark-read handler advances
+            // lastReadAt while the user scrolls.
             const isUnread =
-              !!lastReadAt &&
-              event.importance >= topTierMinImportance &&
-              event.eventAt > lastReadAt;
+              !!visitBoundary && event.eventAt > visitBoundary;
+            // Live unread flag for mark-read tracking — uses lastReadAt so
+            // each new scroll advances the "seen" cursor in localStorage.
+            const isLiveUnread =
+              !!lastReadAt && event.eventAt > lastReadAt;
             return (
               <Fragment key={event.id}>
-                {isFirstUnread && (
-                  <div ref={(el) => { if (el) unreadMarkerRef.current = el; }}>
+                {isMarkerTarget && (
+                  <div ref={(el) => { unreadMarkerRef.current = el; }}>
                     <InboxUnreadMarker />
                   </div>
                 )}
                 <motion.div
                   data-event-id={event.id}
                   data-event-at={event.eventAt}
-                  data-unread={isUnread ? "true" : undefined}
+                  data-unread={isLiveUnread ? "true" : undefined}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1, transition: { duration: 0.15 } }}
                 >
@@ -448,6 +497,15 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
           })}
         </div>
       ))}
+
+      {/* Last-visited marker when all loaded past events are <= visitBoundary.
+          Sits just above the Now marker so the user can still see where they
+          left off even if nothing new has arrived. */}
+      {showMarkerAtEnd && (
+        <div ref={(el) => { unreadMarkerRef.current = el; }}>
+          <InboxUnreadMarker />
+        </div>
+      )}
 
       {/* AI thinking / streaming indicator — shown just above the Now line while waiting for a response */}
       {(showInboxLoader || showInboxStreaming) && (
@@ -514,6 +572,15 @@ export function InboxTimeline({ projectId, loading, searchQuery, filterCategory 
           ))}
         </div>
       ))}
+
+      {loadingFuture && (
+        <div className="flex justify-center py-3">
+          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {/* Bottom sentinel for infinite scroll into the future */}
+      <div ref={bottomSentinelRef} className="h-1" />
 
       {/* Scroll to now button — arrow flips based on scroll direction */}
       {!nowVisible && (

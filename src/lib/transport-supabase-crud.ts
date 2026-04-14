@@ -106,7 +106,14 @@ export async function handleCrudRequest<T>(
   switch (method) {
     // ─── Projects ──────────────────────────────────────────────────────────
     case "projects.list": {
-      const { data, error } = await supabase.from("projects").select("*");
+      // Exclude demo projects from the generic list. Real users must never
+      // see demos mixed in with their own projects, and demo visitors reach
+      // their demo project through projects.getBySlug + a direct project-store
+      // seed in DemoRoute — they never need the full list.
+      const { data, error } = await supabase
+        .from("projects")
+        .select("*")
+        .eq("is_demo", false);
       return ok(data, error) as T;
     }
     case "projects.get": {
@@ -232,9 +239,23 @@ export async function handleCrudRequest<T>(
       return ok(data, error) as T;
     }
     case "jobs.create": {
+      // Scheduler picks up jobs where next_fire_at <= now(). A null value is
+      // never picked up, so one-time enabled jobs created via this CRUD path
+      // would never run until something else set next_fire_at. Mirror the
+      // worker's jobs.create logic here so either path produces a schedulable
+      // job. Other schedule types (interval/cron) still need the worker's
+      // compute, so their first run is driven via runs.trigger.
+      const insertParams = dbParams(p) as Record<string, unknown>;
+      if (
+        insertParams.schedule_type === "once" &&
+        insertParams.is_enabled === true &&
+        insertParams.next_fire_at == null
+      ) {
+        insertParams.next_fire_at = new Date().toISOString();
+      }
       const { data, error } = await supabase
         .from("jobs")
-        .insert({ id: crypto.randomUUID(), ...dbParams(p), user_id: userId })
+        .insert({ id: crypto.randomUUID(), ...insertParams, user_id: userId })
         .select()
         .single();
       return ok(data, error) as T;

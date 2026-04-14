@@ -22,6 +22,7 @@ import { getSupabaseClient } from "../lib/supabase-client";
 import { getProjectBySlug } from "../lib/api";
 import { useDemoStore } from "../stores/demo-store";
 import { useAppStore } from "../stores/app-store";
+import { useProjectStore } from "../stores/project-store";
 import { DemoFrame } from "../components/demo/demo-frame";
 import { captureEvent } from "../lib/posthog";
 import type { Project } from "@openhelm/shared";
@@ -70,6 +71,17 @@ export function DemoRoute() {
           onboardingComplete: true,
           agentReady: true,
           contentView: "dashboard",
+        });
+        // Seed the project store directly so the sidebar selector only ever
+        // sees this one demo project. `projects.list` is filtered to exclude
+        // demo projects at the transport layer, so App.tsx's fetchProjects
+        // call would otherwise wipe the store back to empty for demo
+        // visitors. Seeding here keeps the sidebar populated without any
+        // roundtrip.
+        useProjectStore.setState({
+          projects: [project],
+          loading: false,
+          error: null,
         });
 
         captureEvent("demo_viewed", { slug });

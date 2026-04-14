@@ -8,6 +8,7 @@ import {
   listJobs,
   updateJob,
   deleteJob,
+  listFutureJobOccurrences,
 } from "../src/db/queries/jobs.js";
 
 let cleanup: () => void;
@@ -266,5 +267,130 @@ describe("job queries", () => {
 
     const cleared = updateJob({ id: job.id, silenceTimeoutMinutes: null });
     expect(cleared.silenceTimeoutMinutes).toBeNull();
+  });
+
+  describe("listFutureJobOccurrences", () => {
+    it("expands an interval schedule into multiple future occurrences", () => {
+      const isolatedProject = createProject({
+        name: "Future Occurrences Project",
+        directoryPath: "/tmp/future-occurrences",
+      });
+      const job = createJob({
+        projectId: isolatedProject.id,
+        name: "Hourly Job",
+        prompt: "test",
+        scheduleType: "interval",
+        scheduleConfig: { amount: 1, unit: "hours" },
+      });
+
+      const now = new Date().toISOString();
+      const occurrences = listFutureJobOccurrences(isolatedProject.id, now, 5);
+
+      expect(occurrences.length).toBe(5);
+      // All occurrences should belong to the same job and be strictly ordered
+      for (let i = 0; i < occurrences.length; i++) {
+        expect(occurrences[i].job.id).toBe(job.id);
+        if (i > 0) {
+          expect(occurrences[i].fireAt > occurrences[i - 1].fireAt).toBe(true);
+        }
+      }
+      // Occurrences span ~5 hours; far beyond the "20 events / 1 day" limit
+      // that the plan originally enforced.
+      const spanMs =
+        new Date(occurrences[4].fireAt).getTime() -
+        new Date(occurrences[0].fireAt).getTime();
+      expect(spanMs).toBeGreaterThan(3 * 60 * 60_000);
+    });
+
+    it("returns occurrences strictly after the `after` cursor", () => {
+      const isolatedProject = createProject({
+        name: "Cursor Project",
+        directoryPath: "/tmp/cursor-project",
+      });
+      createJob({
+        projectId: isolatedProject.id,
+        name: "Interval Job",
+        prompt: "test",
+        scheduleType: "interval",
+        scheduleConfig: { amount: 30, unit: "minutes" },
+      });
+
+      const first = listFutureJobOccurrences(
+        isolatedProject.id,
+        new Date().toISOString(),
+        3,
+      );
+      expect(first.length).toBe(3);
+
+      // Paginating from the last returned fireAt should yield new occurrences
+      // that are all strictly after it.
+      const cursor = first[first.length - 1].fireAt;
+      const next = listFutureJobOccurrences(isolatedProject.id, cursor, 3);
+      expect(next.length).toBe(3);
+      for (const occ of next) {
+        expect(occ.fireAt > cursor).toBe(true);
+      }
+    });
+
+    it("merges and sorts occurrences from multiple jobs", () => {
+      const isolatedProject = createProject({
+        name: "Multi Job Project",
+        directoryPath: "/tmp/multi-job-project",
+      });
+      createJob({
+        projectId: isolatedProject.id,
+        name: "Every 15 min",
+        prompt: "test",
+        scheduleType: "interval",
+        scheduleConfig: { amount: 15, unit: "minutes" },
+      });
+      createJob({
+        projectId: isolatedProject.id,
+        name: "Every 1 hour",
+        prompt: "test",
+        scheduleType: "interval",
+        scheduleConfig: { amount: 1, unit: "hours" },
+      });
+
+      const occurrences = listFutureJobOccurrences(
+        isolatedProject.id,
+        new Date().toISOString(),
+        20,
+      );
+
+      // Both jobs should be represented
+      const jobNames = new Set(occurrences.map((o) => o.job.name));
+      expect(jobNames.has("Every 15 min")).toBe(true);
+      expect(jobNames.has("Every 1 hour")).toBe(true);
+
+      // Merged list must be strictly ascending by fireAt
+      for (let i = 1; i < occurrences.length; i++) {
+        expect(
+          occurrences[i].fireAt >= occurrences[i - 1].fireAt,
+        ).toBe(true);
+      }
+    });
+
+    it("ignores disabled jobs", () => {
+      const isolatedProject = createProject({
+        name: "Disabled Job Project",
+        directoryPath: "/tmp/disabled-job-project",
+      });
+      createJob({
+        projectId: isolatedProject.id,
+        name: "Disabled",
+        prompt: "test",
+        scheduleType: "interval",
+        scheduleConfig: { amount: 1, unit: "hours" },
+        isEnabled: false,
+      });
+
+      const occurrences = listFutureJobOccurrences(
+        isolatedProject.id,
+        new Date().toISOString(),
+        10,
+      );
+      expect(occurrences).toEqual([]);
+    });
   });
 });

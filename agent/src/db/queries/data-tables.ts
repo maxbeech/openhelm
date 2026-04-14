@@ -17,6 +17,8 @@ import type {
   RenameDataTableColumnParams,
   RemoveDataTableColumnParams,
   UpdateDataTableColumnConfigParams,
+  UpdateDataTableColumnParams,
+  ReorderDataTableColumnsParams,
   ListDataTableChangesParams,
   DataTableChangeAction,
   DataTableChangeActor,
@@ -78,6 +80,29 @@ function logChange(params: {
 
 // ─── Table CRUD ───
 
+/**
+ * The two system columns that surface each row's `createdAt` / `updatedAt`
+ * timestamps in the UI. They're regular columns — the user can delete them
+ * via the normal remove-column flow, and they won't reappear automatically.
+ */
+export const CREATED_TIME_COLUMN_ID = "__created_time__";
+export const UPDATED_TIME_COLUMN_ID = "__updated_time__";
+
+const DEFAULT_TIMESTAMP_COLUMNS: DataTableColumn[] = [
+  { id: CREATED_TIME_COLUMN_ID, name: "Created", type: "created_time", config: {} },
+  { id: UPDATED_TIME_COLUMN_ID, name: "Updated", type: "updated_time", config: {} },
+];
+
+/** Append default timestamp columns unless they've already been provided. */
+function withDefaultTimestampColumns(columns: DataTableColumn[]): DataTableColumn[] {
+  const hasCreated = columns.some((c) => c.type === "created_time");
+  const hasUpdated = columns.some((c) => c.type === "updated_time");
+  const extras: DataTableColumn[] = [];
+  if (!hasCreated) extras.push(DEFAULT_TIMESTAMP_COLUMNS[0]);
+  if (!hasUpdated) extras.push(DEFAULT_TIMESTAMP_COLUMNS[1]);
+  return extras.length > 0 ? [...columns, ...extras] : columns;
+}
+
 export function createDataTable(params: CreateDataTableParams): DataTable {
   const db = getDb();
   const id = crypto.randomUUID();
@@ -90,7 +115,7 @@ export function createDataTable(params: CreateDataTableParams): DataTable {
       projectId: params.projectId,
       name: params.name,
       description: params.description ?? null,
-      columns: JSON.stringify(params.columns),
+      columns: JSON.stringify(withDefaultTimestampColumns(params.columns)),
       isSystem: params.isSystem ?? false,
       createdBy: params.createdBy ?? "user",
       createdAt: now,
@@ -414,6 +439,78 @@ export function updateColumnConfig(params: UpdateDataTableColumnConfigParams): D
     actor: params.actor,
     runId: params.runId,
     diff: { updatedColumnConfig: { columnId: params.columnId, config: params.config } },
+  });
+
+  return rowToTable(row);
+}
+
+export function updateColumn(params: UpdateDataTableColumnParams): DataTable {
+  const db = getDb();
+  const table = getDataTable(params.tableId);
+  if (!table) throw new Error(`Data table not found: ${params.tableId}`);
+
+  const colIdx = table.columns.findIndex((c) => c.id === params.columnId);
+  if (colIdx === -1) throw new Error(`Column not found: ${params.columnId}`);
+
+  const columns = [...table.columns];
+  const before = columns[colIdx];
+  columns[colIdx] = { ...before, ...params.patch, id: before.id };
+
+  const row = db
+    .update(dataTables)
+    .set({ columns: JSON.stringify(columns), updatedAt: new Date().toISOString() })
+    .where(eq(dataTables.id, params.tableId))
+    .returning()
+    .get();
+
+  logChange({
+    tableId: params.tableId,
+    action: "schema_change",
+    actor: params.actor,
+    runId: params.runId,
+    diff: { updatedColumn: { columnId: params.columnId, patch: params.patch } },
+  });
+
+  return rowToTable(row);
+}
+
+export function reorderColumns(params: ReorderDataTableColumnsParams): DataTable {
+  const db = getDb();
+  const table = getDataTable(params.tableId);
+  if (!table) throw new Error(`Data table not found: ${params.tableId}`);
+
+  const currentIds = table.columns.map((c) => c.id);
+  const providedSet = new Set(params.columnIds);
+  // Every provided id must exist
+  for (const id of params.columnIds) {
+    if (!currentIds.includes(id)) {
+      throw new Error(`Column not found: ${id}`);
+    }
+  }
+  // Append any columns not mentioned (defensive — keeps them rather than dropping).
+  const byId = new Map(table.columns.map((c) => [c.id, c]));
+  const reordered: DataTableColumn[] = [];
+  for (const id of params.columnIds) {
+    const col = byId.get(id);
+    if (col) reordered.push(col);
+  }
+  for (const col of table.columns) {
+    if (!providedSet.has(col.id)) reordered.push(col);
+  }
+
+  const row = db
+    .update(dataTables)
+    .set({ columns: JSON.stringify(reordered), updatedAt: new Date().toISOString() })
+    .where(eq(dataTables.id, params.tableId))
+    .returning()
+    .get();
+
+  logChange({
+    tableId: params.tableId,
+    action: "schema_change",
+    actor: params.actor,
+    runId: params.runId,
+    diff: { reorderedColumns: params.columnIds },
   });
 
   return rowToTable(row);

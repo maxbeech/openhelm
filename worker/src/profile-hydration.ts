@@ -11,7 +11,7 @@
  * pass OPENHELM_BROWSER_PROFILE_DIR (or a colon-joined list) to the MCP.
  */
 
-import type Sandbox from "e2b";
+import type { Sandbox } from "e2b";
 import { getSupabase } from "./supabase.js";
 
 const PROFILE_BUCKET = "browser-profiles";
@@ -37,7 +37,16 @@ async function loadInScopeProfiles(
     .eq("is_enabled", true)
     .eq("allow_browser_injection", true)
     .not("browser_profile_storage_key", "is", null);
-  if (error) throw new Error(`loadInScopeProfiles: ${error.message}`);
+  if (error) {
+    // Profile hydration is an optional best-effort step. If the credentials
+    // query itself fails (e.g. an expected column is missing during a
+    // staged schema rollout) we do NOT want to abort the run — the agent
+    // can still execute without any hydrated browser profiles.
+    console.error(
+      `[profile-hydration] loadInScopeProfiles query failed, returning empty: ${error.message}`,
+    );
+    return [];
+  }
 
   // Keep globals + anything whose primary scope matches the run.
   const matchingByPrimary = (creds ?? []).filter((c) => {

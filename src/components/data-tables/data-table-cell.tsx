@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import type { DataTableColumn, DataTableRow } from "@openhelm/shared";
 import { SelectCell, MultiSelectCell } from "./select-cell";
 import { RelationCell, type RelatedTableData } from "./relation-cell";
@@ -7,6 +7,7 @@ import { FilesCell } from "./files-cell";
 import { RollupCell } from "./rollup-cell";
 import { FormulaCell } from "./formula-cell";
 import { TimestampCell } from "./timestamp-cell";
+import { CellPopout, type PopoutInputType } from "./data-table-cell-popout";
 
 interface Props {
   column: DataTableColumn;
@@ -85,59 +86,65 @@ export function DataTableCell({ column, value, onChange, onColumnConfigUpdate, r
 }
 
 // ─── Text-based cell (text, number, date, url, email) ───
+//
+// Click opens a Notion-style floating popout editor via createPortal. This
+// lets long values be viewed and edited comfortably without stretching the
+// cell or clipping the text. Multiline text cells use a textarea; others use
+// a single-line input with a type-appropriate keyboard.
 
 function TextCell({ value, onChange, type }: { value: unknown; onChange: (v: unknown) => void; type: string }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (editing) inputRef.current?.focus();
-  }, [editing]);
+  const [open, setOpen] = useState(false);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
 
   const displayValue = value !== null && value !== undefined ? String(value) : "";
 
-  const startEdit = () => {
-    setDraft(displayValue);
-    setEditing(true);
+  const handleOpen = () => {
+    if (triggerRef.current) setAnchorRect(triggerRef.current.getBoundingClientRect());
+    setOpen(true);
   };
 
-  const commitEdit = () => {
-    setEditing(false);
-    let parsed: unknown = draft || null;
-    if (type === "number" && draft) {
-      const n = Number(draft);
+  const handleCommit = (next: string) => {
+    let parsed: unknown = next || null;
+    if (type === "number" && next) {
+      const n = Number(next);
       parsed = isNaN(n) ? null : n;
     }
     if (parsed !== value) onChange(parsed);
   };
 
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commitEdit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commitEdit();
-          if (e.key === "Escape") setEditing(false);
-        }}
-        type={type === "number" ? "number" : type === "date" ? "date" : "text"}
-        className="w-full bg-transparent px-3 py-1.5 text-sm outline-none ring-1 ring-primary/50"
-      />
-    );
-  }
-
   return (
-    <div
-      onClick={startEdit}
-      className="min-h-[30px] cursor-text px-3 py-1.5 text-sm truncate"
-      title={displayValue}
-    >
-      {displayValue || <span className="text-muted-foreground/30">-</span>}
-    </div>
+    <>
+      <div
+        ref={triggerRef}
+        onClick={handleOpen}
+        className="min-h-[30px] cursor-text px-3 py-1.5 text-sm truncate"
+        title={displayValue}
+      >
+        {displayValue || <span className="text-muted-foreground/30">-</span>}
+      </div>
+      {open && anchorRect && (
+        <CellPopout
+          anchorRect={anchorRect}
+          initialValue={displayValue}
+          type={popoutTypeForColumn(type)}
+          onCommit={handleCommit}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
   );
+}
+
+function popoutTypeForColumn(type: string): PopoutInputType {
+  // `text` columns get a multiline textarea; everything else gets a
+  // single-line input with the right keyboard type.
+  if (type === "text") return "textarea";
+  if (type === "number") return "number";
+  if (type === "url") return "url";
+  if (type === "email") return "email";
+  if (type === "date") return "date";
+  return "text";
 }
 
 // ─── Checkbox cell ───

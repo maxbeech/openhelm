@@ -12,7 +12,7 @@ import { resolveDashboardItem } from "../../db/queries/dashboard-items.js";
 import {
   getOrCreateInboxConversation,
 } from "../../db/queries/inbox-conversations.js";
-import { listDueJobsForInbox } from "../../db/queries/jobs.js";
+import { listFutureJobOccurrences } from "../../db/queries/jobs.js";
 import { handleChatMessage } from "../../chat/handler.js";
 import { computeImportance, getBaseImportance } from "../inbox-scoring.js";
 import { computeTierBoundaries } from "@openhelm/shared";
@@ -124,14 +124,16 @@ export function registerInboxHandlers() {
 
   registerHandler("inbox.listFuture", (params) => {
     const p = params as ListFutureInboxEventsParams | undefined;
-    const limit = p?.limit ?? 20;
-    const jobs = listDueJobsForInbox(p?.projectId ?? null, limit);
+    const limit = p?.limit ?? 50;
+    const after = p?.after ?? new Date().toISOString();
+    const occurrences = listFutureJobOccurrences(p?.projectId ?? null, after, limit);
 
     // Return synthetic inbox events for future scheduled runs.
     // Future runs always get max importance so they appear in the highest tier —
     // users should always see what's coming up next.
-    const futureEvents: InboxEvent[] = jobs.map((job) => ({
-      id: `future-${job.id}-${job.nextFireAt}`,
+    const now = new Date().toISOString();
+    const futureEvents: InboxEvent[] = occurrences.map(({ job, fireAt }) => ({
+      id: `future-${job.id}-${fireAt}`,
       projectId: job.projectId,
       category: "system" as const,
       eventType: "system.scheduled_run",
@@ -143,15 +145,15 @@ export function registerInboxHandlers() {
       metadata: {
         jobId: job.id,
         jobName: job.name,
-        scheduledFor: job.nextFireAt,
+        scheduledFor: fireAt,
         scheduleType: job.scheduleType,
       },
       conversationId: null,
       replyToEventId: null,
       status: "active" as const,
       resolvedAt: null,
-      eventAt: job.nextFireAt ?? new Date().toISOString(),
-      createdAt: new Date().toISOString(),
+      eventAt: fireAt,
+      createdAt: now,
     }));
 
     return futureEvents;

@@ -136,14 +136,14 @@ export function ChartRenderer({ visualization, compact }: Props) {
     if (!isTimeSeries || !xCol || periodRows.length <= DOWNSAMPLE_THRESHOLD) {
       return periodRows;
     }
-    return downsampleByDay(periodRows, xCol.id, visualization.config.series);
+    return downsampleByDay(periodRows, xCol.id, visualization.config.series ?? []);
   }, [periodRows, isTimeSeries, xCol, visualization.config.series]);
 
   // Check for missing columns
   const missingColumns = useMemo(() => {
     const colIds = new Set(columns.map((c) => c.id));
     const referenced = [
-      ...visualization.config.series.map((s) => s.columnId),
+      ...(visualization.config.series ?? []).map((s) => s.columnId),
       visualization.config.xColumnId,
       visualization.config.valueColumnId,
       visualization.config.labelColumnId,

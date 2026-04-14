@@ -14,11 +14,15 @@ try {
       removeEventListener: function () {},
       dispatchEvent: function () { return true; },
     };
+    var _ohConnGetter = function () { return _connProto; };
     Object.defineProperty(Navigator.prototype, 'connection', {
-      get: function () { return _connProto; },
+      get: _ohConnGetter,
       configurable: true,
       enumerable: true,
     });
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(_ohConnGetter);
+    }
   }
 } catch (e) {}
 
@@ -27,9 +31,13 @@ try {
 // (patch #5 returns 'default'). Some anti-bots cross-check these.
 try {
   if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+    var _ohNotifGetter = function () { return 'default'; };
     Object.defineProperty(Notification, 'permission', {
-      get: function () { return 'default'; },
+      get: _ohNotifGetter,
       configurable: true,
     });
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(_ohNotifGetter);
+    }
   }
 } catch (e) {}

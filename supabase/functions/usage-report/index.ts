@@ -21,14 +21,27 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
  * }
  */
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, content-type",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+};
+
 const CALL_TYPES = ["execution", "planning", "chat", "assessment"] as const;
 type CallType = (typeof CALL_TYPES)[number];
 
 Deno.serve(async (req: Request) => {
-  if (req.method !== "GET") return new Response("Method not allowed", { status: 405 });
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
+  if (req.method !== "GET") {
+    return new Response("Method not allowed", { status: 405, headers: CORS_HEADERS });
+  }
 
   const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return new Response("Unauthorized", { status: 401 });
+  if (!authHeader) return new Response("Unauthorized", { status: 401, headers: CORS_HEADERS });
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -37,7 +50,7 @@ Deno.serve(async (req: Request) => {
   );
 
   const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return new Response("Unauthorized", { status: 401 });
+  if (authError || !user) return new Response("Unauthorized", { status: 401, headers: CORS_HEADERS });
 
   try {
     // Fetch subscription
@@ -65,7 +78,7 @@ Deno.serve(async (req: Request) => {
 
     if (usageError) {
       console.error("[usage-report] Usage query error:", usageError);
-      return new Response("Database error", { status: 500 });
+      return new Response("Database error", { status: 500, headers: CORS_HEADERS });
     }
 
     const breakdown = Object.fromEntries(
@@ -98,10 +111,10 @@ Deno.serve(async (req: Request) => {
         breakdown,
         totalBilledUsd:   Math.round(totalBilledUsd * 1_000_000) / 1_000_000,
       }),
-      { headers: { "Content-Type": "application/json" } },
+      { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
     );
   } catch (err) {
     console.error("[usage-report] Error:", err);
-    return new Response("Internal error", { status: 500 });
+    return new Response("Internal error", { status: 500, headers: CORS_HEADERS });
   }
 });

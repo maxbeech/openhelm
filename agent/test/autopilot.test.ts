@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vites
 import { setupTestDb } from "./helpers.js";
 import { createProject } from "../src/db/queries/projects.js";
 import { createJob, listSystemJobsForGoal, disableAllSystemJobs, getJob } from "../src/db/queries/jobs.js";
+import { createRun } from "../src/db/queries/runs.js";
 import { createGoal, listGoals } from "../src/db/queries/goals.js";
 import { setSetting, deleteSetting, getSetting } from "../src/db/queries/settings.js";
 import {
@@ -437,5 +438,93 @@ describe("clearBackfillCooldown", () => {
 
     const setting = getSetting("autopilot_backfill_failures");
     expect(setting).toBeNull();
+  });
+});
+
+describe("handleAutopilotRunCompleted → dashboard.created emission", () => {
+  let handleAutopilotRunCompleted: typeof import("../src/autopilot/post-run.js").handleAutopilotRunCompleted;
+
+  beforeAll(async () => {
+    const mod = await import("../src/autopilot/post-run.js");
+    handleAutopilotRunCompleted = mod.handleAutopilotRunCompleted;
+  });
+
+  beforeEach(() => {
+    mockEmit.mockClear();
+  });
+
+  // Regression: the post-run handler used to create a dashboard item without
+  // emitting the event, so the inbox-bridge never mirrored autopilot findings
+  // into inbox_events and users never saw proactive messages in the Inbox.
+  it("emits dashboard.created when an investigation run succeeds", async () => {
+    const investigationJob = createJob({
+      projectId,
+      goalId,
+      name: "Investigate: Permanent Failures",
+      prompt: "investigate",
+      scheduleType: "once",
+      scheduleConfig: { fireAt: new Date().toISOString() },
+      source: "system",
+      systemCategory: "captain_investigation",
+      model: "claude-haiku-4-5-20251001",
+      modelEffort: "low",
+    });
+
+    const createdRun = createRun({
+      jobId: investigationJob.id,
+      triggerSource: "scheduled",
+    });
+    const run = {
+      ...createdRun,
+      status: "succeeded" as const,
+      summary: "Root cause: flaky browser automation",
+    };
+
+    const handled = handleAutopilotRunCompleted(
+      run as unknown as import("@openhelm/shared").Run,
+    );
+    expect(handled).toBe(true);
+
+    const dashboardEmits = mockEmit.mock.calls.filter(
+      (c) => c[0] === "dashboard.created",
+    );
+    expect(dashboardEmits).toHaveLength(1);
+    const [, payload] = dashboardEmits[0];
+    expect(payload).toMatchObject({
+      type: "captain_insight",
+      runId: run.id,
+      jobId: investigationJob.id,
+      projectId,
+    });
+  });
+
+  it("does not emit dashboard.created when the investigation itself fails", () => {
+    const investigationJob = createJob({
+      projectId,
+      goalId,
+      name: "Investigate: Goal Success Rate",
+      prompt: "investigate",
+      scheduleType: "once",
+      scheduleConfig: { fireAt: new Date().toISOString() },
+      source: "system",
+      systemCategory: "captain_investigation",
+      model: "claude-haiku-4-5-20251001",
+      modelEffort: "low",
+    });
+
+    const createdRun = createRun({
+      jobId: investigationJob.id,
+      triggerSource: "scheduled",
+    });
+    const run = { ...createdRun, status: "failed" as const };
+
+    handleAutopilotRunCompleted(
+      run as unknown as import("@openhelm/shared").Run,
+    );
+
+    const dashboardEmits = mockEmit.mock.calls.filter(
+      (c) => c[0] === "dashboard.created",
+    );
+    expect(dashboardEmits).toHaveLength(0);
   });
 });

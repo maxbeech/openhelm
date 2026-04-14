@@ -11,7 +11,7 @@
  *  7. Kill sandbox (teardown)
  */
 
-import Sandbox from "e2b";
+import { Sandbox } from "e2b";
 import { getSupabase } from "./supabase.js";
 import { config } from "./config.js";
 import { createStreamRelay } from "./stream-relay.js";
@@ -27,36 +27,68 @@ const activeSandboxes = new Map<string, InstanceType<typeof Sandbox>>();
 // ── MCP config ──────────────────────────────────────────────────────────────
 
 /**
- * Build the Goose-compatible MCP config JSON for a sandbox run.
+ * Build the Goose `--with-extension` argument string for the openhelm-browser
+ * stdio MCP server. Goose's flag takes a single string of the form:
+ *   "ENV1=val1 ENV2=val2 /path/to/command arg1 arg2 ..."
+ * See https://github.com/block/goose `goose-cli/src/cli.rs` (`ExtensionOptions`).
+ *
+ * Environment variables that don't vary per-run (CHROMIUM_FLAGS) are passed
+ * via the sandbox's process env on Sandbox.create() instead, so this string
+ * stays simple and safe to shell-quote. The per-run profile dir, when set,
+ * is included here via an env-var prefix so it is scoped to the MCP process.
  *
  * All MCP servers are pre-installed in the sandbox image at
- * /opt/openhelm/mcp-servers/. Paths here match the Dockerfile. If the run has
- * hydrated browser profiles, the first one is passed to the MCP so Chromium
- * reuses its saved cookies / local storage. Chromium runs against the desktop
- * image's real XFCE display — no --headless flag.
+ * /opt/openhelm/mcp-servers/. Paths here match e2b/Dockerfile.
  */
-function buildMcpConfig(profiles: HydratedProfile[] = []): string {
+const BROWSER_MCP_WRAPPER_PATH = "/tmp/openhelm-browser";
+const BROWSER_MCP_WRAPPER_SCRIPT = `#!/bin/bash
+# OpenHelm browser MCP wrapper. This exists so goose's --with-extension flag
+# labels the extension "openhelm-browser" (first token of the command)
+# instead of "python3_12", and so any tool calls agents emit line up with
+# the prompt conventions the local-mode MCP uses. The venv's 'python' stub
+# is a 52KB ENOEXEC launcher on this E2B template; we invoke python3.12 via
+# the venv symlink which resolves to /usr/bin/python3.12 while still
+# picking up the venv's site-packages via pyvenv.cfg.
+exec /opt/openhelm/mcp-servers/browser/.venv/bin/python3.12 \\
+  /opt/openhelm/mcp-servers/browser/src/server.py --transport stdio "$@"
+`;
+
+function buildBrowserExtensionArg(profiles: HydratedProfile[] = []): string {
   const primaryProfile = profiles[0]?.profileDir;
-  const cfg = {
-    mcpServers: {
-      "openhelm-browser": {
-        command: "/opt/openhelm/mcp-servers/browser/.venv/bin/python",
-        args: [
-          "/opt/openhelm/mcp-servers/browser/src/server.py",
-          "--transport",
-          "stdio",
-        ],
-        cwd: "/opt/openhelm/mcp-servers/browser",
-        env: {
-          CHROMIUM_FLAGS: "--no-sandbox --disable-gpu",
-          ...(primaryProfile
-            ? { OPENHELM_BROWSER_PROFILE_DIR: primaryProfile }
-            : {}),
-        },
-      },
-    },
-  };
-  return JSON.stringify(cfg, null, 2);
+  const envPrefix = primaryProfile
+    ? `OPENHELM_BROWSER_PROFILE_DIR=${primaryProfile} `
+    : "";
+  return `${envPrefix}${BROWSER_MCP_WRAPPER_PATH}`;
+}
+
+/**
+ * Shell-quote a single argument for bash -c. Uses single quotes and escapes
+ * embedded single quotes with the standard '\'' pattern.
+ */
+function shq(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Translate a local-mode model tier alias ("sonnet" / "haiku" / "opus") to
+ * the OpenRouter-qualified model ID. A value that already contains a slash
+ * is assumed to be an OpenRouter ID and returned as-is. Null / unknown falls
+ * back to the default cloud execution model.
+ */
+const OPENROUTER_MODEL_MAP: Record<string, string> = {
+  sonnet: "anthropic/claude-sonnet-4.6",
+  "sonnet-4.6": "anthropic/claude-sonnet-4.6",
+  haiku: "anthropic/claude-haiku-4.5",
+  "haiku-4.5": "anthropic/claude-haiku-4.5",
+  opus: "anthropic/claude-opus-4.6",
+  "opus-4.6": "anthropic/claude-opus-4.6",
+};
+const DEFAULT_CLOUD_MODEL = "anthropic/claude-sonnet-4.6";
+
+export function resolveOpenRouterModel(model: string | null | undefined): string {
+  if (!model) return DEFAULT_CLOUD_MODEL;
+  if (model.includes("/")) return model;
+  return OPENROUTER_MODEL_MAP[model] ?? DEFAULT_CLOUD_MODEL;
 }
 
 // ── Executor ─────────────────────────────────────────────────────────────────
@@ -103,15 +135,19 @@ export async function executeRun(runId: string): Promise<void> {
     started_at: new Date().toISOString(),
   }).eq("id", runId);
 
-  const relay = createStreamRelay(runId);
+  const relay = createStreamRelay(runId, run.user_id as string);
 
   try {
     const timeoutMs = job.silence_timeout_minutes
       ? job.silence_timeout_minutes * 60_000
       : config.sandboxTimeoutMs;
 
-    // Resolve model from job config or default to GPT-4o via OpenRouter
-    const model = (job.model as string | null) ?? "openai/gpt-4o";
+    // Resolve model from job config. Jobs are stored with local-mode tier
+    // aliases ("sonnet", "haiku", "opus") that Claude Code understands; for
+    // cloud mode we route through OpenRouter which requires fully-qualified
+    // model IDs. Map the tier aliases here and pass anything else through
+    // as-is (so users can configure a specific OpenRouter model later).
+    const model = resolveOpenRouterModel(job.model as string | null | undefined);
 
     const sandbox = await Sandbox.create(config.e2bTemplateId, {
       timeoutMs,
@@ -122,15 +158,31 @@ export async function executeRun(runId: string): Promise<void> {
         GOOSE_LEAD_PROVIDER: "openrouter",
         GOOSE_LEAD_MODEL: model,
         OPENROUTER_API_KEY: config.openrouterApiKey,
+        // Inherited by the openhelm-browser MCP process so Chromium launches
+        // inside the sandbox without needing suid namespaces.
+        CHROMIUM_FLAGS: "--no-sandbox --disable-gpu",
       },
     });
     activeSandboxes.set(runId, sandbox);
 
-    // Clone project repository
+    // Clone project repository. Use /tmp/workspace to avoid any ownership
+    // or pre-existing contents in the /workspace WORKDIR. Capture stdout/
+    // stderr so a clone failure surfaces a useful error message in run_logs
+    // instead of a bare "exit status 1".
     relay.onStderr(`[openhelm] cloning ${project.git_url}`);
-    await sandbox.commands.run(`git clone --depth 1 "${project.git_url}" /workspace`, {
-      timeoutMs: 120_000,
-    });
+    const cloneResult = await sandbox.commands.run(
+      `rm -rf /tmp/workspace && git clone --depth 1 "${project.git_url}" /tmp/workspace`,
+      {
+        timeoutMs: 120_000,
+        onStdout: (line: string) => relay.onStdout(line),
+        onStderr: (line: string) => relay.onStderr(line),
+      },
+    );
+    if (cloneResult.exitCode !== 0) {
+      throw new Error(
+        `git clone failed (exit ${cloneResult.exitCode}): ${cloneResult.stderr?.slice(0, 500) ?? ""}`,
+      );
+    }
 
     // Hydrate any persisted browser profiles for credentials in scope
     const hydratedProfiles = await hydrateBrowserProfiles(
@@ -143,23 +195,42 @@ export async function executeRun(runId: string): Promise<void> {
       (line) => relay.onStderr(line),
     );
 
-    // Write per-run MCP config (passes hydrated profile path via env)
-    relay.onStderr("[openhelm] writing MCP config");
-    await sandbox.files.write("/tmp/mcp-config.json", buildMcpConfig(hydratedProfiles));
-
-    // Write prompt to file (avoids stdin complexity with E2B commands API)
+    // Write prompt to file — passed to goose via -i (instructions file),
+    // which is more robust than redirecting stdin through bash.
     await sandbox.files.write("/tmp/prompt.txt", job.prompt);
 
-    // Run Goose agent, streaming output in real-time
-    relay.onStderr("[openhelm] starting Goose agent");
-    const result = await sandbox.commands.run(
-      `bash -c 'cd /workspace && goose run --output-format stream-json --mcp-config /tmp/mcp-config.json --no-session < /tmp/prompt.txt'`,
-      {
-        timeoutMs,
-        onStdout: (line) => relay.onStdout(line),
-        onStderr: (line) => relay.onStderr(line),
-      },
+    // Install the openhelm-browser wrapper script so goose labels the
+    // extension correctly and agents see `openhelm_browser__*` tool names
+    // (matching local-mode prompt conventions) rather than `python3_12__*`.
+    await sandbox.files.write(BROWSER_MCP_WRAPPER_PATH, BROWSER_MCP_WRAPPER_SCRIPT);
+    await sandbox.commands.run(`chmod +x ${BROWSER_MCP_WRAPPER_PATH}`, {
+      timeoutMs: 5_000,
+    });
+
+    // Build the goose --with-extension argument. Goose does NOT have a
+    // --mcp-config flag; stdio MCP servers are attached via --with-extension.
+    const browserExtArg = buildBrowserExtensionArg(hydratedProfiles);
+    relay.onStderr(
+      `[openhelm] attaching MCP extensions: openhelm-browser` +
+        (hydratedProfiles.length > 0
+          ? ` (profile=${hydratedProfiles[0]?.profileDir})`
+          : ""),
     );
+
+    // Run Goose agent, streaming output in real-time. `--with-builtin developer`
+    // gives goose its standard shell/file tools for exploring the cloned repo.
+    relay.onStderr("[openhelm] starting Goose agent");
+    const gooseCmd =
+      `cd /tmp/workspace && goose run ` +
+      `--output-format stream-json --no-session ` +
+      `--with-builtin developer ` +
+      `--with-extension ${shq(browserExtArg)} ` +
+      `-i /tmp/prompt.txt`;
+    const result = await sandbox.commands.run(`bash -c ${shq(gooseCmd)}`, {
+      timeoutMs,
+      onStdout: (line) => relay.onStdout(line),
+      onStderr: (line) => relay.onStderr(line),
+    });
 
     await relay.flush();
     await sandbox.kill();
@@ -182,7 +253,6 @@ export async function executeRun(runId: string): Promise<void> {
     console.error(`[executor] run ${runId} failed:`, msg);
     relay.onStderr(`[openhelm] run error: ${msg}`);
     await relay.flush();
-    relay.cleanup();
     activeSandboxes.delete(runId);
     await markRunFailed(runId, msg);
   } finally {

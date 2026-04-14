@@ -31,9 +31,9 @@ try {
     } catch (ex) {} // CORS canvas will throw — that's fine
     return _origToDataURL.apply(this, arguments);
   };
-  HTMLCanvasElement.prototype.toDataURL.toString = function () {
-    return 'function toDataURL() { [native code] }';
-  };
+  if (typeof window.__oh_register === 'function') {
+    window.__oh_register(HTMLCanvasElement.prototype.toDataURL);
+  }
 
   // Also patch toBlob for completeness
   var _origToBlob = HTMLCanvasElement.prototype.toBlob;
@@ -53,9 +53,9 @@ try {
       } catch (ex) {}
       return _origToBlob.apply(this, arguments);
     };
-    HTMLCanvasElement.prototype.toBlob.toString = function () {
-      return 'function toBlob() { [native code] }';
-    };
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(HTMLCanvasElement.prototype.toBlob);
+    }
   }
 } catch (e) {}
 
@@ -92,10 +92,6 @@ try {
   };
   if (typeof window.__oh_register === 'function') {
     window.__oh_register(CanvasRenderingContext2D.prototype.getImageData);
-  } else {
-    CanvasRenderingContext2D.prototype.getImageData.toString = function () {
-      return 'function getImageData() { [native code] }';
-    };
   }
 } catch (e) {}
 
@@ -114,9 +110,9 @@ try {
       if (param === 0x9246) return __webglRenderer;
       return _origGetParam.call(this, param);
     };
-    proto.getParameter.toString = function () {
-      return 'function getParameter() { [native code] }';
-    };
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(proto.getParameter);
+    }
   };
 
   _patchWebGL(WebGLRenderingContext.prototype);
@@ -136,7 +132,50 @@ try {
       array[i] += ((__stealthHash(__stealthSeed, i + 1000) & 3) - 1) * 0.001;
     }
   };
-  AnalyserNode.prototype.getFloatFrequencyData.toString = function () {
-    return 'function getFloatFrequencyData() { [native code] }';
+  if (typeof window.__oh_register === 'function') {
+    window.__oh_register(AnalyserNode.prototype.getFloatFrequencyData);
+  }
+} catch (e) {}
+
+// ── 39. HTMLMediaElement.canPlayType codec spoofing ─────────────────────
+// In headless or restricted Chrome builds, canPlayType returns "" for H.264
+// and AAC codecs that real Chrome always supports. puppeteer-extra-stealth
+// identifies this as a "media.codecs" detection vector. We return "probably"
+// for known-supported codec strings to match real Chrome behaviour.
+// This patch is a no-op on non-headless Chrome (canPlayType already returns
+// "probably" for these types), so it's safe to always inject.
+try {
+  var _patchCanPlay = function (ProtoClass) {
+    var _origCanPlay = ProtoClass.prototype.canPlayType;
+    ProtoClass.prototype.canPlayType = function (type) {
+      if (!type) return '';
+      var t = type.toLowerCase();
+      // H.264 / AVC — universally supported in real Chrome
+      if (t.indexOf('avc1') !== -1 || t.indexOf('avc3') !== -1 ||
+          t.indexOf('video/mp4') !== -1 || t.indexOf('video/x-m4v') !== -1) {
+        return 'probably';
+      }
+      // VP9, VP8 — Chromium built-ins
+      if (t.indexOf('vp9') !== -1 || t.indexOf('vp8') !== -1 ||
+          t.indexOf('video/webm') !== -1) {
+        return 'probably';
+      }
+      // AAC / MP4 audio
+      if (t.indexOf('mp4a.40') !== -1 || t.indexOf('audio/mp4') !== -1 ||
+          t.indexOf('audio/x-m4a') !== -1) {
+        return 'probably';
+      }
+      // MP3 / Ogg / WAV — real Chrome supports these
+      if (t.indexOf('audio/mpeg') !== -1 || t.indexOf('audio/mp3') !== -1 ||
+          t.indexOf('audio/ogg') !== -1 || t.indexOf('audio/wav') !== -1) {
+        return 'probably';
+      }
+      return _origCanPlay.call(this, type);
+    };
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(ProtoClass.prototype.canPlayType);
+    }
   };
+  _patchCanPlay(HTMLVideoElement);
+  _patchCanPlay(HTMLAudioElement);
 } catch (e) {}

@@ -712,6 +712,16 @@ export class Executor {
     const configuredMcpServers = mcpContext.configuredMcpServers;
     effectivePrompt = mcpContext.promptPrefix + effectivePrompt;
 
+    // Round 13 (2026-04-14): Guard against empty/missing prompts. If both
+    // correctionNote and job.prompt are null/empty, the CLI receives nothing
+    // and the agent reports "no task was provided" — Issue 7 from overnight
+    // failure analysis. Fail fast with a clear error instead.
+    if (!effectivePrompt || effectivePrompt.trim().length === 0) {
+      console.error(`[executor] empty prompt for run ${runId} — marking permanent_failure`);
+      this.markRunPermanentFailure(runId, "Empty prompt: no task content was available for this run.");
+      return;
+    }
+
     // Track the agent process PID so the focus guard can suppress child windows.
     let agentPid: number | undefined;
 

@@ -41,9 +41,12 @@ interface InboxState {
   loading: boolean;
   error: string | null;
 
-  // Pagination
+  // Pagination — past
   hasMorePast: boolean;
   loadingPast: boolean;
+  // Pagination — future
+  hasMoreFuture: boolean;
+  loadingFuture: boolean;
 
   // Tier / zoom
   tierThreshold: number;
@@ -68,6 +71,10 @@ interface InboxState {
   // Unread tracking (frontend-only, persisted to localStorage)
   unreadCount: number;
   lastReadAt: string | null;
+  // Snapshot of lastReadAt captured when the view opens. Used as the stable
+  // anchor for the "last visited" divider so it doesn't jump around as the
+  // user scrolls and mark-read advances.
+  visitBoundary: string | null;
   topTierMinImportance: number;
 
   // Scroll restoration (set by nav back/forward, consumed by InboxTimeline on first render)
@@ -78,6 +85,7 @@ interface InboxState {
   fetchInitial: (projectId: string | null) => Promise<void>;
   fetchOlderEvents: (projectId: string | null) => Promise<void>;
   fetchFutureEvents: (projectId: string | null) => Promise<void>;
+  fetchMoreFutureEvents: (projectId: string | null) => Promise<void>;
   setTierThreshold: (value: number) => void;
   setReplyContext: (ctx: { eventId: string; preview: string } | null) => void;
   sendMessage: (projectId: string | null, content: string) => Promise<void>;
@@ -120,6 +128,8 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   error: null,
   hasMorePast: true,
   loadingPast: false,
+  hasMoreFuture: true,
+  loadingFuture: false,
   tierThreshold: getStoredTierThreshold(),
   tierBoundaries: [],
   tierLabels: ["All Events"],
@@ -131,6 +141,7 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   inboxAiResponding: false,
   unreadCount: 0,
   lastReadAt: getStoredLastReadAt(),
+  visitBoundary: null,
   topTierMinImportance: 0,
   pendingScrollTop: null,
 
@@ -140,29 +151,45 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const now = new Date().toISOString();
+      const PAST_LIMIT = 100;
+      const FUTURE_LIMIT = 50;
 
       const [events, futureEvents] = await Promise.all([
         api.listInboxEvents({
           projectId: projectId ?? undefined,
           before: now,
-          limit: 100,
+          limit: PAST_LIMIT,
         }),
-        api.listFutureInboxEvents({ limit: 20 }),
+        api.listFutureInboxEvents({
+          projectId: projectId ?? undefined,
+          after: now,
+          limit: FUTURE_LIMIT,
+        }),
       ]);
 
+      // Snapshot visitBoundary BEFORE the mark-read handler starts advancing
+      // lastReadAt. This keeps the "last visited" divider in a stable position
+      // throughout the session even as the user scrolls past new events.
+      const prevLastReadAt = get().lastReadAt;
+      const visitBoundary = prevLastReadAt; // may be null on very first ever visit
+
       // On first ever visit, seed lastReadAt so existing events aren't shown as unread
-      let { lastReadAt, topTierMinImportance } = get();
+      let lastReadAt = prevLastReadAt;
       if (!lastReadAt) {
         lastReadAt = now;
         saveLastReadAt(now);
       }
 
+      const { topTierMinImportance } = get();
+
       set({
         events,
         futureEvents,
         loading: false,
-        hasMorePast: events.length >= 100,
+        hasMorePast: events.length >= PAST_LIMIT,
+        hasMoreFuture: futureEvents.length >= FUTURE_LIMIT,
         lastReadAt,
+        visitBoundary,
         unreadCount: computeUnreadCount(events, lastReadAt, topTierMinImportance),
       });
 
@@ -194,11 +221,43 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     }
   },
 
-  fetchFutureEvents: async (_projectId) => {
+  fetchFutureEvents: async (projectId) => {
     try {
-      const futureEvents = await api.listFutureInboxEvents({ limit: 20 });
-      set({ futureEvents });
+      const futureEvents = await api.listFutureInboxEvents({
+        projectId: projectId ?? undefined,
+        after: new Date().toISOString(),
+        limit: 50,
+      });
+      set({ futureEvents, hasMoreFuture: futureEvents.length >= 50 });
     } catch { /* non-fatal */ }
+  },
+
+  fetchMoreFutureEvents: async (projectId) => {
+    const { futureEvents, loadingFuture, hasMoreFuture } = get();
+    if (loadingFuture || !hasMoreFuture) return;
+
+    // Cursor is the eventAt of the last loaded future event (strictly after).
+    const last = futureEvents[futureEvents.length - 1];
+    if (!last) return;
+
+    set({ loadingFuture: true });
+    try {
+      const more = await api.listFutureInboxEvents({
+        projectId: projectId ?? undefined,
+        after: last.eventAt,
+        limit: 50,
+      });
+      // Dedup by id (schedules can theoretically overlap on boundary)
+      const existingIds = new Set(futureEvents.map((e) => e.id));
+      const filtered = more.filter((e) => !existingIds.has(e.id));
+      set((s) => ({
+        futureEvents: [...s.futureEvents, ...filtered],
+        loadingFuture: false,
+        hasMoreFuture: more.length >= 50,
+      }));
+    } catch {
+      set({ loadingFuture: false });
+    }
   },
 
   setTierThreshold: (value) => {

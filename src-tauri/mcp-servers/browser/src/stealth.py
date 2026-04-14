@@ -90,6 +90,13 @@ STEALTH_CHROME_ARGS: List[str] = [
     # Mac-specific belt-and-braces with --password-store=basic.
     "--password-store=basic",
     "--use-mock-keychain",
+    # Round 13 (2026-04-14) additions — reduce Chrome's behavioural
+    # differences from a human-driven session. Component-update suppresses
+    # Chrome's background update checker, domain-reliability disables
+    # Google telemetry, metrics-recording-only minimises telemetry signals.
+    "--disable-component-update",
+    "--disable-domain-reliability",
+    "--metrics-recording-only",
 ]
 
 
@@ -160,10 +167,19 @@ _CHROME_MAJOR_VERSION = "138"
 _CHROME_FULL_VERSION = "138.0.7204.101"
 
 
-def _brand_profile() -> dict:
+def _brand_profile(
+    chrome_major: str | None = None,
+    chrome_full: str | None = None,
+) -> dict:
     """
     Return a consistent brand profile for BOTH the JS Client Hints
     surface (navigator.userAgentData) AND the HTTP Sec-CH-UA-* headers.
+
+    If *chrome_major* / *chrome_full* are provided (e.g. from a live
+    ``Browser.getVersion`` call at spawn time), they override the
+    hard-coded defaults. This prevents version mismatches between what
+    we report in Client Hints and what the real Chrome binary advertises
+    in its TLS fingerprint and User-Agent.
 
     Returns a dict with keys:
         ua                           — the full User-Agent string
@@ -202,8 +218,8 @@ def _brand_profile() -> dict:
         arch = "x86"
         platform_version = "15.0.0"
 
-    major = _CHROME_MAJOR_VERSION
-    full = _CHROME_FULL_VERSION
+    major = chrome_major or _CHROME_MAJOR_VERSION
+    full = chrome_full or _CHROME_FULL_VERSION
 
     ua = (
         f"Mozilla/5.0 ({ua_platform}) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -255,8 +271,17 @@ _JS_DIR = Path(__file__).parent / "js"
 _cached_script: str | None = None
 
 
-def _load_stealth_scripts(seed: int | None = None) -> str:
-    """Load and concatenate all stealth JS files into a single IIFE."""
+def _load_stealth_scripts(
+    seed: int | None = None,
+    chrome_major: str | None = None,
+    chrome_full: str | None = None,
+) -> str:
+    """Load and concatenate all stealth JS files into a single IIFE.
+
+    If *chrome_major* / *chrome_full* are provided, they are forwarded to
+    ``_brand_profile()`` so the JS-side brand list matches the live Chrome
+    binary's version rather than the hard-coded default.
+    """
     if seed is None:
         seed = random.randint(0, 2**32 - 1)
 
@@ -279,7 +304,7 @@ def _load_stealth_scripts(seed: int | None = None) -> str:
     # values that the HTTP Sec-CH-UA-* headers report. We emit a
     # JSON literal that the JS side can parse with JSON.parse() —
     # templating through a string replace keeps JS syntax clean.
-    brand = _brand_profile()
+    brand = _brand_profile(chrome_major=chrome_major, chrome_full=chrome_full)
     import json as _json
     brand_js_json = _json.dumps(brand["brand_js"])
     combined = combined.replace("__OH_BRAND_LIST__", brand_js_json)
@@ -319,7 +344,24 @@ async def inject_stealth(tab: uc.core.tab.Tab) -> None:
     # Activate the Page domain — required for addScriptToEvaluateOnNewDocument
     await tab.send(uc.cdp.page.enable())
 
-    script = _load_stealth_scripts()
+    # Round 13 (2026-04-14): Query the actual Chrome version from the live
+    # binary via Browser.getVersion. This replaces the hard-coded
+    # _CHROME_MAJOR_VERSION with the real value, preventing mismatches
+    # between what we report in Sec-CH-UA / userAgentData and what the
+    # binary advertises in its TLS fingerprint and User-Agent string.
+    live_major: str | None = None
+    live_full: str | None = None
+    try:
+        ver_result = await tab.send(uc.cdp.browser.get_version())
+        # ver_result is a tuple: (protocolVersion, product, revision, userAgent, jsVersion)
+        product = ver_result[1] if isinstance(ver_result, (list, tuple)) else getattr(ver_result, "product", "")
+        if product and "/" in product:
+            live_full = product.split("/", 1)[1]  # e.g. "Chrome/138.0.7204.101" → "138.0.7204.101"
+            live_major = live_full.split(".")[0]   # → "138"
+    except Exception:
+        pass  # Fall back to hard-coded defaults
+
+    script = _load_stealth_scripts(chrome_major=live_major, chrome_full=live_full)
     await tab.send(
         uc.cdp.page.add_script_to_evaluate_on_new_document(script)
     )
@@ -331,7 +373,7 @@ async def inject_stealth(tab: uc.core.tab.Tab) -> None:
     # frame, all sub-frames, and all sub-resources.
     try:
         await tab.send(uc.cdp.network.enable())
-        brand = _brand_profile()
+        brand = _brand_profile(chrome_major=live_major, chrome_full=live_full)
         headers = {
             "Sec-CH-UA": brand["sec_ch_ua"],
             "Sec-CH-UA-Mobile": brand["sec_ch_ua_mobile"],

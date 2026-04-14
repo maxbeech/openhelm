@@ -56,6 +56,52 @@ describe("parseStreamLine", () => {
     const result = parseStreamLine(line);
     expect(result).not.toBeNull();
     expect(result!.text).toBe("Let me check that file.\n[Tool: Read]");
+    // assistantText must exclude the [Tool: Read] marker — it is the clean
+    // prose stream used by chat UIs.
+    expect(result!.assistantText).toBe("Let me check that file.");
+  });
+
+  it("assistantText excludes tool_result content from user turns", () => {
+    const line = JSON.stringify({
+      type: "user",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_123",
+            content: "file contents: very long output that must not leak to chat",
+          },
+        ],
+      },
+    });
+
+    const result = parseStreamLine(line);
+    expect(result).not.toBeNull();
+    // `text` (for run logs) still carries the tool_result text…
+    expect(result!.text).toContain("very long output");
+    // …but `assistantText` is undefined for user turns, so chat never sees it.
+    expect(result!.assistantText).toBeUndefined();
+  });
+
+  it("assistantText excludes [Tool: name] markers for tool-only assistant turns", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            name: "Bash",
+            id: "toolu_456",
+            input: { command: "ls" },
+          },
+        ],
+      },
+    });
+
+    const result = parseStreamLine(line);
+    expect(result).not.toBeNull();
+    expect(result!.text).toBe("[Tool: Bash]");
+    expect(result!.assistantText).toBeUndefined();
   });
 
   it("parses a result message", () => {

@@ -144,26 +144,237 @@ try {
 // the "Just a moment" interstitial — if it sees 'hidden', it suspects
 // automated navigation and escalates the challenge.
 try {
+  var _ohHiddenGetter = function () { return false; };
+  var _ohVisStateGetter = function () { return 'visible'; };
   Object.defineProperty(Document.prototype, 'hidden', {
-    get: function () { return false; },
+    get: _ohHiddenGetter,
     configurable: true,
   });
   Object.defineProperty(Document.prototype, 'visibilityState', {
-    get: function () { return 'visible'; },
+    get: _ohVisStateGetter,
     configurable: true,
   });
+  if (typeof window.__oh_register === 'function') {
+    window.__oh_register(_ohHiddenGetter);
+    window.__oh_register(_ohVisStateGetter);
+  }
   // Some detectors ALSO check webkitVisibilityState (legacy).
   try {
+    var _ohWkVisStateGetter = function () { return 'visible'; };
+    var _ohWkHiddenGetter = function () { return false; };
     Object.defineProperty(Document.prototype, 'webkitVisibilityState', {
-      get: function () { return 'visible'; },
+      get: _ohWkVisStateGetter,
       configurable: true,
     });
     Object.defineProperty(Document.prototype, 'webkitHidden', {
-      get: function () { return false; },
+      get: _ohWkHiddenGetter,
       configurable: true,
     });
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(_ohWkVisStateGetter);
+      window.__oh_register(_ohWkHiddenGetter);
+    }
   } catch (e) {}
 } catch (e) {}
+
+// ── 40. document.hasFocus() always true ──────────────────────────────
+// CDP browsers run unfocused or minimized. document.hasFocus() returns
+// false in those states, which real interactive users almost never produce
+// while actively browsing. Cloudflare, DataDome, and PerimeterX all
+// check this as a bot signal. Patch 32 covers document.hidden /
+// visibilityState but NOT hasFocus() — this closes that gap.
+try {
+  var _origHasFocus = Document.prototype.hasFocus;
+  Document.prototype.hasFocus = function () { return true; };
+  if (typeof window.__oh_register === 'function') {
+    window.__oh_register(Document.prototype.hasFocus);
+  }
+} catch (e) {}
+
+// ═══════════════════════════════════════════════════════════════════════
+// ROUND 14 PATCHES (2026-04-14) — classic chrome.* stubs + window.close guard
+// ═══════════════════════════════════════════════════════════════════════
+// The 2026-04-14 prod log analysis showed Reddit / Snoosheriff was actively
+// crashing Chrome renderer processes on first DOM interaction. Research
+// confirmed the missing classic headless-detection probes (chrome.loadTimes,
+// chrome.csi, chrome.app.isInstalled) are still actively used by SnooSheriff
+// and Cloudflare's bm.js — we stub chrome.runtime (Patch 1) but never stubbed
+// these three siblings. Also adding a window.close() guard so SPA anti-bot
+// JS that calls window.close() to abandon a suspicious tab cannot take our
+// session down with it.
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── 41. chrome.loadTimes() stub ──────────────────────────────────────
+// Real Chrome (non-headless) exposes window.chrome.loadTimes() — a
+// deprecated timing API still present in Chrome 138+ for compatibility.
+// Headless/CDP Chrome omits it. FingerprintJS, CreepJS, and Snoosheriff
+// all probe for it. Returns a realistic object matching the live Chrome
+// shape. Reference: puppeteer-extra-stealth `chrome.loadTimes` evasion.
+try {
+  if (window.chrome && typeof window.chrome.loadTimes !== 'function') {
+    var _loadTimesStart = (performance && performance.timing && performance.timing.navigationStart)
+      ? performance.timing.navigationStart / 1000
+      : Date.now() / 1000 - 1.5;
+    var _ohLoadTimes = function () {
+      return {
+        get commitLoadTime() { return _loadTimesStart + 0.25; },
+        get connectionInfo() { return 'h2'; },
+        get finishDocumentLoadTime() { return _loadTimesStart + 1.15; },
+        get finishLoadTime() { return _loadTimesStart + 1.65; },
+        get firstPaintAfterLoadTime() { return 0; },
+        get firstPaintTime() { return _loadTimesStart + 0.35; },
+        get navigationType() { return 'Other'; },
+        get npnNegotiatedProtocol() { return 'h2'; },
+        get requestTime() { return _loadTimesStart; },
+        get startLoadTime() { return _loadTimesStart; },
+        get wasAlternateProtocolAvailable() { return false; },
+        get wasFetchedViaSpdy() { return true; },
+        get wasNpnNegotiated() { return true; },
+      };
+    };
+    window.chrome.loadTimes = _ohLoadTimes;
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(window.chrome.loadTimes);
+    }
+  }
+} catch (e) {}
+
+// ── 42. chrome.csi() stub ────────────────────────────────────────────
+// Real Chrome exposes window.chrome.csi() — a chrome-internal timing
+// function used by Google for client-side instrumentation. Headless
+// Chrome omits it; its absence is a classic bot signal checked by every
+// major fingerprinter since 2019. Returns an object with realistic
+// millisecond timestamps anchored to navigation start.
+try {
+  if (window.chrome && typeof window.chrome.csi !== 'function') {
+    var _csiStartTimeMs = (performance && performance.timing && performance.timing.navigationStart)
+      ? performance.timing.navigationStart
+      : Date.now() - 1500;
+    var _ohCsi = function () {
+      return {
+        onloadT: _csiStartTimeMs + 1500,
+        pageT: Math.floor(Date.now() - _csiStartTimeMs),
+        startE: _csiStartTimeMs,
+        tran: 15,
+      };
+    };
+    window.chrome.csi = _ohCsi;
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(window.chrome.csi);
+    }
+  }
+} catch (e) {}
+
+// ── 43. chrome.app + isInstalled stub ────────────────────────────────
+// Real Chrome (non-headless, non-extension) exposes
+// window.chrome.app.isInstalled === false, plus InstallState / RunningState
+// enums. FingerprintJS's "headlessChrome" test specifically checks that
+// chrome.app exists and has isInstalled. Headless Chrome sets chrome.app
+// to undefined. We replicate the exact shape real Chrome 138+ exposes.
+try {
+  if (window.chrome && window.chrome.app === undefined) {
+    var _ohChromeApp = {
+      isInstalled: false,
+      InstallState: {
+        DISABLED: 'disabled',
+        INSTALLED: 'installed',
+        NOT_INSTALLED: 'not_installed',
+      },
+      RunningState: {
+        CANNOT_RUN: 'cannot_run',
+        READY_TO_RUN: 'ready_to_run',
+        RUNNING: 'running',
+      },
+      getDetails: function () { return null; },
+      getIsInstalled: function () { return false; },
+      runningState: function () { return 'cannot_run'; },
+    };
+    try {
+      Object.defineProperty(window.chrome, 'app', {
+        get: function () { return _ohChromeApp; },
+        configurable: true,
+      });
+    } catch (e2) {
+      window.chrome.app = _ohChromeApp;
+    }
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(_ohChromeApp.getDetails);
+      window.__oh_register(_ohChromeApp.getIsInstalled);
+      window.__oh_register(_ohChromeApp.runningState);
+    }
+  }
+} catch (e) {}
+
+// ── 44. window.close() guard ─────────────────────────────────────────
+// Reddit's Snoosheriff and some Cloudflare challenges call window.close()
+// when they detect automation, causing the tab (and our whole CDP session)
+// to die mid-task. Real Chrome only allows window.close() on windows that
+// were opened via window.open() by the SAME script — scripted close of a
+// user-opened tab is silently ignored in modern Chrome. We enforce the
+// same policy proactively: window.close() from page scripts becomes a
+// no-op, so anti-bot JS that tries to "terminate" our tab instead hits a
+// dead end and the tab survives.
+//
+// This is why Reddit scroll_page calls sometimes produced
+// ConnectionRefusedError(61, "Connect call failed ('127.0.0.1', PORT)") —
+// SnooSheriff closed the tab out from under our CDP socket. The close
+// itself was not a crash; the socket died because the tab did.
+try {
+  var _origWindowClose = window.close;
+  var _ohWindowClose = function () {
+    // Silently no-op. Real Chrome also no-ops this for windows not
+    // opened by script, so anti-bot JS cannot distinguish our guard
+    // from normal Chrome policy.
+    try {
+      console.debug('[stealth] window.close() blocked (tab was not script-opened)');
+    } catch (e2) {}
+  };
+  window.close = _ohWindowClose;
+  if (typeof window.__oh_register === 'function') {
+    window.__oh_register(window.close);
+  }
+} catch (e) {}
+
+// ── 45. Guard against Chrome renderer-crash triggers ────────────────
+// Some anti-bot JS tries to call removed / internal APIs (e.g. the
+// deprecated `window.webkitRequestFileSystem`) to intentionally trigger
+// a Chrome-side crash that looks like a site bug. Make the deprecated
+// removed APIs silently no-op functions rather than throw or crash.
+try {
+  if (typeof window.webkitRequestFileSystem === 'undefined') {
+    window.webkitRequestFileSystem = function (_type, _size, onSuccess, _onError) {
+      // Fail silently via the error callback if provided
+      setTimeout(function () {
+        if (typeof _onError === 'function') {
+          try {
+            _onError({ name: 'NotSupportedError', message: 'File system API not supported' });
+          } catch (e2) {}
+        }
+      }, 0);
+    };
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(window.webkitRequestFileSystem);
+    }
+  }
+  if (typeof window.webkitResolveLocalFileSystemURL === 'undefined') {
+    window.webkitResolveLocalFileSystemURL = function (_url, _onSuccess, _onError) {
+      setTimeout(function () {
+        if (typeof _onError === 'function') {
+          try {
+            _onError({ name: 'NotSupportedError', message: 'File system API not supported' });
+          } catch (e2) {}
+        }
+      }, 0);
+    };
+    if (typeof window.__oh_register === 'function') {
+      window.__oh_register(window.webkitResolveLocalFileSystemURL);
+    }
+  }
+} catch (e) {}
+
+// ═══════════════════════════════════════════════════════════════════════
+// END ROUND 14 PATCHES
+// ═══════════════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════════
 // END ROUND 11 PATCHES — legacy patches 1–11 follow
@@ -250,7 +461,9 @@ try {
       return _nativeLog.apply(console, arguments);
     }
   };
-  console.log.toString = _nativeLog.toString.bind(_nativeLog);
+  if (typeof window.__oh_register === 'function') {
+    window.__oh_register(console.log);
+  }
 } catch (e) {}
 
 // ── 3. Screen color-depth normalisation ────────────────────────────────
@@ -268,15 +481,22 @@ try {
 // ── 4. navigator.webdriver cleanup ─────────────────────────────────────
 // --disable-blink-features=AutomationControlled prevents Chrome from setting
 // this flag, but as belt-and-suspenders we ensure no own-property override
-// exists and the prototype descriptor returns false (matching real Chrome).
+// exists and the prototype descriptor returns undefined. Real Chrome with
+// the blink feature disabled returns undefined (not false). Some 2026-era
+// detectors specifically check for `false` as a patched value — returning
+// undefined matches genuine unautomated Chrome behaviour.
 try {
   if (Object.getOwnPropertyDescriptor(navigator, 'webdriver')) {
     delete navigator.__proto__.webdriver;
-    Object.defineProperty(Navigator.prototype, 'webdriver', {
-      get: function () { return false; },
-      configurable: true,
-      enumerable: true,
-    });
+  }
+  var _ohWebdriverGetter = function () { return undefined; };
+  Object.defineProperty(Navigator.prototype, 'webdriver', {
+    get: _ohWebdriverGetter,
+    configurable: true,
+    enumerable: true,
+  });
+  if (typeof window.__oh_register === 'function') {
+    window.__oh_register(_ohWebdriverGetter);
   }
 } catch (e) {}
 
@@ -296,8 +516,9 @@ try {
     }
     return _origQuery(params);
   };
-  window.navigator.permissions.__proto__.query.toString =
-    _origQuery.toString.bind(_origQuery);
+  if (typeof window.__oh_register === 'function') {
+    window.__oh_register(window.navigator.permissions.__proto__.query);
+  }
 } catch (e) {}
 
 // ── 6. navigator.plugins mock ──────────────────────────────────────────
@@ -368,7 +589,9 @@ try {
     }
     return _origDefProp.call(Object, obj, prop, desc);
   };
-  Object.defineProperty.toString = _origDefProp.toString.bind(_origDefProp);
+  if (typeof window.__oh_register === 'function') {
+    window.__oh_register(Object.defineProperty);
+  }
 } catch (e) {}
 
 // ── 8. navigator.userAgentData mock ───────────────────────────────────
@@ -470,7 +693,9 @@ try {
     }
     return el;
   };
-  document.createElement.toString = _origCreate.toString.bind(_origCreate);
+  if (typeof window.__oh_register === 'function') {
+    window.__oh_register(document.createElement);
+  }
 } catch (e) {}
 
 // ── 11. Window.outerWidth/outerHeight alignment ───────────────────────

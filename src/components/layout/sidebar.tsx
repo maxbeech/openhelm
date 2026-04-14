@@ -18,6 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useResizePanel } from "@/hooks/use-resize-panel";
 import { isLocalMode } from "@/lib/mode";
+import { useDemoStore } from "@/stores/demo-store";
 import { useInboxStore } from "@/stores/inbox-store";
 import { useMemoryStore } from "@/stores/memory-store";
 import { useCredentialStore } from "@/stores/credential-store";
@@ -39,6 +40,7 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
   const { credentialCount } = useCredentialStore();
   const { tableCount } = useDataTableStore();
 
+  const isDemo = useDemoStore((s) => s.isDemo);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [starDialogOpen, setStarDialogOpen] = useState(false);
   const [starBannerVisible, setStarBannerVisible] = useState(() => getStarBannerVisible());
@@ -183,7 +185,7 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
 
       {/* Feedback + Settings at bottom */}
       <div className="mt-auto border-t border-sidebar-border p-2 space-y-0.5">
-        {starBannerVisible && (
+        {isLocalMode && starBannerVisible && (
           <div className="flex items-center rounded-md hover:bg-sidebar-accent/50 transition-colors group">
             <button
               onClick={() => openUrl("https://github.com/maxbeech/openhelm")}
@@ -206,18 +208,22 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
           onOpenChange={setStarDialogOpen}
           onDismiss={() => setStarBannerVisible(false)}
         />
-        <button
-          onClick={() => setFeedbackOpen(true)}
-          className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm
-                     text-muted-foreground transition-colors
-                     hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-        >
-          <MessageSquare
-            className="size-4 [&_path]:[animation:feedback-icon-pulse_6s_ease-in-out_infinite]"
-          />
-          <span>Feedback</span>
-        </button>
-        <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+        {!isDemo && (
+          <>
+            <button
+              onClick={() => setFeedbackOpen(true)}
+              className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm
+                         text-muted-foreground transition-colors
+                         hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+            >
+              <MessageSquare
+                className="size-4 [&_path]:[animation:feedback-icon-pulse_6s_ease-in-out_infinite]"
+              />
+              <span>Feedback</span>
+            </button>
+            <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+          </>
+        )}
         <button
           onClick={() => setContentView("settings")}
           className={cn(

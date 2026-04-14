@@ -44,6 +44,7 @@ import sql0039 from "./migrations/0039_reconcile_row_counts.sql";
 import sql0040 from "./migrations/0040_fix_run_credentials_check.sql";
 import sql0041 from "./migrations/0041_add_run_tool_stats.sql";
 import sql0042 from "./migrations/0042_data_table_rows_defaults.sql";
+import sql0043 from "./migrations/0043_add_timestamp_columns.sql";
 
 export interface MigrationEntry {
   idx: number;
@@ -95,4 +96,5 @@ export const MIGRATIONS: MigrationEntry[] = [
   { idx: 40, tag: "0040_fix_run_credentials_check", sql: sql0040 },
   { idx: 41, tag: "0041_add_run_tool_stats", sql: sql0041 },
   { idx: 42, tag: "0042_data_table_rows_defaults", sql: sql0042 },
+  { idx: 43, tag: "0043_add_timestamp_columns", sql: sql0043 },
 ];
