@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] - 2026-04-13
+## [1.0.0] - 2026-04-14
 
 ### Added
 - **Voice Chat (Local Mode)** — Plan 13a: full bidirectional voice chat using a local STT→LLM→TTS pipeline
