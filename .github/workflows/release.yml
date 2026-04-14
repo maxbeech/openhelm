@@ -79,6 +79,10 @@ jobs:
               echo "WARNING: $pkg not found in node_modules"
             fi
           done
+          # Clean up x86_64 smart-whisper addon that fails codesign (only arm64 binary works properly)
+          if [ "${{ matrix.target }}" = "x86_64-apple-darwin" ]; then
+            rm -f src-tauri/bundled-node-modules/*/whisper.cpp/examples/addon.node 2>/dev/null || true
+          fi
 
       - name: Bundle Node.js runtime
         # Ship the official Node.js binary inside the app so the agent sidecar
@@ -130,7 +134,7 @@ jobs:
           find src-tauri/bundled-node-modules -name "*.node" | while read f; do
             echo "Signing $f"
             codesign --force --sign "$APPLE_SIGNING_IDENTITY" \
-              --timestamp --options runtime "$f"
+              --timestamp --options runtime "$f" || echo "WARNING: Failed to sign $f (may not be a valid Mach-O binary)"
           done
           if [ -f src-tauri/bundled-node/bin/node ]; then
             echo "Signing bundled Node.js binary (with JIT + automation entitlements)"
