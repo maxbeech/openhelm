@@ -393,7 +393,7 @@ function createHttpServer() {
           { authUserId: userId, isAnonymous, clientIp },
           res,
         );
-      } catch (err) {
+      } catch {
         json(res, 400, { error: "Bad request" });
       }
       return;

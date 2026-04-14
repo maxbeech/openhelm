@@ -2128,24 +2128,24 @@ async def auto_login(
         # Multi-step: look for an intermediate button
         intermediate_clicked = False
         try:
-            # Use JS to find a button whose text matches common intermediate labels.
+            # Use JS to find and click a button whose text matches common intermediate labels.
             # nodriver doesn't support :has-text() so we evaluate JS directly.
+            # The function returns true if a button was found and clicked, false otherwise.
             js_find_next = """
                 (function() {
                     var btns = document.querySelectorAll('button, div[role="button"], input[type="submit"]');
                     for (var i = 0; i < btns.length; i++) {
                         var txt = (btns[i].textContent || btns[i].value || '').trim();
                         if (/^(Next|Continue|Sign in|Log in|Submit)$/i.test(txt)) {
-                            return btns[i];
+                            btns[i].click();
+                            return true;
                         }
                     }
-                    return null;
+                    return false;
                 })()
             """
-            next_btn = await tab.evaluate(js_find_next)
-            if next_btn:
-                await next_btn.click()
-                intermediate_clicked = True
+            intermediate_clicked = await tab.evaluate(js_find_next)
+            if intermediate_clicked:
                 # Wait for form transition/animation
                 await asyncio.sleep(1.5)
         except Exception:

@@ -45,8 +45,9 @@ export async function buildCloudChatSystemPrompt(
       const list = data.map((p) => `- ${p.name} (${p.id})`).join("\n");
       parts.push(`\n\nThe user's projects:\n${list}`);
     }
+    // eslint-disable-next-line no-empty
   } catch {
-    // swallow — context enrichment is non-critical
+    // silently ignore errors — context enrichment is non-critical
   }
 
   return parts.join("");
