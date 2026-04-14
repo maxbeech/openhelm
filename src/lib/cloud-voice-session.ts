@@ -53,7 +53,7 @@ export class CloudVoiceSession {
 
   constructor(private readonly opts: CloudVoiceSessionOptions) {}
 
-  async start(): Promise<string> {
+  async start(): Promise<{ voiceSessionId: string; secondsRemaining: number | null }> {
     // 1. Ask the worker to mint an ephemeral token + persist a voice_sessions row.
     const result = await transport.request<CloudVoiceStartResult>("voice.session.start", {
       conversationId: this.opts.conversationId ?? undefined,
@@ -87,7 +87,7 @@ export class CloudVoiceSession {
 
     this.startedAt = Date.now();
     this.emitStatus("listening");
-    return result.voiceSessionId;
+    return { voiceSessionId: result.voiceSessionId, secondsRemaining: result.secondsRemaining };
   }
 
   async stop(): Promise<void> {

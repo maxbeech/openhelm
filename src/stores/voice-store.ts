@@ -48,6 +48,9 @@ export interface VoiceState {
   // Pending approval
   pendingApproval: { messageId: string; actions: PendingAction[]; spokenSummary: string } | null;
 
+  /** Remaining demo voice seconds (cloud + anonymous mode only). Null when not a demo session. */
+  demoSecondsRemaining: number | null;
+
   // Actions
   startSession(projectId: string | null, conversationId?: string): Promise<void>;
   stopRecording(): Promise<void>;
@@ -100,6 +103,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   inputLevel: 0,
   liveTranscript: "",
   pendingApproval: null,
+  demoSecondsRemaining: null,
 
   async loadSettings() {
     // Subscribe to voice events exactly once per store lifetime, regardless
@@ -196,7 +200,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       });
       cloudSession = session;
       try {
-        const voiceSessionId = await session.start();
+        const { voiceSessionId, secondsRemaining } = await session.start();
         set({
           sessionId: voiceSessionId,
           conversationId: resolvedConvId ?? null,
@@ -204,6 +208,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
           isRecording: true,
           liveTranscript: "",
           pendingApproval: null,
+          demoSecondsRemaining: secondsRemaining,
         });
       } catch (err) {
         cloudSession = null;
@@ -318,6 +323,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         inputLevel: 0,
         liveTranscript: "",
         pendingApproval: null,
+        demoSecondsRemaining: null,
       });
       return;
     }

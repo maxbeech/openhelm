@@ -43,6 +43,7 @@ export function VoiceButton({
     inputLevel,
     liveTranscript,
     pendingApproval,
+    demoSecondsRemaining,
     startSession,
     stopRecording,
     cancelSession,
@@ -128,7 +129,7 @@ export function VoiceButton({
   }
 
   return (
-    <div className={`relative ${className}`}>
+    <div className={`group relative ${className}`}>
       {/* Settings dropdown */}
       {settingsOpen && (
         <div className="absolute bottom-full right-0 z-50 mb-1 w-64 rounded-lg border border-border bg-popover shadow-lg">
@@ -157,6 +158,13 @@ export function VoiceButton({
       >
         {icon}
       </button>
+
+      {/* Demo voice budget badge — shown when demo session is active */}
+      {isActive && demoSecondsRemaining !== null && demoSecondsRemaining > 0 && (
+        <span className="pointer-events-none absolute -bottom-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-medium leading-none text-primary-foreground">
+          {demoSecondsRemaining}s
+        </span>
+      )}
 
       {/* Pending approval inline buttons */}
       {status === "awaiting-approval" && pendingApproval && (
