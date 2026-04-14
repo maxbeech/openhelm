@@ -137,6 +137,14 @@ const WORKER_METHODS = new Set([
   "credential.setupBrowserProfile",
   "credential.finalizeBrowserProfile",
   "credential.cancelBrowserSetup",
+  // Plan 13b — cloud voice chat. Audio runs directly browser↔OpenAI via
+  // WebRTC; this is the control plane (token mint, tool execution,
+  // transcript persistence, usage metering).
+  "voice.session.start",
+  "voice.session.end",
+  "voice.tool.execute",
+  "voice.persist.turn",
+  "voice.meter.report",
 ]);
 
 async function workerRpc<T>(

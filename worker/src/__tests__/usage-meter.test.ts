@@ -5,6 +5,7 @@
 
 import {
   calculateRawCostUsd,
+  calculateRealtimeCostUsd,
   toHaikuEquivalentTokens,
 } from "../cost-calculator.js";
 
@@ -67,5 +68,47 @@ describe("toHaikuEquivalentTokens", () => {
   it("rounds up fractional equivalents", () => {
     // 1 gpt-4o-mini token = 1 haiku-equivalent; ceil(1) = 1
     expect(toHaikuEquivalentTokens("openai/gpt-4o-mini", 1)).toBe(1);
+  });
+
+  it("realtime-mini tokens are 4x haiku equivalent", () => {
+    expect(toHaikuEquivalentTokens("gpt-realtime-mini", 100)).toBe(400);
+  });
+
+  it("realtime flagship tokens are 27x haiku equivalent", () => {
+    expect(toHaikuEquivalentTokens("gpt-realtime", 100)).toBe(2700);
+  });
+});
+
+describe("calculateRealtimeCostUsd", () => {
+  it("prices gpt-realtime-mini input at $0.60/MTok and output at $2.40/MTok", () => {
+    // 1M uncached input + 1M output = $0.60 + $2.40 = $3.00
+    const cost = calculateRealtimeCostUsd("gpt-realtime-mini", 1_000_000, 0, 1_000_000);
+    expect(cost).toBeCloseTo(3.0, 4);
+  });
+
+  it("applies 90% cached-input discount on the cached portion", () => {
+    // 1M total input, half cached: 500K @ $0.60 + 500K @ $0.06 = $0.30 + $0.03 = $0.33
+    const cost = calculateRealtimeCostUsd("gpt-realtime-mini", 1_000_000, 500_000, 0);
+    expect(cost).toBeCloseTo(0.33, 4);
+  });
+
+  it("prices gpt-realtime flagship at $4.00 input / $16.00 output per MTok", () => {
+    // 100K uncached input + 100K output = $0.40 + $1.60 = $2.00
+    const cost = calculateRealtimeCostUsd("gpt-realtime", 100_000, 0, 100_000);
+    expect(cost).toBeCloseTo(2.0, 4);
+  });
+
+  it("clamps negative uncached tokens to zero when cache > input", () => {
+    // Edge: if somehow cachedInput > inputTokens (reporting bug), do not
+    // credit the user — just price everything as cached.
+    const cost = calculateRealtimeCostUsd("gpt-realtime-mini", 100, 200, 0);
+    // 0 uncached @ $0.60 + 200 @ $0.06 per MTok = 200 * 0.06 / 1M = 0.000012
+    expect(cost).toBeCloseTo(0.000012, 8);
+  });
+
+  it("falls back to mini pricing for unknown realtime model", () => {
+    const unknown = calculateRealtimeCostUsd("gpt-realtime-ultra", 1_000_000, 0, 0);
+    const mini = calculateRealtimeCostUsd("gpt-realtime-mini", 1_000_000, 0, 0);
+    expect(unknown).toBeCloseTo(mini, 6);
   });
 });

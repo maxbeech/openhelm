@@ -32,6 +32,13 @@ export const DEMO_PER_IP_DAILY_CAP = 50;
 /** Hard $ ceiling across all demo chat users per UTC day. */
 export const DEMO_GLOBAL_DAILY_BUDGET_USD = 20;
 
+/**
+ * Seconds of assistant audio a demo visitor can use before the signup modal
+ * opens. 60 s of gpt-realtime-mini output is ~$0.0015 of raw audio cost, so
+ * even a full quota sweep across DEMO_PER_IP_DAILY_CAP/ip/day is bounded.
+ */
+export const DEMO_VOICE_SECONDS_PER_SESSION = 60;
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 export type RateLimitResult =
@@ -41,7 +48,8 @@ export type RateLimitResult =
 export type DemoRateLimitReason =
   | "global_budget_exceeded"
   | "session_cap_reached"
-  | "ip_cap_reached";
+  | "ip_cap_reached"
+  | "voice_budget_exhausted";
 
 export class DemoRateLimitError extends Error {
   readonly isDemoRateLimit = true;
@@ -123,6 +131,53 @@ export async function checkDemoRateLimit(opts: {
   }
 
   return { ok: true };
+}
+
+/**
+ * Check whether a demo visitor has voice-seconds left in their per-session
+ * budget. Shares the `demo_rate_limits` row with the chat counter so a single
+ * session tracks both surfaces. Does NOT record usage — call
+ * recordDemoVoiceSeconds() after the session ends with the measured duration.
+ */
+export async function checkDemoVoiceBudget(opts: {
+  sessionId: string;
+  slug: string;
+}): Promise<{ ok: true; secondsRemaining: number } | { ok: false; reason: "voice_budget_exhausted" }> {
+  const supabase = getSupabase();
+
+  const { data: row } = await supabase
+    .from("demo_rate_limits")
+    .select("voice_seconds_used")
+    .eq("session_id", opts.sessionId)
+    .eq("slug", opts.slug)
+    .maybeSingle();
+
+  const used = Number(row?.voice_seconds_used ?? 0);
+  const remaining = DEMO_VOICE_SECONDS_PER_SESSION - used;
+  if (remaining <= 0) {
+    return { ok: false, reason: "voice_budget_exhausted" };
+  }
+  return { ok: true, secondsRemaining: remaining };
+}
+
+/** Record seconds of voice consumed by a demo session (atomic via RPC). */
+export async function recordDemoVoiceSeconds(opts: {
+  sessionId: string;
+  ipHash: string;
+  slug: string;
+  seconds: number;
+}): Promise<void> {
+  if (opts.seconds <= 0) return;
+  const supabase = getSupabase();
+  const { error } = await supabase.rpc("increment_demo_voice_seconds", {
+    p_session_id: opts.sessionId,
+    p_ip_hash: opts.ipHash,
+    p_slug: opts.slug,
+    p_seconds: Math.ceil(opts.seconds),
+  });
+  if (error) {
+    console.error("[demo-rate-limit] increment_demo_voice_seconds failed:", error.message);
+  }
 }
 
 /**

@@ -28,6 +28,13 @@ import {
   extractClientIp,
   hashIp,
 } from "./demo-rate-limit.js";
+import {
+  handleVoiceSessionStart,
+  handleVoiceSessionEnd,
+} from "./voice/session.js";
+import { handleVoiceToolExecute } from "./voice/tool-handler.js";
+import { handleVoicePersistTurn } from "./voice/persist-handler.js";
+import { handleVoiceMeterReport } from "./voice/meter-handler.js";
 
 // Validate config at import time — throws if required vars are missing
 void config;
@@ -274,6 +281,48 @@ async function handleRpc(
       case "credential.cancelBrowserSetup": {
         result = await cancelBrowserSession(
           params as { sandboxId: string },
+          authUserId,
+        );
+        break;
+      }
+
+      case "voice.session.start": {
+        const ipHash = hashIp(ctx.clientIp);
+        result = await handleVoiceSessionStart(
+          params as unknown as Parameters<typeof handleVoiceSessionStart>[0],
+          { authUserId, isAnonymous: ctx.isAnonymous, clientIpHash: ipHash },
+        );
+        break;
+      }
+
+      case "voice.session.end": {
+        const ipHash = hashIp(ctx.clientIp);
+        result = await handleVoiceSessionEnd(
+          params as unknown as Parameters<typeof handleVoiceSessionEnd>[0],
+          { authUserId, isAnonymous: ctx.isAnonymous, clientIpHash: ipHash },
+        );
+        break;
+      }
+
+      case "voice.tool.execute": {
+        result = await handleVoiceToolExecute(
+          params as unknown as Parameters<typeof handleVoiceToolExecute>[0],
+          authUserId,
+        );
+        break;
+      }
+
+      case "voice.persist.turn": {
+        result = await handleVoicePersistTurn(
+          params as unknown as Parameters<typeof handleVoicePersistTurn>[0],
+          authUserId,
+        );
+        break;
+      }
+
+      case "voice.meter.report": {
+        result = await handleVoiceMeterReport(
+          params as unknown as Parameters<typeof handleVoiceMeterReport>[0],
           authUserId,
         );
         break;

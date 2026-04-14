@@ -23,6 +23,14 @@ export const config = {
   /** OpenRouter API key — used for both Goose sandbox runs and direct LLM calls */
   openrouterApiKey: require("OPENROUTER_API_KEY"),
 
+  /**
+   * OpenAI API key — direct, for the Realtime API voice surface.
+   * Optional at boot because voice is a feature that can be disabled; an empty
+   * value causes /voice/session.start to return a clear "voice not configured"
+   * error rather than crashing the worker on startup.
+   */
+  openaiApiKey: optional("OPENAI_API_KEY", ""),
+
   /** E2B API key for sandbox creation */
   e2bApiKey: require("E2B_API_KEY"),
 
