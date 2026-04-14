@@ -128,12 +128,13 @@ describe("handleVoiceSessionStart", () => {
     expect(fetchCall[0]).toBe("https://api.openai.com/v1/realtime/client_secrets");
     const init = fetchCall[1] as { headers: Record<string, string>; body: string };
     expect(init.headers.Authorization).toBe("Bearer sk-openai-test");
-    expect(init.headers["OpenAI-Beta"]).toBe("realtime=v1");
 
     const parsedBody = JSON.parse(init.body);
     expect(parsedBody.session.model).toBe("gpt-realtime-mini");
-    expect(parsedBody.session.voice).toBe("marin");
-    expect(parsedBody.session.turn_detection.type).toBe("semantic_vad");
+    expect(parsedBody.session.audio.output.voice).toBe("marin");
+    expect(parsedBody.session.audio.input.turn_detection.type).toBe("semantic_vad");
+    expect(parsedBody.session.audio.input.format.type).toBe("audio/pcm");
+    expect(parsedBody.session.output_modalities).toEqual(["audio"]);
     expect(Array.isArray(parsedBody.session.tools)).toBe(true);
     expect(parsedBody.session.tools[0].type).toBe("function");
   });

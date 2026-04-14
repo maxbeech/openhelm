@@ -7,9 +7,13 @@
 
 import { createClient, type SupabaseClient, type Session } from "@supabase/supabase-js";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-const WORKER_URL = import.meta.env.VITE_WORKER_URL as string | undefined;
+// Vercel-exported .env.local values sometimes carry a trailing newline
+// (the Vercel dashboard stores "URL\n" for URL fields). Trim once at
+// import time so every consumer sees a clean URL — a stray \n breaks
+// fetch silently and makes voice/chat RPC failures hard to diagnose.
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim();
+const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim();
+const WORKER_URL = (import.meta.env.VITE_WORKER_URL as string | undefined)?.trim();
 
 let _supabase: SupabaseClient | null = null;
 

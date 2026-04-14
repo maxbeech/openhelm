@@ -145,35 +145,43 @@ export async function handleVoiceSessionStart(
     throw new Error(`[voice-session] insert failed: ${insertErr.message}`);
   }
 
-  // Mint the OpenAI Realtime ephemeral token. We pin voice + model + tools +
-  // instructions + turn_detection on the server side. The browser can in
-  // principle mutate these post-connection — /voice/tool enforces a
-  // server-side whitelist on every tool call regardless.
+  // Mint the OpenAI Realtime ephemeral token. The session shape follows the
+  // current (Apr 2026) `session.update` schema: voice/format are nested
+  // under `audio.output`, input format/transcription/VAD are nested under
+  // `audio.input`. The browser can in principle mutate these post-connection
+  // — /voice/tool enforces a server-side whitelist on every tool call
+  // regardless.
   const clientSecretRes = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${config.openaiApiKey}`,
       "Content-Type": "application/json",
-      "OpenAI-Beta": "realtime=v1",
     },
     body: JSON.stringify({
       expires_after: { anchor: "created_at", seconds: EPHEMERAL_TTL_SECONDS },
       session: {
         type: "realtime",
         model,
-        voice,
         instructions,
         tools,
         tool_choice: "auto",
-        turn_detection: {
-          type: "semantic_vad",
-          eagerness: "medium",
-          create_response: true,
-          interrupt_response: true,
+        output_modalities: ["audio"],
+        audio: {
+          input: {
+            format: { type: "audio/pcm", rate: 24000 },
+            transcription: { model: "gpt-4o-mini-transcribe" },
+            turn_detection: {
+              type: "semantic_vad",
+              eagerness: "medium",
+              create_response: true,
+              interrupt_response: true,
+            },
+          },
+          output: {
+            voice,
+            format: { type: "audio/pcm", rate: 24000 },
+          },
         },
-        input_audio_format: "pcm16",
-        output_audio_format: "pcm16",
-        input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
       },
     }),
   });
