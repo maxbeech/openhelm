@@ -120,10 +120,10 @@ If there are uncommitted changes in `worker/`, warn the user: "There are uncommi
 
 #### 3b. Deploy
 
-Run from the repo root (fly.toml references `worker/Dockerfile`):
+Run from the `worker/` directory so the Docker build context is correct (otherwise the root `package.json`/`tsconfig.json` get copied instead of the worker's):
 
 ```bash
-fly deploy --config worker/fly.toml
+cd worker && fly deploy
 ```
 
 This builds the Docker image, pushes it to Fly's registry, and does a rolling deploy. Wait for it to complete before proceeding.

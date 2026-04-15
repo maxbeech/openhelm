@@ -211,11 +211,16 @@ export const useInboxStore = create<InboxState>((set, get) => ({
         before: oldest,
         limit: 50,
       });
-      set((s) => ({
-        events: [...older, ...s.events],
-        loadingPast: false,
-        hasMorePast: older.length >= 50,
-      }));
+      set((s) => {
+        // Dedup: events near the cursor boundary can appear in both arrays.
+        const existingIds = new Set(s.events.map((e) => e.id));
+        const filtered = older.filter((e) => !existingIds.has(e.id));
+        return {
+          events: [...filtered, ...s.events],
+          loadingPast: false,
+          hasMorePast: older.length >= 50,
+        };
+      });
     } catch {
       set({ loadingPast: false });
     }
