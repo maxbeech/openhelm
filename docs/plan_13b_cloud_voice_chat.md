@@ -174,11 +174,27 @@ export const isCloudMode = !isLocalMode;
 
 Voice calls route through `VITE_WORKER_URL` (set in `.env.local`). In `dev:cloud` mode this is the production worker at `https://openhelm-worker.fly.dev`, so voice works out of the box without local secrets.
 
+### Worker logs during `dev:cloud`
+
+`npm run dev:cloud` now runs Vite **and** a `fly logs --app openhelm-worker` tail side-by-side (via `scripts/fly-logs-tail.mjs`). Every worker line is prefixed `[worker]` so it interleaves cleanly with Vite output in the same terminal. This means voice / chat RPC errors from the deployed worker show up where you're already looking.
+
+If you don't have the fly CLI installed (or you're not signed in), the tailer logs a one-line warning and stays dormant — Vite keeps running normally. Install with `brew install flyctl` then `fly auth login` to enable it.
+
+Alternative modes:
+
+- **`dev:cloud:remote-only`** — original behaviour. Vite only, no worker log stream. Use this if you want a quiet terminal or don't have fly access.
+- **`dev:cloud:full`** — Vite + local `worker/` via `tsx watch`. Use this when iterating on worker code. Requires `OPENAI_API_KEY`, `SUPABASE_SERVICE_KEY`, `SUPABASE_URL` (and `OPENROUTER_API_KEY` / `E2B_API_KEY` if you also want to exercise chat + run execution) in `.env.local`.
+
+Worker changes only take effect in `dev:cloud` after they're deployed to Fly — see `/deploy-cloud` or `fly deploy --app openhelm-worker --config worker/fly.toml` from the worker directory.
+
+### Secrets
+
 To test worker voice changes locally, use `npm run dev:cloud:full` and add to `.env.local`:
 
 ```
 OPENAI_API_KEY=sk-...
 SUPABASE_SERVICE_KEY=eyJ...
+SUPABASE_URL=https://...supabase.co
 ```
 
 The `OPENAI_API_KEY` fly secret must be set on the production worker for voice to work in production:
@@ -186,3 +202,27 @@ The `OPENAI_API_KEY` fly secret must be set on the production worker for voice t
 ```bash
 fly secrets set OPENAI_API_KEY=sk-... --app openhelm-worker
 ```
+
+---
+
+## 2026-04-15 follow-up fixes
+
+Post-launch testing surfaced four issues, all fixed in this follow-up pass:
+
+| Symptom | Root cause | Fix |
+|---|---|---|
+| "Create goal" requests silently fail after the model says "creating it now" | `voice-store` never passed a `permissionMode`, so the worker defaulted to `plan` and stripped all write tools from the Realtime session | `voice-store.ts` now sends `bypassPermissions` for authed users and keeps `plan` for anonymous demo visitors |
+| The model could not find any goals/jobs, even though the sidebar showed plenty | No project context was forwarded to the session. `list_goals`/`list_jobs` filtered by `user_id` only and returned nothing when the active project was a demo | `voice.session.start` now accepts `projectId`; it's persisted on `voice_sessions.project_id` and injected (with its live goals + jobs) into the Realtime `instructions` string. `voice.tool.execute` defaults `projectId` from the session row when the LLM omits it |
+| Demo goals leaking into authenticated users' real dashboards | `*_demo_select` RLS policies allowed every logged-in user to read any demo project's goals/jobs | New migration restricts all demo SELECT policies to `is_anonymous_caller()` — JWT `is_anonymous = true`. Authenticated users never see demo data; anonymous demo visitors still do |
+| Chat thread stayed titled "New Chat" after a voice conversation | Voice turns route through `voice.persist.turn`, not `chat.send`, so `autoRenameThread` was never called | `persist-handler.ts` now calls `autoRenameThread` on the first persisted user turn whenever the conversation has no title |
+
+## 2026-04-15 follow-up fixes — round 2
+
+A second pass after exercising `npm run dev:cloud:full` end-to-end:
+
+| Symptom | Root cause | Fix |
+|---|---|---|
+| The assistant's first reply rendered in the chat panel *above* the user's own message on the first turn | OpenAI runs input-audio transcription asynchronously. On fast replies the `response.audio_transcript.done` hop lands at the worker (and therefore the Postgres `now()` on the assistant message row) before the matching `conversation.item.input_audio_transcription.completed` hop. Both rows were stamped with the worker's wall clock at insert time, so the chat panel — which sorts by `createdAt` — placed assistant first | `cloud-voice-session.ts` now stamps each turn's `createdAtMs` on the client at the semantically-correct moment (user: `speech_started`, assistant: `response.created`) and forwards it through `voice.persist.turn`. `persist-handler.ts` writes the forwarded timestamp to `messages.created_at`, guaranteeing user < assistant ordering regardless of RPC race |
+| Jobs / goals created by a voice tool call only appeared in the UI after a reload | The worker's chat side already broadcasts `chat.messageCreated` after every voice turn, but nothing fanned out a refresh signal for the `jobs` / `goals` tables, so the frontend stores stayed stale until `fetchJobs` / `fetchGoals` re-ran on its own | `worker/src/voice/tool-handler.ts` now broadcasts `job.updated` / `goal.updated` on the `user:{id}:events` channel after every successful write tool call. The cloud transport already wires `job.updated` → `fetchJobs`; `goal.updated` is a new event with a matching handler in `App.tsx` that calls `fetchGoals` |
+| Voice-created jobs displayed "Cron: (invalid)" in the UI even when the model emitted a valid expression | The Realtime API sometimes serialises sub-objects as strings when the parameter schema is declared as a bare `type: "object"`. `tool-executor.createJob` inserted `args.scheduleConfig` verbatim — if it arrived as a JSON string, Postgres stored a scalar string in the JSONB column, and `describeCron(config.expression)` saw `undefined` | `tool-executor.createJob` now runs every `scheduleConfig` through a `normaliseScheduleConfig` helper that accepts objects, JSON strings, and legacy shapes, validates the cron expression shape, and returns a structured error the LLM can recover from. It also sets `next_fire_at = now()` for `once` jobs so they actually run |
+| After reloading, the sidebar opened the *wrong* chat thread and the voice conversation appeared empty even though the messages were still in the DB | Zustand state is wiped on reload so `activeConversationIds` reset to `{}`; `fetchConversations` then picked `convs[0]`, but cloud mode ordered threads by `sort_order` alone and every new thread has `sort_order = 0`, so Postgres tie-breaking landed on an older thread | `activeConversationIds` is now persisted in `localStorage` (`openhelm_active_conversation_ids`) and re-hydrated at store init; `setActiveConversation` / `createThread` / `fetchConversations` write back on every change. `chat.listConversations` also adds a secondary `order("updated_at", { ascending: false })` so sort_order ties resolve toward the most-recently-updated thread |

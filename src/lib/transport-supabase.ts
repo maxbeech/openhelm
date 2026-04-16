@@ -347,6 +347,7 @@ export class SupabaseTransport implements Transport {
     if (eventName.startsWith("inbox")) return userChannel;
     if (eventName.startsWith("chat.")) return userChannel;
     if (eventName === "job.updated") return userChannel;
+    if (eventName === "goal.updated") return userChannel;
     if (eventName === "scheduler.tick") return userChannel;
     return null;
   }

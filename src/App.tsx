@@ -262,17 +262,27 @@ export default function App() {
     [updateJobInStore],
   );
 
-  // Job updated event (e.g. correction context changes)
+  // Job updated event (e.g. correction context changes, voice tool writes)
   const handleJobUpdated = useCallback(
-    (_data: { jobId: string }) => {
+    (_data: { jobId?: string }) => {
       fetchJobs(activeProjectId);
     },
     [activeProjectId, fetchJobs],
   );
 
+  // Goal updated event — emitted by the voice tool handler after a
+  // create_goal / archive_goal call so dashboards refresh without reload.
+  const handleGoalUpdated = useCallback(
+    (_data: { goalId?: string }) => {
+      fetchGoals(activeProjectId);
+    },
+    [activeProjectId, fetchGoals],
+  );
+
   useAgentEvent("goal.iconUpdated", handleGoalIconUpdated);
   useAgentEvent("job.iconUpdated", handleJobIconUpdated);
   useAgentEvent("job.updated", handleJobUpdated);
+  useAgentEvent("goal.updated", handleGoalUpdated);
 
   // Chat event handlers — filter by conversationId so cross-thread events are isolated.
   // This enables simultaneous conversations across different threads.

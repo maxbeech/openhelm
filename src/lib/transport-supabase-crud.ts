@@ -400,7 +400,15 @@ export async function handleCrudRequest<T>(
     case "chat.listConversations": {
       let q = supabase.from("conversations").select("*");
       if (p.projectId !== undefined) q = q.eq("project_id", p.projectId);
-      const { data, error } = await q.order("sort_order", { ascending: true });
+      // Primary sort by sort_order so drag-reordering is honoured; secondary
+      // sort by updated_at DESC so newly-updated threads (e.g. a voice
+      // session that just persisted turns) break ties toward "most recent"
+      // when multiple rows share sort_order 0 — otherwise tie-breaking is
+      // nondeterministic in Postgres and the voice thread can disappear
+      // behind an older sibling on reload.
+      const { data, error } = await q
+        .order("sort_order", { ascending: true })
+        .order("updated_at", { ascending: false });
       return ok(data, error) as T;
     }
     case "chat.listMessages": {

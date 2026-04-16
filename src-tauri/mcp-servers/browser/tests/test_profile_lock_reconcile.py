@@ -16,13 +16,20 @@ These cover the class of failures observed in Run c2225fd1 where:
    to browser — one of the causes could be when you are running as root"
    error on the retry spawn.
 
-The fixes live in `server.py::_reconcile_profile_locks` and
-`server.py::_cleanup_stale_chrome_singletons`.
+3. Chrome wrote ``profile.exit_type = "Crashed"`` because nodriver killed it
+   with SIGTERM/SIGKILL, preventing a clean exit.  On next startup Chrome
+   displayed the toast "Something went wrong when opening your profile.
+   Some features may be unavailable."
+
+The fixes live in `server.py::_reconcile_profile_locks`,
+`server.py::_cleanup_stale_chrome_singletons`, and
+`server.py::_reset_profile_crash_state`.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -194,6 +201,87 @@ class TestCleanupStaleChromeSingletons:
     def test_noop_when_user_data_dir_is_none(self):
         """Opt-out / ephemeral path: user_data_dir=None must be a no-op."""
         server._cleanup_stale_chrome_singletons(None)
+
+
+class TestResetProfileCrashState:
+    """`_reset_profile_crash_state` clears the Crashed exit_type that causes
+    Chrome to show "Something went wrong when opening your profile"."""
+
+    def _make_prefs(self, profile_dir, exit_type="Crashed", extra=None):
+        """Write a minimal Chrome Preferences file into profile_dir/Default/."""
+        default_dir = profile_dir / "Default"
+        default_dir.mkdir(parents=True, exist_ok=True)
+        prefs = {"profile": {"exit_type": exit_type}}
+        if extra:
+            prefs["profile"].update(extra)
+        (default_dir / "Preferences").write_text(
+            json.dumps(prefs), encoding="utf-8"
+        )
+        return default_dir / "Preferences"
+
+    def test_resets_crashed_exit_type(self, tmp_path):
+        """A Crashed exit_type must be reset to Normal."""
+        profile_dir = tmp_path / "profile"
+        prefs_path = self._make_prefs(profile_dir, exit_type="Crashed")
+
+        server._reset_profile_crash_state(str(profile_dir))
+
+        with open(prefs_path) as f:
+            prefs = json.load(f)
+        assert prefs["profile"]["exit_type"] == "Normal", (
+            "exit_type must be 'Normal' after reset"
+        )
+
+    def test_noop_when_already_normal(self, tmp_path):
+        """Must not modify the file when exit_type is already Normal."""
+        profile_dir = tmp_path / "profile"
+        prefs_path = self._make_prefs(profile_dir, exit_type="Normal")
+        mtime_before = prefs_path.stat().st_mtime
+
+        server._reset_profile_crash_state(str(profile_dir))
+
+        assert prefs_path.stat().st_mtime == mtime_before, (
+            "Preferences must not be rewritten when exit_type is already Normal"
+        )
+
+    def test_removes_exited_cleanly_false(self, tmp_path):
+        """exited_cleanly key must be removed (older Chrome compat field)."""
+        profile_dir = tmp_path / "profile"
+        self._make_prefs(
+            profile_dir, exit_type="Crashed",
+            extra={"exited_cleanly": False}
+        )
+
+        server._reset_profile_crash_state(str(profile_dir))
+
+        prefs_path = profile_dir / "Default" / "Preferences"
+        with open(prefs_path) as f:
+            prefs = json.load(f)
+        assert "exited_cleanly" not in prefs.get("profile", {}), (
+            "exited_cleanly must be removed after reset"
+        )
+
+    def test_noop_when_no_preferences_file(self, tmp_path):
+        """Must not raise when Default/Preferences doesn't exist (first spawn)."""
+        profile_dir = tmp_path / "empty_profile"
+        profile_dir.mkdir()
+        server._reset_profile_crash_state(str(profile_dir))  # Must not raise.
+
+    def test_noop_when_user_data_dir_is_none(self):
+        """Ephemeral path: user_data_dir=None must be a no-op."""
+        server._reset_profile_crash_state(None)  # Must not raise.
+
+    def test_atomic_write_cleans_up_tmp_on_success(self, tmp_path):
+        """The .openhelm_tmp staging file must not be left behind."""
+        profile_dir = tmp_path / "profile"
+        self._make_prefs(profile_dir, exit_type="Crashed")
+
+        server._reset_profile_crash_state(str(profile_dir))
+
+        tmp_file = profile_dir / "Default" / "Preferences.openhelm_tmp"
+        assert not tmp_file.exists(), (
+            "Temp file must be cleaned up after successful atomic write"
+        )
 
 
 class TestLockPidReuseDetection:

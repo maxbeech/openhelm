@@ -47,6 +47,10 @@ type Voice = (typeof ALLOWED_VOICES)[number];
 const EPHEMERAL_TTL_SECONDS = 120;
 
 export interface VoiceSessionStartParams {
+  /** Active project the user is currently focused on. Used to scope the
+   *  system prompt (project name + goals + jobs) so the LLM can reference
+   *  them directly and pass the right project_id into create_* tool calls. */
+  projectId?: string;
   conversationId?: string;
   model?: VoiceModel;
   voice?: Voice;
@@ -124,7 +128,11 @@ export async function handleVoiceSessionStart(
 
   // Build system prompt + tool catalogue. These are the biggest cost drivers
   // per session, so they're set once and then cached by OpenAI's prompt cache.
-  const instructions = await buildVoiceInstructions(effectiveMode, ctx.authUserId);
+  const instructions = await buildVoiceInstructions(
+    effectiveMode,
+    ctx.authUserId,
+    params.projectId,
+  );
   const tools = toRealtimeTools(getToolsForMode(effectiveMode));
 
   // Persist session row BEFORE minting the token so a worker crash between
@@ -134,6 +142,7 @@ export async function handleVoiceSessionStart(
   const { error: insertErr } = await supabase.from("voice_sessions").insert({
     id: voiceSessionId,
     user_id: ctx.authUserId,
+    project_id: params.projectId ?? null,
     conversation_id: params.conversationId ?? null,
     model,
     voice,
@@ -169,7 +178,7 @@ export async function handleVoiceSessionStart(
         audio: {
           input: {
             format: { type: "audio/pcm", rate: 24000 },
-            transcription: { model: "gpt-4o-mini-transcribe" },
+            transcription: { model: "gpt-4o-mini-transcribe", language: "en" },
             turn_detection: {
               type: "semantic_vad",
               eagerness: "medium",
@@ -222,6 +231,8 @@ export async function handleVoiceSessionStart(
       .eq("id", voiceSessionId);
   }
 
+  // OpenAI returns expires_at as Unix timestamp in seconds; convert to ISO string.
+  // Fallback to our request TTL if the response is missing the expiry.
   const expiresAt = body.expires_at
     ? new Date(body.expires_at * 1000).toISOString()
     : new Date(Date.now() + EPHEMERAL_TTL_SECONDS * 1000).toISOString();

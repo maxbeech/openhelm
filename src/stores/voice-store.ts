@@ -191,11 +191,18 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         cloudSession = null;
       }
       const demoSlug = getDemoSlug(window.location.pathname);
+      // Anonymous demo visitors are locked to read-only "plan" mode by the
+      // worker regardless. For real authenticated users we request
+      // bypassPermissions so write tools (create_goal / create_job /
+      // archive_*) are exposed to the Realtime model — without this the LLM
+      // has no write tools available and silently acknowledges create
+      // requests it can never fulfil.
       const session = new CloudVoiceSession({
         projectId,
         conversationId: resolvedConvId ?? null,
         model: cloudVoiceModel,
         voice: selectedVoice,
+        permissionMode: demoSlug ? "plan" : "bypassPermissions",
         demoSlug: demoSlug ?? undefined,
       });
       cloudSession = session;
@@ -212,7 +219,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         });
       } catch (err) {
         cloudSession = null;
-        console.error("[voice] cloud session failed to start:", err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error("[voice] cloud session failed to start:", errMsg);
+        // Re-throw so the caller (component) can handle the error and show UI feedback.
         throw err;
       }
       return;

@@ -50,12 +50,20 @@ export class CloudVoiceSession {
   private disposed = false;
   /** Accumulates assistant transcript deltas between speech boundaries. */
   private runningOutputTranscript = "";
+  /** Client wall-clock at the start of the user's current turn. Captured on
+   *  speech_started so the transcript landed later still sorts before the
+   *  assistant's reply (input transcription runs async and can complete
+   *  after response.audio_transcript.done). */
+  private pendingUserTurnAtMs: number | null = null;
+  /** Client wall-clock at the start of the assistant's current turn. */
+  private pendingAssistantTurnAtMs: number | null = null;
 
   constructor(private readonly opts: CloudVoiceSessionOptions) {}
 
   async start(): Promise<{ voiceSessionId: string; secondsRemaining: number | null }> {
     // 1. Ask the worker to mint an ephemeral token + persist a voice_sessions row.
     const result = await transport.request<CloudVoiceStartResult>("voice.session.start", {
+      projectId: this.opts.projectId ?? undefined,
       conversationId: this.opts.conversationId ?? undefined,
       model: this.opts.model,
       voice: this.opts.voice,
@@ -142,7 +150,10 @@ export class CloudVoiceSession {
       },
       onSpeechStarted: () => {
         // User started talking — either they interrupted the assistant or
-        // started a new turn. Either way, surface as "listening".
+        // started a new turn. Stamp the user turn start time now so the
+        // final persisted row sorts before any assistant reply even when
+        // input transcription completes after response.audio_transcript.done.
+        this.pendingUserTurnAtMs = Date.now();
         this.emitStatus("listening");
       },
       onSpeechStopped: () => {
@@ -153,13 +164,20 @@ export class CloudVoiceSession {
         this.emitStatus("thinking");
         // Persist the user turn as a chat message. Fire-and-forget —
         // broadcast will surface it in the text chat view.
-        void this.persistTurn("user", text);
+        const atMs = this.pendingUserTurnAtMs ?? Date.now();
+        this.pendingUserTurnAtMs = null;
+        void this.persistTurn("user", text, atMs);
       },
       onInputTranscriptFailed: (message) => {
         console.warn("[cloud-voice] input transcription failed:", message);
       },
       onResponseCreated: () => {
         this.runningOutputTranscript = "";
+        // Stamp assistant turn start time strictly after the matching user
+        // turn start so ordering is guaranteed even when the user's
+        // transcription hop arrives after the assistant's text hop.
+        const minAt = this.pendingUserTurnAtMs != null ? this.pendingUserTurnAtMs + 1 : 0;
+        this.pendingAssistantTurnAtMs = Math.max(Date.now(), minAt);
         this.emitStatus("speaking");
       },
       onOutputTranscriptDelta: (delta) => {
@@ -168,7 +186,9 @@ export class CloudVoiceSession {
       onOutputTranscriptDone: (fullText) => {
         const finalText = fullText || this.runningOutputTranscript;
         if (finalText) {
-          void this.persistTurn("assistant", finalText);
+          const atMs = this.pendingAssistantTurnAtMs ?? Date.now();
+          this.pendingAssistantTurnAtMs = null;
+          void this.persistTurn("assistant", finalText, atMs);
         }
         this.runningOutputTranscript = "";
       },
@@ -228,6 +248,8 @@ export class CloudVoiceSession {
       );
       output = result.result;
     } catch (err) {
+      // On error, return an error object so the Realtime model knows the tool
+      // call failed and can respond with an error acknowledgement.
       output = { error: err instanceof Error ? err.message : String(err) };
     } finally {
       window.clearTimeout(fillerTimer);
@@ -249,7 +271,6 @@ export class CloudVoiceSession {
 
     // If a filler was already playing, the response.create above will queue
     // the real answer after it. The model handles that sequencing internally.
-    void fillerFired;
   }
 
   // ─── Persistence & metering ─────────────────────────────────────────────
@@ -257,6 +278,7 @@ export class CloudVoiceSession {
   private async persistTurn(
     role: "user" | "assistant",
     content: string,
+    createdAtMs: number,
   ): Promise<void> {
     if (!this.voiceSessionId) return;
     try {
@@ -264,6 +286,7 @@ export class CloudVoiceSession {
         voiceSessionId: this.voiceSessionId,
         role,
         content,
+        createdAtMs,
       });
     } catch (err) {
       // Non-fatal — voice session continues even if persistence fails.

@@ -34,11 +34,19 @@ function makeSessionChain(
   return chain;
 }
 
+const mockChannel: any = {
+  send: jest
+    .fn<() => Promise<{ error: unknown } | undefined>>()
+    .mockResolvedValue(undefined),
+};
+
 const mockSupabase: any = {
   from: jest.fn(),
   rpc: jest
     .fn<() => Promise<{ data: unknown; error: unknown }>>()
     .mockResolvedValue({ data: null, error: null }),
+  channel: jest.fn().mockReturnValue(mockChannel),
+  removeChannel: jest.fn(),
 };
 
 jest.unstable_mockModule("../supabase.js", () => ({

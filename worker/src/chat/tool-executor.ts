@@ -179,7 +179,19 @@ async function createJob(args: Args, userId: string): Promise<unknown> {
   if (!projectId || !name || !prompt || !scheduleType) {
     return { error: "projectId, name, prompt, scheduleType are required" };
   }
+
+  // Voice mode frequently stringifies scheduleConfig because the tool schema
+  // declares it as a loose object without `properties`. Normalise here so
+  // downstream code (format.ts describeCron, schedule.ts nextFireAt) can
+  // always rely on a real object with typed fields.
+  const scheduleConfig = normaliseScheduleConfig(scheduleType, args.scheduleConfig);
+  if ("error" in scheduleConfig) return scheduleConfig;
+
+  // Compute the first fire time for "once" jobs so the scheduler picks them
+  // up immediately instead of waiting for an update to set next_fire_at.
   const now = new Date().toISOString();
+  const nextFireAt = scheduleType === "once" ? now : null;
+
   const id = crypto.randomUUID();
   const { data, error } = await getSupabase()
     .from("jobs")
@@ -191,9 +203,10 @@ async function createJob(args: Args, userId: string): Promise<unknown> {
       name,
       prompt,
       schedule_type: scheduleType,
-      schedule_config: args.scheduleConfig ?? {},
+      schedule_config: scheduleConfig.value,
       is_enabled: true,
       is_archived: false,
+      next_fire_at: nextFireAt,
       created_at: now,
       updated_at: now,
     })
@@ -201,6 +214,52 @@ async function createJob(args: Args, userId: string): Promise<unknown> {
     .single();
   if (error) return { error: error.message };
   return { job: data };
+}
+
+/** Coerce LLM-provided scheduleConfig into the canonical shape expected by
+ *  the database + schedule engine. Accepts objects, JSON strings, or legacy
+ *  shapes produced when the voice model serialises the sub-object as text. */
+function normaliseScheduleConfig(
+  scheduleType: string,
+  raw: unknown,
+): { value: Record<string, unknown> } | { error: string } {
+  let config: Record<string, unknown> = {};
+  if (raw && typeof raw === "object") {
+    config = raw as Record<string, unknown>;
+  } else if (typeof raw === "string" && raw.length > 0) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") config = parsed as Record<string, unknown>;
+    } catch {
+      // Treat bare cron expressions as the raw expression ("0 9 * * 1").
+      if (scheduleType === "cron") config = { expression: raw };
+    }
+  }
+
+  switch (scheduleType) {
+    case "once":
+      return { value: {} };
+    case "cron": {
+      const expr = String(config.expression ?? "").trim();
+      if (!expr || expr.split(/\s+/).length < 5) {
+        return { error: "cron schedule requires expression in '<m h dom mon dow>' form" };
+      }
+      return { value: { expression: expr } };
+    }
+    case "interval": {
+      // Accept both the documented { value, unit } and the legacy { amount, unit }
+      // / { minutes } shapes — the scheduler handles all three.
+      const unit = String(config.unit ?? "minutes");
+      const rawValue = config.value ?? config.amount ?? config.minutes;
+      const num = typeof rawValue === "number" ? rawValue : Number(rawValue);
+      if (!Number.isFinite(num) || num <= 0) {
+        return { error: "interval schedule requires a positive numeric value" };
+      }
+      return { value: { value: num, unit } };
+    }
+    default:
+      return { error: `unsupported scheduleType: ${scheduleType}` };
+  }
 }
 
 async function archiveJob(args: Args, userId: string): Promise<unknown> {

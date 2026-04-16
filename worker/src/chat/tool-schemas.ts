@@ -150,15 +150,24 @@ const CREATE_JOB: Tool = {
   type: "function",
   function: {
     name: "create_job",
-    description: "Create a new job. schedule_type is one of 'once', 'interval', or 'cron'.",
+    description:
+      "Create a new scheduled job in one call. There is no update_job tool, so every field must be correct on creation. Pass projectId from the active project. scheduleType selects scheduleConfig shape: 'once' = {} (runs immediately once), 'interval' = { value: number, unit: 'minutes'|'hours'|'days' }, 'cron' = { expression: '<5-field cron>' }. Examples: weekly Monday 9am → scheduleType 'cron', scheduleConfig { expression: '0 9 * * 1' }. Every 2 hours → scheduleType 'interval', scheduleConfig { value: 2, unit: 'hours' }.",
     parameters: {
       type: "object",
       properties: {
-        projectId: { type: "string" },
-        name: { type: "string" },
-        prompt: { type: "string" },
+        projectId: { type: "string", description: "Active project id from system context" },
+        name: { type: "string", description: "Short human-readable job name" },
+        prompt: {
+          type: "string",
+          description:
+            "Full instruction sent to Claude Code when the job runs. Must be specific enough to execute without further input.",
+        },
         scheduleType: { type: "string", enum: ["once", "interval", "cron"] },
-        scheduleConfig: { type: "object", description: "Shape depends on scheduleType" },
+        scheduleConfig: {
+          type: "object",
+          description:
+            "once → {}; interval → { value, unit }; cron → { expression: '<m h dom mon dow>' }",
+        },
         goalId: { type: "string", description: "Optional parent goal ID" },
       },
       required: ["projectId", "name", "prompt", "scheduleType", "scheduleConfig"],

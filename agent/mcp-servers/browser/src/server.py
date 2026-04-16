@@ -217,6 +217,71 @@ def _cleanup_stale_chrome_singletons(user_data_dir: Optional[str]) -> None:
             )
 
 
+def _reset_profile_crash_state(user_data_dir: Optional[str]) -> None:
+    """Reset Chrome's crash-recovery state in Default/Preferences.
+
+    When nodriver kills Chrome (SIGTERM/SIGKILL) the process has no chance to
+    write a clean exit.  Chrome records ``profile.exit_type = "Crashed"`` at
+    session start and only overwrites it with ``"Normal"`` on a clean shutdown.
+    A ``"Crashed"`` value causes Chrome to show the toast
+    ``"Something went wrong when opening your profile. Some features may be
+    unavailable."`` every time it starts.
+
+    This function runs *after* we have acquired the profile lock (so no live
+    Chrome is using the directory) and *before* we spawn the new Chrome
+    instance.  It reads ``Default/Preferences``, unconditionally sets
+    ``profile.exit_type`` to ``"Normal"``, and writes the file back atomically
+    via a temp-file rename — the same technique Chrome itself uses.
+
+    Caller guarantees:
+      - ``user_data_dir`` is the Chrome user-data directory (not None / empty).
+      - No live Chrome process is using this directory right now.
+    """
+    if not user_data_dir:
+        return
+    prefs_path = os.path.join(user_data_dir, "Default", "Preferences")
+    if not os.path.isfile(prefs_path):
+        return
+    try:
+        with open(prefs_path, "r", encoding="utf-8") as f:
+            prefs = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        debug_logger.log_warning(
+            "server", "reset_crash_state",
+            f"Could not read Preferences at {prefs_path}: {e}"
+        )
+        return
+
+    profile_section = prefs.setdefault("profile", {})
+    current_exit = profile_section.get("exit_type", "Normal")
+    if current_exit == "Normal":
+        return  # Already clean — nothing to do.
+
+    profile_section["exit_type"] = "Normal"
+    # Some older Chrome versions also checked this boolean; set it for safety.
+    profile_section.pop("exited_cleanly", None)
+
+    # Atomic write: write to a sibling temp file then rename.
+    tmp_path = prefs_path + ".openhelm_tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(prefs, f, separators=(",", ":"))
+        os.replace(tmp_path, prefs_path)
+        debug_logger.log_info(
+            "server", "reset_crash_state",
+            f"Reset exit_type from '{current_exit}' to 'Normal' in {prefs_path}"
+        )
+    except OSError as e:
+        debug_logger.log_warning(
+            "server", "reset_crash_state",
+            f"Could not write Preferences at {prefs_path}: {e}"
+        )
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
 async def _idle_cleanup_loop():
     """Periodically close browser instances that have been idle too long.
 
@@ -549,6 +614,11 @@ async def spawn_browser(
             # fail with "Failed to connect to browser" because Chrome
             # refuses to launch into a dir that looks "already owned."
             _cleanup_stale_chrome_singletons(user_data_dir)
+            # Reset exit_type so Chrome doesn't show the "Something went wrong
+            # when opening your profile" toast on every startup.  nodriver
+            # kills Chrome with SIGTERM/SIGKILL, which prevents Chrome from
+            # writing a clean exit; this resets the stale "Crashed" state.
+            _reset_profile_crash_state(user_data_dir)
 
         if sandbox is None:
             sandbox = not (is_running_as_root() or is_running_in_container())

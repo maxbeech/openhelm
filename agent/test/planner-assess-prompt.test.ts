@@ -9,7 +9,7 @@ vi.mock("../src/planner/llm-via-cli.js", () => ({
   callLlmViaCli: (...args: unknown[]) => callLlmViaCliMock(...args),
 }));
 
-import { assessPrompt } from "../src/planner/assess-prompt.js";
+import { assessGoal } from "../src/planner/assess.js";
 
 let cleanup: () => void;
 let projectId: string;
@@ -39,7 +39,7 @@ describe("assessPrompt", () => {
       { text: JSON.stringify({ needsClarification: false }), sessionId: null },
     );
 
-    const result = await assessPrompt(
+    const result = await assessGoal(
       projectId,
       "Run npm test and fix any failing tests in src/utils/",
     );
@@ -64,7 +64,7 @@ describe("assessPrompt", () => {
       }), sessionId: null },
     );
 
-    const result = await assessPrompt(projectId, "refactor the code");
+    const result = await assessGoal(projectId, "refactor the code");
     expect(result.needsClarification).toBe(true);
     expect(result.questions).toHaveLength(1);
     expect(result.questions[0].question).toContain("refactored");
@@ -83,30 +83,34 @@ describe("assessPrompt", () => {
       }), sessionId: null },
     );
 
-    const result = await assessPrompt(projectId, "Vague prompt");
+    const result = await assessGoal(projectId, "Vague prompt");
     expect(result.questions.length).toBeLessThanOrEqual(2);
   });
 
   it("should throw on non-existent project", async () => {
     await expect(
-      assessPrompt("non-existent-id", "Some prompt"),
+      assessGoal("non-existent-id", "Some prompt"),
     ).rejects.toThrow("Project not found");
   });
 
   it("should throw on invalid JSON response", async () => {
+    // Set up two mocks because assess.ts retries on JSON parse failures
     callLlmViaCliMock.mockResolvedValueOnce({ text: "Not valid JSON", sessionId: null });
+    callLlmViaCliMock.mockResolvedValueOnce({ text: "Still not valid JSON", sessionId: null });
 
     await expect(
-      assessPrompt(projectId, "Some prompt"),
-    ).rejects.toThrow("Failed to parse prompt assessment response");
+      assessGoal(projectId, "Some prompt"),
+    ).rejects.toThrow("Failed to parse");
   });
 
   it("should throw when response missing needsClarification", async () => {
+    // Set up two mocks because assess.ts retries on parsing failures (though this will fail on validation)
     callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify({ foo: "bar" }), sessionId: null });
+    callLlmViaCliMock.mockResolvedValueOnce({ text: JSON.stringify({ bar: "baz" }), sessionId: null });
 
     await expect(
-      assessPrompt(projectId, "Some prompt"),
-    ).rejects.toThrow("missing needsClarification");
+      assessGoal(projectId, "Some prompt"),
+    ).rejects.toThrow("needsClarification");
   });
 
   it("should use classification model tier", async () => {
@@ -114,7 +118,7 @@ describe("assessPrompt", () => {
       { text: JSON.stringify({ needsClarification: false }), sessionId: null },
     );
 
-    await assessPrompt(projectId, "Run all tests");
+    await assessGoal(projectId, "Run all tests");
 
     expect(callLlmViaCliMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -128,7 +132,7 @@ describe("assessPrompt", () => {
       { text: JSON.stringify({ needsClarification: false }), sessionId: null },
     );
 
-    await assessPrompt(projectId, "Fix linting errors");
+    await assessGoal(projectId, "Fix linting errors");
 
     const callArgs = callLlmViaCliMock.mock.calls[0][0];
     expect(callArgs.userMessage).toContain("Test Project");
@@ -144,7 +148,7 @@ describe("assessPrompt", () => {
       }), sessionId: null },
     );
 
-    const result = await assessPrompt(projectId, "Vague prompt");
+    const result = await assessGoal(projectId, "Vague prompt");
     expect(result.needsClarification).toBe(true);
     expect(result.questions).toEqual([]);
   });

@@ -94,6 +94,33 @@ function projectKey(projectId: string | null): string {
   return projectId ?? "__all__";
 }
 
+/** Persist the last-active thread per project across reloads. Without this
+ *  the voice-created thread (just now) isn't the one re-selected on reload,
+ *  because sort_order ties between siblings resolve nondeterministically
+ *  and zustand state is wiped on refresh. */
+const ACTIVE_CONV_STORAGE_KEY = "openhelm_active_conversation_ids";
+
+function loadActiveConversationIds(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(ACTIVE_CONV_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveActiveConversationIds(value: Record<string, string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(ACTIVE_CONV_STORAGE_KEY, JSON.stringify(value));
+  } catch {
+    /* quota / disabled storage — non-fatal */
+  }
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   loading: false,
@@ -104,7 +131,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   chatPermissionMode: "plan",
   conversations: [],
   activeConversationId: null,
-  activeConversationIds: {},
+  activeConversationIds: loadActiveConversationIds(),
   conversationStates: {},
 
   togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
@@ -141,7 +168,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const pk = projectKey(projectId);
       const remembered = get().activeConversationIds[pk];
       const activeId = convs.find((c) => c.id === remembered)?.id ?? convs[0]?.id ?? null;
-      set({ conversations: convs, activeConversationId: activeId });
+      set((s) => {
+        // Persist the resolved activeId so a subsequent reload lands on the
+        // same thread even when no user interaction happened between visits.
+        if (activeId && s.activeConversationIds[pk] !== activeId) {
+          const next = { ...s.activeConversationIds, [pk]: activeId };
+          saveActiveConversationIds(next);
+          return { conversations: convs, activeConversationId: activeId, activeConversationIds: next };
+        }
+        return { conversations: convs, activeConversationId: activeId };
+      });
       if (activeId) {
         get().fetchMessages(projectId, activeId);
       } else {
@@ -156,10 +192,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const conv = get().conversations.find((c) => c.id === conversationId);
     if (!conv) return;
     const pk = projectKey(conv.projectId);
-    set((s) => ({
-      activeConversationId: conversationId,
-      activeConversationIds: { ...s.activeConversationIds, [pk]: conversationId },
-    }));
+    set((s) => {
+      const next = { ...s.activeConversationIds, [pk]: conversationId };
+      saveActiveConversationIds(next);
+      return {
+        activeConversationId: conversationId,
+        activeConversationIds: next,
+      };
+    });
     get().fetchMessages(conv.projectId, conversationId);
   },
 
@@ -168,10 +208,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const conv = await api.createConversation({ projectId, title });
       set((s) => {
         const pk = projectKey(projectId);
+        const next = { ...s.activeConversationIds, [pk]: conv.id };
+        saveActiveConversationIds(next);
         return {
           conversations: [...s.conversations, conv],
           activeConversationId: conv.id,
-          activeConversationIds: { ...s.activeConversationIds, [pk]: conv.id },
+          activeConversationIds: next,
           messages: [],
         };
       });

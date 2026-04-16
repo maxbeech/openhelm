@@ -14,11 +14,18 @@
  */
 
 import { getSupabase } from "../supabase.js";
+import { autoRenameThread } from "../chat/auto-rename.js";
 
 export interface VoicePersistTurnParams {
   voiceSessionId: string;
   role: "user" | "assistant";
   content: string;
+  /** Client-side wall clock at the moment the turn started (ms since epoch).
+   *  Passed through to `messages.created_at` so the row's timestamp reflects
+   *  the true speaking order — user turns are transcribed asynchronously and
+   *  may land at the worker *after* the assistant's response has already been
+   *  persisted, which would otherwise sort the assistant message first. */
+  createdAtMs?: number;
   /** Optional tool calls from the assistant turn (already-executed). */
   toolCalls?: unknown;
   toolResults?: unknown;
@@ -55,7 +62,7 @@ export async function handleVoicePersistTurn(
   // Defence in depth — verify the conversation belongs to the same user.
   const { data: conv } = await supabase
     .from("conversations")
-    .select("id, user_id")
+    .select("id, user_id, title")
     .eq("id", session.conversation_id)
     .single();
   if (!conv || conv.user_id !== userId) {
@@ -64,6 +71,13 @@ export async function handleVoicePersistTurn(
 
   const messageId = crypto.randomUUID();
   const now = new Date().toISOString();
+  // Prefer the client-supplied turn-start time so user + assistant messages
+  // sort in the order they were actually spoken, even when the transcription
+  // of the user audio completes after the assistant has already responded.
+  const createdAt =
+    typeof params.createdAtMs === "number" && Number.isFinite(params.createdAtMs)
+      ? new Date(params.createdAtMs).toISOString()
+      : now;
 
   const row = {
     id: messageId,
@@ -75,12 +89,27 @@ export async function handleVoicePersistTurn(
     tool_results: params.toolResults ?? null,
     pending_actions: null,
     voice_session_id: params.voiceSessionId,
-    created_at: now,
+    created_at: createdAt,
   };
 
   const { error: insertErr } = await supabase.from("messages").insert(row);
   if (insertErr) {
     throw new Error(`[voice-persist] insert failed: ${insertErr.message}`);
+  }
+
+  // Auto-rename the thread on the first user turn, mirroring chat-handler's
+  // behaviour. Voice sessions never pass through chat.send, so without this
+  // hop the thread would stay titled "New Chat" forever even after a useful
+  // conversation. Fire-and-forget — failures are swallowed in autoRename.
+  if (params.role === "user" && !conv.title) {
+    const { count } = await supabase
+      .from("messages")
+      .select("id", { count: "exact", head: true })
+      .eq("conversation_id", session.conversation_id)
+      .eq("role", "user");
+    if (count === 1) {
+      void autoRenameThread(session.conversation_id, params.content, userId);
+    }
   }
 
   // Broadcast to the user's channel so any open chat view picks it up.
@@ -99,7 +128,7 @@ export async function handleVoicePersistTurn(
         toolCalls: params.toolCalls ?? null,
         toolResults: params.toolResults ?? null,
         pendingActions: null,
-        createdAt: now,
+        createdAt,
         voiceSessionId: params.voiceSessionId,
       },
     })
