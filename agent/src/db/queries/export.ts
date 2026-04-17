@@ -7,14 +7,14 @@ import {
   jobs,
   runs,
   runLogs,
-  runCredentials,
+  runConnections,
   conversations,
   messages,
   dashboardItems,
   memories,
   runMemories,
-  credentials,
-  credentialScopeBindings,
+  connections,
+  connectionScopeBindings,
 } from "../schema.js";
 import type {
   Project,
@@ -191,7 +191,7 @@ function validateImportData(data: ExportData): void {
 export function clearAllData(): void {
   const db = getDb();
   db.delete(runMemories).run();
-  db.delete(runCredentials).run();
+  db.delete(runConnections).run();
   db.delete(runLogs).run();
   db.delete(dashboardItems).run();
   db.delete(messages).run();
@@ -200,8 +200,8 @@ export function clearAllData(): void {
   db.delete(runs).run();
   db.delete(jobs).run();
   db.delete(goals).run();
-  db.delete(credentialScopeBindings).run();
-  db.delete(credentials).run();
+  db.delete(connectionScopeBindings).run();
+  db.delete(connections).run();
   db.delete(projects).run();
   db.delete(settings).run();
 }
@@ -223,7 +223,7 @@ export function importAllData(data: ExportData): RecordCounts {
   db.transaction((tx) => {
     // Clear all tables first (atomic with inserts — prevents empty-DB on crash between clear and import)
     tx.delete(runMemories).run();
-    tx.delete(runCredentials).run();
+    tx.delete(runConnections).run();
     tx.delete(runLogs).run();
     tx.delete(dashboardItems).run();
     tx.delete(messages).run();
@@ -232,8 +232,8 @@ export function importAllData(data: ExportData): RecordCounts {
     tx.delete(runs).run();
     tx.delete(jobs).run();
     tx.delete(goals).run();
-    tx.delete(credentialScopeBindings).run();
-    tx.delete(credentials).run();
+    tx.delete(connectionScopeBindings).run();
+    tx.delete(connections).run();
     tx.delete(projects).run();
     tx.delete(settings).run();
 

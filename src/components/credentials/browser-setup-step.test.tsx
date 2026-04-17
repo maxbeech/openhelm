@@ -32,7 +32,7 @@ describe("BrowserSetupStep (cloud mode)", () => {
     vi.clearAllMocks();
     setupBrowserProfile.mockResolvedValue({
       launched: true,
-      profileName: "cred-c1",
+      profileName: "conn-c1",
       message: "ok",
       sandboxId: "sbx-1",
       streamUrl: "https://sbx.example/stream?token=abc",
@@ -60,7 +60,7 @@ describe("BrowserSetupStep (cloud mode)", () => {
     const iframe = await waitFor(() => screen.getByTitle("Remote browser"));
     expect(iframe).toBeInTheDocument();
     expect(iframe.getAttribute("src")).toBe("https://sbx.example/stream?token=abc");
-    expect(setupBrowserProfile).toHaveBeenCalledWith({ credentialId: "c1" });
+    expect(setupBrowserProfile).toHaveBeenCalledWith({ connectionId: "c1" });
 
     fireEvent.click(screen.getByRole("button", { name: /done — save login/i }));
 

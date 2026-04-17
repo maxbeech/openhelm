@@ -8,7 +8,9 @@
 declare const window: { __TAURI_INTERNALS__?: unknown } & Window;
 
 export const isLocalMode =
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  typeof window !== "undefined" &&
+  ("__TAURI_INTERNALS__" in window ||
+    new URLSearchParams(window.location.search).get("local") === "1");
 
 export const isCloudMode = !isLocalMode;
 

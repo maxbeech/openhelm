@@ -70,9 +70,9 @@ export function CredentialEditDialog({ open, onOpenChange, credential, projectId
     setSaveError(null);
 
     // Only send value if the user typed something new.
-    // For username_password, require BOTH fields — a partial update would blank the other field.
+    // For plain_text, require BOTH fields — a partial update would blank the other field.
     let credValue: CredentialValue | undefined;
-    if (credential.type === "username_password") {
+    if (credential.type === "plain_text") {
       if (username.trim() && password.trim()) {
         credValue = { type: "username_password", username, password };
       } else if (username.trim() || password.trim()) {
@@ -121,7 +121,7 @@ export function CredentialEditDialog({ open, onOpenChange, credential, projectId
             <Input value={name} onChange={(e) => setName(e.target.value)} />
             <p className="mt-1 font-mono text-2xs text-muted-foreground">
               Env var: <span className="text-foreground/70">{credential.envVarName}</span>
-              {credential.type === "username_password" && (
+              {credential.type === "plain_text" && (
                 <span className="text-muted-foreground/60">
                   {" "}/ {credential.envVarName}_USERNAME / {credential.envVarName}_PASSWORD
                 </span>
@@ -144,7 +144,7 @@ export function CredentialEditDialog({ open, onOpenChange, credential, projectId
             <p className="text-2xs text-muted-foreground mb-1.5">
               Leave empty to keep the current value.
             </p>
-            {credential.type === "username_password" ? (
+            {credential.type === "plain_text" ? (
               <div className="space-y-2">
                 <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="New username (unchanged if empty)" />
                 <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="New password (unchanged if empty)" />

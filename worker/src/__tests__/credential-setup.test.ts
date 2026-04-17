@@ -118,12 +118,12 @@ describe("credential-setup", () => {
         .map((c) => c[0])
         .filter((c) => typeof c === "string" && c.includes("chromium"));
       expect(chromiumCalls.length).toBeGreaterThan(0);
-      expect(chromiumCalls[0]).toContain(`--user-data-dir=/home/user/profiles/cred-${CRED_ID}`);
+      expect(chromiumCalls[0]).toContain(`--user-data-dir=/home/user/profiles/conn-${CRED_ID}`);
 
       expect(result.launched).toBe(true);
       expect(result.sandboxId).toMatch(/^sbx-/);
       expect(result.streamUrl).toBe("https://sbx.example/stream?token=abc");
-      expect(result.profileName).toBe(`cred-${CRED_ID}`);
+      expect(result.profileName).toBe(`conn-${CRED_ID}`);
     });
 
     it("rejects credentials not owned by the caller", async () => {

@@ -25,7 +25,7 @@ export interface ActiveSession {
 const activeSessions = new Map<string, ActiveSession>();
 
 export function profileDirFor(credentialId: string): string {
-  return `/home/user/profiles/cred-${credentialId}`;
+  return `/home/user/profiles/conn-${credentialId}`;
 }
 
 export function profileStorageKey(userId: string, credentialId: string): string {

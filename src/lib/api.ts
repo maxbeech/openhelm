@@ -122,6 +122,15 @@ import type {
   VoiceApproveParams,
   GetVoiceSettingsResult,
   UpdateVoiceSettingsParams,
+  Connection,
+  ConnectionWithValue,
+  CreateConnectionParams,
+  UpdateConnectionParams,
+  ListConnectionsParams,
+  ListConnectionsByScopeParams,
+  McpRegistrySearchResult,
+  CliCatalogEntry,
+  ServiceSearchResult,
 } from "@openhelm/shared";
 
 // ─── Projects ───
@@ -594,6 +603,129 @@ export function cancelBrowserSetup(
   const params =
     typeof keyOrParams === "string" ? { credentialId: keyOrParams } : keyOrParams;
   return transport.request("credential.cancelBrowserSetup", params);
+}
+
+// ─── Connections ───
+
+export function listConnections(params?: ListConnectionsParams): Promise<Connection[]> {
+  return transport.request<Connection[]>("connections.list", params);
+}
+
+export function listAllConnections(): Promise<Connection[]> {
+  return transport.request<Connection[]>("connections.listAll");
+}
+
+export function getConnection(id: string): Promise<Connection> {
+  return transport.request<Connection>("connections.get", { id });
+}
+
+export function getConnectionValue(id: string): Promise<ConnectionWithValue> {
+  return transport.request<ConnectionWithValue>("connections.getValue", { id });
+}
+
+export function createConnection(params: CreateConnectionParams): Promise<Connection> {
+  return transport.request<Connection>("connections.create", params);
+}
+
+export function updateConnection(params: UpdateConnectionParams): Promise<Connection> {
+  return transport.request<Connection>("connections.update", params);
+}
+
+export function deleteConnection(id: string): Promise<{ deleted: boolean }> {
+  return transport.request<{ deleted: boolean }>("connections.delete", { id });
+}
+
+export function countConnections(projectId?: string): Promise<{ count: number }> {
+  return transport.request<{ count: number }>("connections.count", { projectId });
+}
+
+export function countAllConnections(): Promise<{ count: number }> {
+  return transport.request<{ count: number }>("connections.countAll");
+}
+
+export function listConnectionsByScope(params: ListConnectionsByScopeParams): Promise<Connection[]> {
+  return transport.request<Connection[]>("connections.listForScope", params);
+}
+
+export function setConnectionScopesForEntity(params: {
+  scopeType: "project" | "goal" | "job";
+  scopeId: string;
+  connectionIds: string[];
+}): Promise<{ added: number; removed: number }> {
+  return transport.request("connections.setScopesForEntity", params);
+}
+
+export function searchMcpRegistry(query: string, limit?: number): Promise<McpRegistrySearchResult[]> {
+  return transport.request<McpRegistrySearchResult[]>("connections.searchMcpRegistry", { query, limit });
+}
+
+export function searchServices(
+  query: string,
+  options?: { limit?: number; includeMcpRegistry?: boolean },
+): Promise<ServiceSearchResult[]> {
+  return transport.request<ServiceSearchResult[]>("connections.searchServices", { query, ...options });
+}
+
+export function searchCliRegistry(query: string): Promise<CliCatalogEntry[]> {
+  return transport.request<CliCatalogEntry[]>("connections.searchCliRegistry", { query });
+}
+
+export function installMcpConnection(params: {
+  mcpServerId: string;
+  name?: string;
+  installCommand?: string[];
+  scopes?: Array<{scopeType: string; scopeId: string}>;
+}): Promise<{ connectionId: string; installStatus: string }> {
+  return transport.request("connections.installMcp", params);
+}
+
+export function installCliConnection(cliId: string, scopes?: Array<{scopeType: string; scopeId: string}>): Promise<{ connectionId: string; installStatus: string }> {
+  return transport.request("connections.installCli", { cliId, scopes });
+}
+
+export function reinstallConnection(connectionId: string): Promise<{ connectionId: string; installStatus: string }> {
+  return transport.request("connections.reinstall", { connectionId });
+}
+
+export function startCliAuth(connectionId: string): Promise<{ method: string; deviceCode?: string; verificationUrl?: string; instructions: string }> {
+  return transport.request("connections.startCliAuth", { connectionId });
+}
+
+export function completeCliAuth(connectionId: string): Promise<{ authenticated: boolean; timedOut: boolean }> {
+  return transport.request("connections.completeCliAuth", { connectionId });
+}
+
+export function getMcpOauthConfig(connectionId: string): Promise<{
+  oauthRequired: boolean;
+  config?: { authorizationEndpoint: string; tokenEndpoint: string; clientId: string; scope: string; redirectUri: string };
+}> {
+  return transport.request("connections.getMcpOauthConfig", { connectionId });
+}
+
+export function setConnectionToken(connectionId: string, token: string): Promise<Connection> {
+  return transport.request<Connection>("connections.setToken", { connectionId, token });
+}
+
+export function startMcpOauth(params: {
+  connectionId: string;
+  authorizationEndpoint: string;
+  clientId: string;
+  redirectUri: string;
+  scope: string;
+  tokenEndpoint: string;
+}): Promise<{ authorizationUrl: string; state: string }> {
+  return transport.request("connections.startMcpOauth", params);
+}
+
+export function completeMcpOauth(params: {
+  connectionId: string;
+  code: string;
+  state: string;
+  tokenEndpoint: string;
+  clientId: string;
+  redirectUri: string;
+}): Promise<Connection> {
+  return transport.request<Connection>("connections.completeMcpOauth", params);
 }
 
 // ─── Data Import/Export ───

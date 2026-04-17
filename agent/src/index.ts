@@ -15,6 +15,7 @@ import { initAgentSentry, captureAgentError } from "./sentry.js";
 import { initPowerManagement, shutdownPowerManagement } from "./power/index.js";
 import { startPeriodicVerifier, stopPeriodicVerifier } from "./license/periodic-verifier.js";
 import { autopilotScanner } from "./autopilot/index.js";
+import { startOAuthRefreshDaemon } from "./connections/oauth-refresh-daemon.js";
 import { runBackfillIfNeeded } from "./ipc/inbox-bridge.js";
 import { backfillMissingVisualizations } from "./data-tables/visualization-suggester.js";
 import { reconcileAllRowCounts } from "./db/queries/data-tables.js";
@@ -24,6 +25,7 @@ import { cleanupOrphanedBrowserCredentials } from "./credentials/browser-credent
 import { cleanupOrphanedBrowserPids } from "./mcp-servers/browser-cleanup.js";
 import { preWarmBrowserMcp } from "./mcp-servers/browser-setup.js";
 import { migrateLegacyBrowserMcpKey } from "./claude-code/mcp-config.js";
+import { migrateProfileDirs } from "./connections/profile-dir-migration.js";
 import { preWarmEmbedder } from "./memory/embeddings.js";
 import { preWarmWhisper } from "./voice/index.js";
 
@@ -82,7 +84,14 @@ try {
   console.error("[agent] sentry init failed (non-fatal):", err);
 }
 
-// 1d. Clean up orphaned MCP config files and browser credential files from previous crashes
+// 1d. One-shot rename: cred-<id> → conn-<id> for browser profile directories
+try {
+  migrateProfileDirs();
+} catch (err) {
+  console.error("[agent] profile dir migration failed (non-fatal):", err);
+}
+
+// 1d2. Clean up orphaned MCP config files and browser credential files from previous crashes
 try {
   cleanupOrphanedConfigs();
 } catch {
@@ -240,6 +249,13 @@ executor.processNext();
 
 // 7d. Start Autopilot scanner (replaces legacy system job backfill)
 autopilotScanner.start();
+
+// 7d2. Start OAuth refresh daemon (1h tick; no-op until a connection has an expiring token)
+try {
+  startOAuthRefreshDaemon();
+} catch (err) {
+  console.error("[agent] oauth refresh daemon init failed (non-fatal):", err);
+}
 
 // 7e2. Backfill missing visualizations for data tables with sufficient numeric data
 try {

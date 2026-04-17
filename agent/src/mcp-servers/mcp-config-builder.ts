@@ -321,9 +321,17 @@ function getDbPath(): string {
  * @param runId — OpenHelm run ID, passed as `--run-id` for intervention context.
  * @param credentialsFilePath — path to a temp JSON file containing browser-injectable credentials.
  * @param projectId — project ID, passed to the data tables MCP server.
+ * @param userMcpServers — user-configured MCP connection servers merged into the config.
+ *   Bundled servers take precedence on name collision.
  */
-export function buildMcpConfig(runId: string, credentialsFilePath?: string, projectId?: string): McpConfigFile | null {
-  const servers: Record<string, McpServerEntry> = {};
+export function buildMcpConfig(
+  runId: string,
+  credentialsFilePath?: string,
+  projectId?: string,
+  userMcpServers?: Record<string, McpServerEntry>,
+): McpConfigFile | null {
+  // Start with user MCP servers, then overlay bundled servers (bundled wins)
+  const servers: Record<string, McpServerEntry> = { ...(userMcpServers ?? {}) };
 
   // Bundled openhelm_browser (when venv is ready)
   const browserPaths = getBrowserMcpPaths();
@@ -397,6 +405,7 @@ export function buildMcpConfig(runId: string, credentialsFilePath?: string, proj
  *
  * @param credentialsFilePath — forwarded to buildMcpConfig for browser credential injection.
  * @param projectId — forwarded to buildMcpConfig for data tables MCP server.
+ * @param userMcpServers — forwarded to buildMcpConfig for user-configured MCP connections.
  */
 export interface McpConfigFileInfo {
   path: string;
@@ -407,8 +416,9 @@ export function writeMcpConfigFile(
   runId: string,
   credentialsFilePath?: string,
   projectId?: string,
+  userMcpServers?: Record<string, McpServerEntry>,
 ): McpConfigFileInfo | null {
-  const config = buildMcpConfig(runId, credentialsFilePath, projectId);
+  const config = buildMcpConfig(runId, credentialsFilePath, projectId, userMcpServers);
   if (!config) return null;
 
   mkdirSync(MCP_CONFIG_DIR, { recursive: true });

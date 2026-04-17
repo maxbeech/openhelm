@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import logoSvg from "@/assets/logo.svg";
-import { Settings, ChevronDown, Plus, LayoutDashboard, Layers, Waypoints, Database, KeyRound, Pencil, MessageSquare, Star, X, Inbox } from "lucide-react";
+import { Settings, ChevronDown, Plus, LayoutDashboard, Layers, Waypoints, Database, Plug, Pencil, MessageSquare, Star, X, Inbox } from "lucide-react";
 import { motion } from "framer-motion";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
@@ -21,7 +21,7 @@ import { isLocalMode } from "@/lib/mode";
 import { useDemoStore } from "@/stores/demo-store";
 import { useInboxStore } from "@/stores/inbox-store";
 import { useMemoryStore } from "@/stores/memory-store";
-import { useCredentialStore } from "@/stores/credential-store";
+import { useConnectionStore } from "@/stores/connection-store";
 import { useDataTableStore } from "@/stores/data-table-store";
 import { SidebarTree } from "./sidebar-tree";
 
@@ -37,7 +37,7 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
   const { projects } = useProjectStore();
   const { unreadCount: inboxUnreadCount } = useInboxStore();
   const { memoryCount } = useMemoryStore();
-  const { credentialCount } = useCredentialStore();
+  const { connectionCount: credentialCount } = useConnectionStore();
   const { tableCount } = useDataTableStore();
 
   const isDemo = useDemoStore((s) => s.isDemo);
@@ -137,7 +137,7 @@ export function Sidebar({ onNewProject, onEditProject, onNewJobForGoal }: Sideba
           { view: "dashboard" as const, icon: LayoutDashboard, label: "Dashboard", badge: null, badgeType: "alert" as const },
           { view: "memory" as const, icon: Waypoints, label: "Memory", badge: memoryCount > 0 ? String(memoryCount) : null, badgeType: "count" as const },
           { view: "data-tables" as const, icon: Database, label: "Data", badge: tableCount > 0 ? String(tableCount) : null, badgeType: "count" as const },
-          { view: "credentials" as const, icon: KeyRound, label: "Credentials", badge: credentialCount > 0 ? String(credentialCount) : null, badgeType: "count" as const },
+          { view: "credentials" as const, icon: Plug, label: "Connections", badge: credentialCount > 0 ? String(credentialCount) : null, badgeType: "count" as const },
         ]).map(({ view, icon: Icon, label, badge, badgeType }) => {
           const isActive = view === "data-tables"
             ? contentView === "data-tables" || contentView === "data-table-detail"

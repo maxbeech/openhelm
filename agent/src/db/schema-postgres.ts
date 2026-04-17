@@ -219,51 +219,67 @@ export const autopilotProposals = pgTable("autopilot_proposals", {
   resolvedAt:  timestamp("resolved_at", { withTimezone: true }),
 });
 
-// ── Credentials ───────────────────────────────────────────────────────────────
+// ── Connections ───────────────────────────────────────────────────────────────
 
-export const credentials = pgTable("credentials", {
-  id:                     text("id").primaryKey(),
-  userId:                 uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
-  name:                   text("name").notNull(),
-  type:                   text("type", { enum: ["token", "username_password"] }).notNull(),
-  envVarName:             text("env_var_name").notNull(),
-  allowPromptInjection:   boolean("allow_prompt_injection").notNull().default(false),
-  allowBrowserInjection:  boolean("allow_browser_injection").notNull().default(false),
-  browserProfileName:     text("browser_profile_name"),
-  browserProfileStorageKey:  text("browser_profile_storage_key"),
-  browserProfileVerifiedAt:  timestamp("browser_profile_verified_at", { withTimezone: true }),
-  scopeType:              text("scope_type", { enum: ["global", "project", "goal", "job"] }).notNull().default("global"),
-  scopeId:                text("scope_id"),
-  isEnabled:              boolean("is_enabled").notNull().default(true),
-  lastUsedAt:             timestamp("last_used_at", { withTimezone: true }),
+export const connections = pgTable("connections", {
+  id:                          text("id").primaryKey(),
+  userId:                      uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+  name:                        text("name").notNull(),
+  type:                        text("type").notNull(), // folder|mcp|cli|browser|token|plain_text|virtual_employee
+  envVarName:                  text("env_var_name").notNull().default(""),
+  allowPromptInjection:        boolean("allow_prompt_injection").notNull().default(false),
+  allowBrowserInjection:       boolean("allow_browser_injection").notNull().default(false),
+  browserProfileName:          text("browser_profile_name"),
+  browserProfileStorageKey:    text("browser_profile_storage_key"),
+  browserProfileVerifiedAt:    timestamp("browser_profile_verified_at", { withTimezone: true }),
+  installStatus:               text("install_status").notNull().default("not_applicable"),
+  installError:                text("install_error"),
+  authStatus:                  text("auth_status").notNull().default("not_applicable"),
+  oauthTokenExpiresAt:         timestamp("oauth_token_expires_at", { withTimezone: true }),
+  secretRef:                   text("secret_ref").notNull().default(""),
+  config:                      jsonb("config").notNull().default({}),
+  isDeletable:                 boolean("is_deletable").notNull().default(true),
+  scopeType:                   text("scope_type").notNull().default("global"),
+  scopeId:                     text("scope_id"),
+  isEnabled:                   boolean("is_enabled").notNull().default(true),
+  lastUsedAt:                  timestamp("last_used_at", { withTimezone: true }),
   ...timestamps,
 });
 
-// ── Credential Scope Bindings (junction) ──────────────────────────────────────
+// Backward-compat alias so any stray cloud code using the old name still compiles
+export { connections as credentials };
 
-export const credentialScopeBindings = pgTable(
-  "credential_scope_bindings",
+// ── Connection Scope Bindings (junction) ──────────────────────────────────────
+
+export const connectionScopeBindings = pgTable(
+  "connection_scope_bindings",
   {
-    credentialId: text("credential_id").notNull().references(() => credentials.id, { onDelete: "cascade" }),
+    connectionId: text("connection_id").notNull().references(() => connections.id, { onDelete: "cascade" }),
     scopeType:    text("scope_type", { enum: ["project", "goal", "job"] }).notNull(),
     scopeId:      text("scope_id").notNull(),
     userId:       uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
   },
-  (t) => [primaryKey({ columns: [t.credentialId, t.scopeType, t.scopeId] })],
+  (t) => [primaryKey({ columns: [t.connectionId, t.scopeType, t.scopeId] })],
 );
 
-// ── Run Credentials (junction) ────────────────────────────────────────────────
+// Backward-compat alias
+export { connectionScopeBindings as credentialScopeBindings };
 
-export const runCredentials = pgTable(
-  "run_credentials",
+// ── Run Connections (audit trail) ─────────────────────────────────────────────
+
+export const runConnections = pgTable(
+  "run_connections",
   {
     runId:           text("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
-    credentialId:    text("credential_id").notNull().references(() => credentials.id, { onDelete: "cascade" }),
-    injectionMethod: text("injection_method", { enum: ["env", "prompt", "browser"] }).notNull(),
+    connectionId:    text("connection_id").notNull().references(() => connections.id, { onDelete: "cascade" }),
+    injectionMethod: text("injection_method").notNull(), // env|prompt|browser|mcp|cli_auth_file|folder_path|oauth_token
     userId:          uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
   },
-  (t) => [primaryKey({ columns: [t.runId, t.credentialId, t.injectionMethod] })],
+  (t) => [primaryKey({ columns: [t.runId, t.connectionId, t.injectionMethod] })],
 );
+
+// Backward-compat alias
+export { runConnections as runCredentials };
 
 // ── Data Tables ───────────────────────────────────────────────────────────────
 

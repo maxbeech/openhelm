@@ -42,11 +42,11 @@ import { retrieveMemories } from "../memory/retriever.js";
 import { buildMemorySection } from "../memory/prompt-builder.js";
 import { saveRunMemories } from "../db/queries/memories.js";
 import { countProjectRuns } from "../db/queries/runs.js";
-import { resolveCredentialsForJob, touchCredential, saveRunCredentials, type RunCredentialEntry } from "../db/queries/credentials.js";
+import { resolveConnectionsForJob, touchConnection, saveRunConnections } from "../db/queries/connections.js";
 import { getKeychainItem } from "../keychain/index.js";
 import { createRedactor, extractSecretStrings } from "../credentials/redactor.js";
 import type { InteractiveDetectionType } from "../claude-code/interactive-detector.js";
-import type { RunStatus, Job, Credential, CredentialValue } from "@openhelm/shared";
+import type { RunStatus, Job, CredentialValue } from "@openhelm/shared";
 import { captureAgentError, addAgentBreadcrumb } from "../sentry.js";
 import {
   isPowerManagementEnabled,
@@ -191,9 +191,9 @@ export class Executor {
    */
   private getRequiredProfiles(jobId: string): string[] {
     try {
-      const creds = resolveCredentialsForJob(jobId);
-      return creds
-        .filter((c) => c.allowBrowserInjection && c.browserProfileName && c.scopeType !== "global")
+      const conns = resolveConnectionsForJob(jobId);
+      return conns
+        .filter((c) => c.type === "browser" && c.browserProfileName && c.scopeType !== "global")
         .map((c) => c.browserProfileName!)
         .filter((v, i, a) => a.indexOf(v) === i); // dedupe
     } catch {
@@ -543,13 +543,13 @@ export class Executor {
       }
     }
 
-    // ── Credential injection ──
-    // Credentials are ALWAYS resolved (even for resumed corrective runs) because
+    // ── Connection injection ──
+    // Connections are ALWAYS resolved (even for resumed corrective runs) because
     // MCP servers are respawned fresh and need the browser credentials file.
     // Only the prompt-level hints are skipped for resumed sessions (the parent
     // session context already contains them).
     const additionalEnv: Record<string, string> = {};
-    const credentialAudit: RunCredentialEntry[] = [];
+    const connectionAudit: import("../db/queries/connections.js").RunConnectionEntry[] = [];
     const allSecrets: string[] = [];
     let browserCredentialsFilePath: string | undefined;
     // Kept outside the try-block so the MCP preamble step can surface the
@@ -557,94 +557,101 @@ export class Executor {
     const resolvedBrowserCredentials: Array<{ name: string; type: "username_password" | "token"; profileName?: string }> = [];
 
     try {
-      const applicableCreds = resolveCredentialsForJob(jobId);
+      const applicableConns = resolveConnectionsForJob(jobId);
       const credentialHints: string[] = [];
       const browserCredentialHints: string[] = [];
       const browserCredentials: import("../credentials/browser-credentials.js").BrowserCredential[] = [];
 
-      // Diagnostic: log resolved credentials so scope / injection issues are visible
-      if (applicableCreds.length > 0) {
-        const summary = applicableCreds.map(
-          (c) => `"${c.name}" (scope=${c.scopeType}, browser=${c.allowBrowserInjection}, enabled=${c.isEnabled})`,
+      if (applicableConns.length > 0) {
+        const summary = applicableConns.map(
+          (c) => `"${c.name}" (type=${c.type}, scope=${c.scopeType}, enabled=${c.isEnabled})`,
         ).join(", ");
-        console.error(`[executor] resolved ${applicableCreds.length} credentials for job ${jobId}: ${summary}`);
+        console.error(`[executor] resolved ${applicableConns.length} connections for job ${jobId}: ${summary}`);
       } else {
-        console.error(`[executor] no credentials resolved for job ${jobId} (project=${job.projectId})`);
+        console.error(`[executor] no connections resolved for job ${jobId} (project=${job.projectId})`);
       }
 
-      for (const cred of applicableCreds) {
-        let raw: string | null = null;
-        try {
-          raw = await getKeychainItem(cred.id);
-        } catch (err) {
-          console.error(`[executor] keychain read failed for credential "${cred.name}" (non-fatal):`, err);
-          continue;
-        }
-        if (!raw) {
-          console.error(`[executor] credential "${cred.name}" has no keychain entry (skipping)`);
-          continue;
-        }
+      for (const conn of applicableConns) {
+        // Browser connections inject via credentials file; folder/mcp/cli handled elsewhere
+        if (conn.type === "browser") {
+          let raw: string | null = null;
+          try {
+            raw = await getKeychainItem(`conn-${conn.id}`);
+          } catch (err) {
+            console.error(`[executor] keychain read failed for connection "${conn.name}" (non-fatal):`, err);
+            continue;
+          }
+          if (!raw) continue;
 
-        let value: CredentialValue;
-        try {
-          value = JSON.parse(raw) as CredentialValue;
-        } catch (err) {
-          // Malformed JSON in keychain (e.g. raw token stored by hand) — skip
-          // this credential rather than aborting all subsequent ones.
-          console.error(`[executor] credential "${cred.name}" has non-JSON keychain value (skipping):`, err);
-          continue;
-        }
-        // Always add to redactor (catches leaks in logs regardless of injection mode)
-        allSecrets.push(...extractSecretStrings(value));
+          let value: CredentialValue;
+          try {
+            value = JSON.parse(raw) as CredentialValue;
+          } catch {
+            continue;
+          }
+          allSecrets.push(...extractSecretStrings(value));
 
-        if (cred.allowBrowserInjection) {
-          // Browser-only injection — NO env var, NO prompt
           if (value.type === "username_password") {
             browserCredentials.push({
-              name: cred.name,
+              name: conn.name,
               type: "username_password",
               username: value.username,
               password: value.password,
             });
-            browserCredentialHints.push(
-              `- "${cred.name}" (username_password) — use auto_login`,
-            );
-          } else {
-            browserCredentials.push({
-              name: cred.name,
-              type: "token",
-              value: value.value,
-            });
-            browserCredentialHints.push(
-              `- "${cred.name}" (token) — use inject_auth_cookie or inject_auth_header`,
-            );
+            browserCredentialHints.push(`- "${conn.name}" (username_password) — use auto_login`);
+          } else if (value.type === "token") {
+            browserCredentials.push({ name: conn.name, type: "token", value: value.value });
+            browserCredentialHints.push(`- "${conn.name}" (token) — use inject_auth_cookie or inject_auth_header`);
           }
-          credentialAudit.push({ credentialId: cred.id, injectionMethod: "browser" });
-        } else {
-          // Env injection (default)
-          if (value.type === "username_password") {
-            additionalEnv[cred.envVarName + "_USERNAME"] = value.username;
-            additionalEnv[cred.envVarName + "_PASSWORD"] = value.password;
-            credentialHints.push(
-              `- $${cred.envVarName}_USERNAME / $${cred.envVarName}_PASSWORD — "${cred.name}" (username & password)`,
-            );
-          } else {
-            additionalEnv[cred.envVarName] = value.value;
-            credentialHints.push(`- $${cred.envVarName} — "${cred.name}" (token)`);
-          }
-          credentialAudit.push({ credentialId: cred.id, injectionMethod: "env" });
+          connectionAudit.push({ connectionId: conn.id, injectionMethod: "browser" });
 
-          // Optionally also inject value into prompt context
-          if (!isResumable && cred.allowPromptInjection) {
+        } else if (conn.type === "token" || conn.type === "plain_text") {
+          let raw: string | null = null;
+          try {
+            raw = await getKeychainItem(`conn-${conn.id}`);
+          } catch (err) {
+            console.error(`[executor] keychain read failed for connection "${conn.name}" (non-fatal):`, err);
+            continue;
+          }
+          if (!raw) {
+            console.error(`[executor] connection "${conn.name}" has no keychain entry (skipping)`);
+            continue;
+          }
+
+          let value: CredentialValue;
+          try {
+            value = JSON.parse(raw) as CredentialValue;
+          } catch (err) {
+            console.error(`[executor] connection "${conn.name}" has non-JSON keychain value (skipping):`, err);
+            continue;
+          }
+          allSecrets.push(...extractSecretStrings(value));
+
+          if (value.type === "username_password") {
+            additionalEnv[conn.envVarName + "_USERNAME"] = value.username;
+            additionalEnv[conn.envVarName + "_PASSWORD"] = value.password;
+            credentialHints.push(
+              `- $${conn.envVarName}_USERNAME / $${conn.envVarName}_PASSWORD — "${conn.name}" (username & password)`,
+            );
+          } else if (value.type === "token") {
+            additionalEnv[conn.envVarName] = value.value;
+            credentialHints.push(`- $${conn.envVarName} — "${conn.name}" (token)`);
+          }
+          connectionAudit.push({ connectionId: conn.id, injectionMethod: "env" });
+
+          if (!isResumable && conn.allowPromptInjection) {
             const valueStr = value.type === "username_password"
               ? `Username: ${value.username}, Password: ${value.password}`
-              : value.value;
-            effectivePrompt += `\n\n---\n\nCredential "${cred.name}": ${valueStr}`;
-            credentialAudit.push({ credentialId: cred.id, injectionMethod: "prompt" });
+              : value.type === "token" ? value.value : "";
+            if (valueStr) {
+              effectivePrompt += `\n\n---\n\nCredential "${conn.name}": ${valueStr}`;
+              connectionAudit.push({ connectionId: conn.id, injectionMethod: "prompt" });
+            }
           }
         }
+        // folder/mcp/cli connections: handled in build-run-mcp-context or via env (folder)
 
-        touchCredential(cred.id);
+        touchConnection(conn.id);
       }
 
       // Append credential hints to prompt (skip for resumed sessions — parent has them)
@@ -661,18 +668,15 @@ export class Executor {
         }
       }
 
-      // Record browser credentials + their profile names for downstream preamble generation.
-      // The profile name tells Claude which spawn_browser(profile=...) to use for each credential.
       for (const bc of browserCredentials) {
-        const matchingCred = applicableCreds.find((c) => c.name === bc.name);
+        const matchingConn = applicableConns.find((c) => c.name === bc.name);
         resolvedBrowserCredentials.push({
           name: bc.name,
           type: bc.type,
-          profileName: matchingCred?.browserProfileName ?? undefined,
+          profileName: matchingConn?.browserProfileName ?? undefined,
         });
       }
 
-      // Write browser credentials to temp file for MCP server (always — MCP is respawned)
       if (browserCredentials.length > 0) {
         try {
           const { writeBrowserCredentialsFile } = await import("../credentials/browser-credentials.js");
@@ -685,10 +689,10 @@ export class Executor {
 
       const totalCreds = credentialHints.length + browserCredentialHints.length;
       if (totalCreds > 0) {
-        console.error(`[executor] injected ${totalCreds} credentials into run ${runId} (${browserCredentials.length} browser-only)`);
+        console.error(`[executor] injected ${totalCreds} connections into run ${runId} (${browserCredentials.length} browser-only)`);
       }
     } catch (err) {
-      console.error("[executor] credential resolution error (non-fatal):", err);
+      console.error("[executor] connection resolution error (non-fatal):", err);
     }
 
     // Create redactor for log output
@@ -718,7 +722,7 @@ export class Executor {
     // failure analysis. Fail fast with a clear error instead.
     if (!effectivePrompt || effectivePrompt.trim().length === 0) {
       console.error(`[executor] empty prompt for run ${runId} — marking permanent_failure`);
-      this.markRunPermanentFailure(runId, "Empty prompt: no task content was available for this run.");
+      this.failPermanently(runId, "running", "Empty prompt: no task content was available for this run.");
       return;
     }
 
@@ -819,12 +823,12 @@ export class Executor {
         } catch { /* ignore */ }
       }
 
-      // Save credential audit trail
-      if (credentialAudit.length > 0) {
+      // Save connection audit trail
+      if (connectionAudit.length > 0) {
         try {
-          saveRunCredentials(runId, credentialAudit);
+          saveRunConnections(runId, connectionAudit);
         } catch (err) {
-          console.error("[executor] credential audit save error (non-fatal):", err);
+          console.error("[executor] connection audit save error (non-fatal):", err);
         }
       }
     } finally {

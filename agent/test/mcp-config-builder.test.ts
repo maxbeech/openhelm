@@ -236,11 +236,11 @@ describe("buildBrowserCredentialsNotice", () => {
 
   it("lists credentials by name with profile hints when present", () => {
     const notice = buildBrowserCredentialsNotice([
-      { name: "X (Twitter)", type: "username_password", profileName: "cred-abc123" },
+      { name: "X (Twitter)", type: "username_password", profileName: "conn-abc123" },
       { name: "Reddit", type: "token" },
     ]);
     expect(notice).toContain('"X (Twitter)" (username_password)');
-    expect(notice).toContain('spawn_browser(profile="cred-abc123")');
+    expect(notice).toContain('spawn_browser(profile="conn-abc123")');
     expect(notice).toContain('"Reddit" (token)');
     expect(notice).toContain("check_session");
   });
@@ -254,7 +254,7 @@ describe("buildBrowserCredentialsNotice", () => {
     // workflows so Claude's training-data prior can't override the browser
     // credential path.
     const notice = buildBrowserCredentialsNotice([
-      { name: "Reddit", type: "username_password", profileName: "cred-575995bd" },
+      { name: "Reddit", type: "username_password", profileName: "conn-575995bd" },
     ]);
     expect(notice).toContain("NO EXTERNAL API/OAUTH CONFIG FILES");
     expect(notice).toContain("reddit-config.json");

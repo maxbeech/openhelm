@@ -22,6 +22,7 @@ import { useMemoryStore } from "./stores/memory-store";
 import { useChatStore } from "./stores/chat-store";
 import { useUpdaterStore } from "./stores/updater-store";
 import { useCredentialStore } from "./stores/credential-store";
+import { useConnectionStore } from "./stores/connection-store";
 import { useDataTableStore } from "./stores/data-table-store";
 import { useVisualizationStore } from "./stores/visualization-store";
 import { useInboxStore } from "./stores/inbox-store";
@@ -50,7 +51,7 @@ import { SettingsScreen } from "./components/settings/settings-screen";
 import { DashboardView } from "./components/content/dashboard-view";
 import { InboxView } from "./components/inbox/inbox-view";
 import { MemoryView } from "./components/memory/memory-view";
-import { CredentialView } from "./components/credentials/credential-view";
+import { ConnectionView } from "./components/connections/connection-view";
 import { DataTableView } from "./components/data-tables/data-table-view";
 import { JobCreationSheet } from "./components/jobs/job-creation-sheet";
 import { TooltipProvider } from "./components/ui/tooltip";
@@ -150,6 +151,13 @@ export default function App() {
     updateCredentialInStore,
     removeCredentialFromStore,
   } = useCredentialStore();
+
+  const {
+    fetchCount: fetchConnectionCount,
+    addConnectionToStore,
+    updateConnectionInStore,
+    removeConnectionFromStore,
+  } = useConnectionStore();
 
   const {
     fetchCount: fetchDataTableCount,
@@ -540,6 +548,23 @@ export default function App() {
   useAgentEvent("credential.updated", handleCredentialUpdated);
   useAgentEvent("credential.deleted", handleCredentialDeleted);
 
+  // Connection event handlers (new connections.* IPC)
+  const handleConnectionCreated = useCallback(
+    (connection: import("@openhelm/shared").Connection) => { addConnectionToStore(connection); },
+    [addConnectionToStore],
+  );
+  const handleConnectionUpdated = useCallback(
+    (connection: import("@openhelm/shared").Connection) => { updateConnectionInStore(connection); },
+    [updateConnectionInStore],
+  );
+  const handleConnectionDeleted = useCallback(
+    (data: { id: string }) => { removeConnectionFromStore(data.id); },
+    [removeConnectionFromStore],
+  );
+  useAgentEvent("connection.created", handleConnectionCreated);
+  useAgentEvent("connection.updated", handleConnectionUpdated);
+  useAgentEvent("connection.deleted", handleConnectionDeleted);
+
   // Data table event handlers
   const handleDataTableCreated = useCallback(
     (table: DataTable) => { addTableToStore(table); },
@@ -717,6 +742,7 @@ export default function App() {
     fetchMemories(activeProjectId);
     fetchMemoryCount(activeProjectId);
     fetchCredentialCount(activeProjectId);
+    fetchConnectionCount(activeProjectId);
     fetchDataTableCount(activeProjectId);
     fetchDashboardItems(activeProjectId ?? undefined);
     fetchDashboardCount(activeProjectId ?? undefined);
@@ -726,7 +752,7 @@ export default function App() {
     api
       .setSetting({ key: "active_project", value: activeProjectId ?? "" })
       .catch(() => {});
-  }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns, fetchConversations, fetchMemories, fetchMemoryCount, fetchCredentialCount, fetchDataTableCount, fetchDashboardItems, fetchDashboardCount]);
+  }, [activeProjectId, fetchGoals, fetchJobs, fetchRuns, fetchConversations, fetchMemories, fetchMemoryCount, fetchCredentialCount, fetchConnectionCount, fetchDataTableCount, fetchDashboardItems, fetchDashboardCount]);
 
   // Notification permission is now requested during onboarding (Permissions step)
   // and can be re-requested via Settings > Permissions. No startup prompt needed.
@@ -1025,7 +1051,7 @@ export default function App() {
               transition={slidePageTransition}
               className="h-full"
             >
-              <CredentialView />
+              <ConnectionView />
             </motion.div>
           )}
           {contentView === "settings" && (

@@ -29,19 +29,16 @@ async function loadInScopeProfiles(
 ): Promise<Array<{ id: string; storage_key: string }>> {
   const supabase = getSupabase();
 
-  // Start with every credential the user owns that has a saved profile.
+  // Start with every connection the user owns that has a saved browser profile.
   const { data: creds, error } = await supabase
-    .from("credentials")
+    .from("connections")
     .select("id, scope_type, scope_id, browser_profile_storage_key")
     .eq("user_id", userId)
     .eq("is_enabled", true)
     .eq("allow_browser_injection", true)
     .not("browser_profile_storage_key", "is", null);
   if (error) {
-    // Profile hydration is an optional best-effort step. If the credentials
-    // query itself fails (e.g. an expected column is missing during a
-    // staged schema rollout) we do NOT want to abort the run — the agent
-    // can still execute without any hydrated browser profiles.
+    // Profile hydration is an optional best-effort step — don't abort the run.
     console.error(
       `[profile-hydration] loadInScopeProfiles query failed, returning empty: ${error.message}`,
     );
@@ -56,16 +53,16 @@ async function loadInScopeProfiles(
     return false;
   });
 
-  // Also pick up credentials bound to this job/project via the junction.
+  // Also pick up connections bound to this job/project via the junction.
   const { data: bindings } = await supabase
-    .from("credential_scope_bindings")
-    .select("credential_id")
+    .from("connection_scope_bindings")
+    .select("connection_id")
     .eq("user_id", userId)
     .or(
       `and(scope_type.eq.project,scope_id.eq.${projectId}),and(scope_type.eq.job,scope_id.eq.${jobId})`,
     );
 
-  const bindingIds = new Set((bindings ?? []).map((b) => b.credential_id));
+  const bindingIds = new Set((bindings ?? []).map((b) => b.connection_id));
   const byBinding = (creds ?? []).filter((c) => bindingIds.has(c.id));
 
   const unique = new Map<string, { id: string; storage_key: string }>();
@@ -110,7 +107,7 @@ export async function hydrateBrowserProfiles(
     );
     hydrated.push({
       credentialId: p.id,
-      profileDir: `/home/user/profiles/cred-${p.id}`,
+      profileDir: `/home/user/profiles/conn-${p.id}`,
     });
   }
   return hydrated;

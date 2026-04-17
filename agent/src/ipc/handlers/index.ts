@@ -12,7 +12,7 @@ import { registerDataHandlers } from "./data.js";
 import { registerPowerHandlers } from "./power.js";
 import { registerLicenseHandlers } from "./license.js";
 import { registerPermissionHandlers } from "./permissions.js";
-import { registerCredentialHandlers } from "./credentials.js";
+import { registerConnectionHandlers } from "./connections.js";
 import { registerAutopilotHandlers } from "./autopilot.js";
 import { registerBrowserMcpHandlers } from "./browser-mcp.js";
 import { registerDataTableHandlers } from "./data-tables.js";
@@ -37,7 +37,7 @@ export function registerAllHandlers() {
   registerPowerHandlers();
   registerLicenseHandlers();
   registerPermissionHandlers();
-  registerCredentialHandlers();
+  registerConnectionHandlers();
   registerAutopilotHandlers();
   registerBrowserMcpHandlers();
   registerDataTableHandlers();

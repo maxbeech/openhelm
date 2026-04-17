@@ -12,26 +12,29 @@ import { isCloudMode } from "@/lib/mode";
 import type { BrowserSetupStatus, BrowserSessionVerification } from "@openhelm/shared";
 
 interface Props {
-  credentialId: string;
+  /** @deprecated Use connectionId */
+  credentialId?: string;
+  connectionId?: string;
   onComplete: () => void;
   onSkip: () => void;
 }
 
-export function BrowserSetupStep({ credentialId, onComplete, onSkip }: Props) {
+export function BrowserSetupStep({ credentialId, connectionId, onComplete, onSkip }: Props) {
+  const id = connectionId ?? credentialId ?? "";
   const [status, setStatus] = useState<BrowserSetupStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const sandboxIdRef = useRef<string | null>(null);
 
   // Local (Tauri) mode events — cloud drives state directly via the finalize RPC.
-  useAgentEvent<{ credentialId: string }>("credential.browserLaunched", (d) => {
-    if (d.credentialId === credentialId) setStatus("browser_open");
+  useAgentEvent<{ connectionId?: string; credentialId?: string }>("credential.browserLaunched", (d) => {
+    if ((d.connectionId ?? d.credentialId) === id) setStatus("browser_open");
   });
-  useAgentEvent<{ credentialId: string }>("credential.browserClosed", (d) => {
-    if (d.credentialId === credentialId) setStatus("verifying");
+  useAgentEvent<{ connectionId?: string; credentialId?: string }>("credential.browserClosed", (d) => {
+    if ((d.connectionId ?? d.credentialId) === id) setStatus("verifying");
   });
   useAgentEvent<BrowserSessionVerification>("credential.sessionVerified", (d) => {
-    if (d.credentialId !== credentialId) return;
+    if ((d.connectionId ?? d.credentialId) !== id) return;
     setStatus(d.status === "likely_logged_in" ? "completed" : "no_login_detected");
   });
 
@@ -42,17 +45,17 @@ export function BrowserSetupStep({ credentialId, onComplete, onSkip }: Props) {
         if (isCloudMode && sandboxIdRef.current) {
           cancelBrowserSetup({ sandboxId: sandboxIdRef.current }).catch(() => {});
         } else {
-          cancelBrowserSetup(credentialId).catch(() => {});
+          cancelBrowserSetup(id).catch(() => {});
         }
       }
     };
-  }, [credentialId, status]);
+  }, [id, status]);
 
   const handleLaunch = useCallback(async () => {
     setStatus("launching");
     setError(null);
     try {
-      const result = await setupBrowserProfile({ credentialId });
+      const result = await setupBrowserProfile({ connectionId: id });
       if (!result.launched) {
         setStatus("error");
         setError(result.message);
@@ -70,7 +73,7 @@ export function BrowserSetupStep({ credentialId, onComplete, onSkip }: Props) {
       setStatus("error");
       setError(err instanceof Error ? err.message : "Failed to launch browser");
     }
-  }, [credentialId]);
+  }, [id]);
 
   const handleCloudFinalize = useCallback(async () => {
     if (!sandboxIdRef.current) return;

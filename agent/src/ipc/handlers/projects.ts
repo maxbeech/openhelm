@@ -1,5 +1,7 @@
 import { registerHandler } from "../handler.js";
 import * as projectQueries from "../../db/queries/projects.js";
+import * as connQueries from "../../db/queries/connections.js";
+import { syncProjectToPrimaryFolder } from "../../connections/folder-sync.js";
 import type { CreateProjectParams, UpdateProjectParams } from "@openhelm/shared";
 
 export function registerProjectHandlers() {
@@ -7,7 +9,21 @@ export function registerProjectHandlers() {
     const p = params as CreateProjectParams;
     if (!p?.name) throw new Error("name is required");
     if (!p?.directoryPath) throw new Error("directoryPath is required");
-    return projectQueries.createProject(p);
+
+    const project = projectQueries.createProject(p);
+
+    // Auto-create a non-deletable primary folder connection for this project
+    try {
+      connQueries.createPrimaryFolderConnection({
+        projectId: project.id,
+        name: `${project.name} (folder)`,
+        path: project.directoryPath,
+      });
+    } catch (err) {
+      console.error("[projects] failed to create primary folder connection (non-fatal):", err);
+    }
+
+    return project;
   });
 
   registerHandler("projects.get", (params) => {
@@ -22,10 +38,23 @@ export function registerProjectHandlers() {
     return projectQueries.listProjects();
   });
 
-  registerHandler("projects.update", (params) => {
+  registerHandler("projects.update", async (params) => {
     const p = params as UpdateProjectParams;
     if (!p?.id) throw new Error("id is required");
-    return projectQueries.updateProject(p);
+
+    const existing = projectQueries.getProject(p.id);
+    const project = projectQueries.updateProject(p);
+
+    // If directoryPath changed, sync the primary folder connection
+    if (p.directoryPath && existing && p.directoryPath !== existing.directoryPath) {
+      try {
+        await syncProjectToPrimaryFolder(project.id, project.directoryPath);
+      } catch (err) {
+        console.error("[projects] failed to sync primary folder connection (non-fatal):", err);
+      }
+    }
+
+    return project;
   });
 
   registerHandler("projects.delete", (params) => {

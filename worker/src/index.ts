@@ -22,6 +22,7 @@ import {
   finalizeBrowserSession,
   cancelBrowserSession,
 } from "./credential-setup.js";
+import { initVaultBackend } from "./supabase-vault-secret-store.js";
 import {
   DemoRateLimitError,
   checkDemoRateLimit,
@@ -262,6 +263,8 @@ async function handleRpc(
         break;
       }
 
+      // Canonical connection-based browser setup methods
+      case "connections.setupBrowser":
       case "credential.setupBrowserProfile": {
         result = await setupBrowserSession(
           params as { credentialId: string; loginUrl?: string },
@@ -270,6 +273,7 @@ async function handleRpc(
         break;
       }
 
+      case "connections.finalizeBrowserSetup":
       case "credential.finalizeBrowserProfile": {
         result = await finalizeBrowserSession(
           params as { sandboxId: string },
@@ -278,6 +282,7 @@ async function handleRpc(
         break;
       }
 
+      case "connections.cancelBrowserSetup":
       case "credential.cancelBrowserSetup": {
         result = await cancelBrowserSession(
           params as { sandboxId: string },
@@ -456,6 +461,9 @@ function createHttpServer() {
 
 async function main(): Promise<void> {
   console.error(`[worker] starting (pid ${process.pid})`);
+
+  // Initialize Supabase Vault secret-store backend (used by connection CRUD RPC handlers)
+  initVaultBackend(getSupabase());
 
   // Crash recovery: mark orphaned runs from previous instance as failed
   await recoverOrphanedRuns();

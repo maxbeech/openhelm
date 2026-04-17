@@ -33,13 +33,13 @@ async function assertCredentialOwned(
 ): Promise<void> {
   const supabase = getSupabase();
   const { data, error } = await supabase
-    .from("credentials")
+    .from("connections")
     .select("id")
     .eq("id", credentialId)
     .eq("user_id", userId)
     .single();
   if (error || !data) {
-    throw new Error("Credential not found or not owned by caller");
+    throw new Error("Connection not found or not owned by caller");
   }
 }
 
@@ -121,15 +121,15 @@ export async function setupBrowserSession(
   // Persist the profile name on the credentials row so run-time hydration
   // knows which tarball to look for later.
   await getSupabase()
-    .from("credentials")
-    .update({ browser_profile_name: `cred-${credentialId}` })
+    .from("connections")
+    .update({ browser_profile_name: `conn-${credentialId}` })
     .eq("id", credentialId)
     .eq("user_id", userId);
 
   return {
     sandboxId,
     streamUrl,
-    profileName: `cred-${credentialId}`,
+    profileName: `conn-${credentialId}`,
     launched: true,
     expiresAt,
     message: "Desktop sandbox ready. Log in, then click Done.",
@@ -169,7 +169,7 @@ export async function finalizeBrowserSession(
     cookieSize > 2048 ? "likely_logged_in" : "no_cookies_detected";
 
   await sandbox.commands.run(
-    `tar -czf /tmp/profile.tar.gz -C /home/user/profiles cred-${session.credentialId}`,
+    `tar -czf /tmp/profile.tar.gz -C /home/user/profiles conn-${session.credentialId}`,
   );
 
   const tarball = await sandbox.files.read("/tmp/profile.tar.gz", {
@@ -191,7 +191,7 @@ export async function finalizeBrowserSession(
 
   const verifiedAt = new Date().toISOString();
   const { error: updateErr } = await supabase
-    .from("credentials")
+    .from("connections")
     .update({
       browser_profile_storage_key: storageKey,
       browser_profile_verified_at: verifiedAt,

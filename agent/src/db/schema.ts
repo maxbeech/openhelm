@@ -249,19 +249,29 @@ export const autopilotProposals = sqliteTable("autopilot_proposals", {
   resolvedAt: text("resolved_at"),
 });
 
-/** Credential metadata — secret values are stored in macOS Keychain, NOT here */
-export const credentials = sqliteTable("credentials", {
+/** Connection metadata — secrets stored in macOS Keychain (local) or Supabase Vault (cloud) */
+export const connections = sqliteTable("connections", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  type: text("type", { enum: ["token", "username_password"] }).notNull(),
-  /** Auto-generated from name, e.g. OPENHELM_GITHUB_TOKEN */
-  envVarName: text("env_var_name").notNull(),
-  /** When true, value is also injected into prompt context (sent to Anthropic) */
+  /** Discriminator: folder | mcp | cli | browser | token | plain_text */
+  type: text("type").notNull(),
+  /** Auto-generated from name, e.g. OPENHELM_GITHUB_TOKEN. Empty for folder/mcp/cli. */
+  envVarName: text("env_var_name").notNull().default(""),
   allowPromptInjection: integer("allow_prompt_injection", { mode: "boolean" }).notNull().default(false),
-  /** When true, credential is injected directly into the browser MCP (no env var, no prompt) */
   allowBrowserInjection: integer("allow_browser_injection", { mode: "boolean" }).notNull().default(false),
-  /** Named persistent Chrome profile (under ~/.openhelm/profiles/) for session reuse */
   browserProfileName: text("browser_profile_name"),
+  /** Install status for mcp/cli types; not_applicable for others */
+  installStatus: text("install_status").notNull().default("not_applicable"),
+  installError: text("install_error"),
+  /** Auth status for oauth-bearing types */
+  authStatus: text("auth_status").notNull().default("not_applicable"),
+  oauthTokenExpiresAt: text("oauth_token_expires_at"),
+  /** Opaque pointer to secret: keychain:<id> locally, supabase_vault:<uuid> in cloud */
+  secretRef: text("secret_ref").notNull().default(""),
+  /** Type-specific config blob (JSON) */
+  config: text("config").notNull().default("{}"),
+  /** false for primary folder connections (not deletable) */
+  isDeletable: integer("is_deletable", { mode: "boolean" }).notNull().default(true),
   scopeType: text("scope_type", { enum: ["global", "project", "goal", "job"] }).notNull().default("global"),
   scopeId: text("scope_id"),
   isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true),
@@ -274,32 +284,32 @@ export const credentials = sqliteTable("credentials", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
-/** Many-to-many: a credential bound to one or more project/goal/job scopes */
-export const credentialScopeBindings = sqliteTable(
-  "credential_scope_bindings",
+/** Many-to-many: a connection bound to one or more project/goal/job scopes */
+export const connectionScopeBindings = sqliteTable(
+  "connection_scope_bindings",
   {
-    credentialId: text("credential_id")
+    connectionId: text("connection_id")
       .notNull()
-      .references(() => credentials.id, { onDelete: "cascade" }),
+      .references(() => connections.id, { onDelete: "cascade" }),
     scopeType: text("scope_type", { enum: ["project", "goal", "job"] }).notNull(),
     scopeId: text("scope_id").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.credentialId, t.scopeType, t.scopeId] })],
+  (t) => [primaryKey({ columns: [t.connectionId, t.scopeType, t.scopeId] })],
 );
 
-/** Audit trail: which credentials were injected into each run */
-export const runCredentials = sqliteTable(
-  "run_credentials",
+/** Audit trail: which connections were used in each run */
+export const runConnections = sqliteTable(
+  "run_connections",
   {
     runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
-    credentialId: text("credential_id")
+    connectionId: text("connection_id")
       .notNull()
-      .references(() => credentials.id, { onDelete: "cascade" }),
-    injectionMethod: text("injection_method", { enum: ["env", "prompt", "browser"] }).notNull(),
+      .references(() => connections.id, { onDelete: "cascade" }),
+    injectionMethod: text("injection_method").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.runId, t.credentialId, t.injectionMethod] })],
+  (t) => [primaryKey({ columns: [t.runId, t.connectionId, t.injectionMethod] })],
 );
 
 /** User/AI-created structured data tables (Notion-style databases) */

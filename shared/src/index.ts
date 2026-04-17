@@ -979,121 +979,233 @@ export interface MemoryRetrievalContext {
   maxResults?: number;
 }
 
-// ─── Credential Types ───
+// ─── Connection Types ───
 
-/** Two credential types: a single token/key value, or a username+password pair */
-export type CredentialType = "token" | "username_password";
-export type CredentialScope = "global" | "project" | "goal" | "job";
+/** All supported connection types */
+export type ConnectionType = "folder" | "mcp" | "cli" | "browser" | "token" | "plain_text";
+export type ConnectionScope = "global" | "project" | "goal" | "job";
+export type ConnectionInstallStatus = "not_applicable" | "pending" | "installing" | "installed" | "failed";
+export type ConnectionAuthStatus = "not_applicable" | "unauthenticated" | "authenticated" | "expired" | "revoked";
 
-/** A single entry in the credential_scope_bindings many-to-many table */
-export interface CredentialScopeBinding {
+/** A single entry in the connection_scope_bindings many-to-many table */
+export interface ConnectionScopeBinding {
   scopeType: "project" | "goal" | "job";
   scopeId: string;
 }
 
-export interface Credential {
+// Per-type config shapes (stored as JSON in connections.config)
+export interface FolderConfig {
+  path: string;
+  isPrimary: boolean;
+  projectId: string;
+}
+
+export interface McpConfig {
+  mcpServerId: string;
+  version?: string;
+  transport: "stdio" | "http" | "sse";
+  installCommand: string[];
+  serverUrl?: string;
+  oauthConfig?: {
+    authorizationUrl: string;
+    tokenUrl: string;
+    scopes: string[];
+    clientId: string;
+  };
+}
+
+export interface CliConfig {
+  cliId: string;
+  packageManager: "brew" | "apt" | "npm" | "pipx" | "curl" | "preinstalled";
+  installCommand: string[];
+  authFilePaths: string[];
+  authCommand?: string[];
+}
+
+export interface BrowserConfig {
+  loginUrl?: string;
+  browserProfileStorageKey?: string;
+  verifiedAt?: string;
+}
+
+export type ConnectionConfig = FolderConfig | McpConfig | CliConfig | BrowserConfig | Record<string, never>;
+
+export interface Connection {
   id: string;
   name: string;
-  type: CredentialType;
-  /** Auto-generated from name, e.g. OPENHELM_GITHUB_TOKEN */
+  type: ConnectionType;
+  /** Auto-generated env var name. Empty for folder/mcp/cli types. */
   envVarName: string;
-  /** When true, the value is also injected into the prompt context (sent to Anthropic) */
   allowPromptInjection: boolean;
-  /** When true, credential is injected directly into the browser MCP (no env var, no prompt) */
   allowBrowserInjection: boolean;
-  /** Named persistent Chrome profile for session reuse (nullable) */
   browserProfileName: string | null;
-  /** Legacy single-scope field — "global" for global credentials, "scoped" when bindings are used */
-  scopeType: CredentialScope;
+  installStatus: ConnectionInstallStatus;
+  installError: string | null;
+  authStatus: ConnectionAuthStatus;
+  oauthTokenExpiresAt: string | null;
+  secretRef: string;
+  config: ConnectionConfig;
+  /** false for primary folder connections */
+  isDeletable: boolean;
+  scopeType: ConnectionScope;
   scopeId: string | null;
-  /** Explicit scope bindings (project/goal/job IDs). Empty for global credentials. */
-  scopes: CredentialScopeBinding[];
+  scopes: ConnectionScopeBinding[];
   isEnabled: boolean;
   lastUsedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export type CredentialValue =
+export type ConnectionValue =
   | { type: "token"; value: string }
-  | { type: "username_password"; username: string; password: string };
+  | { type: "username_password"; username: string; password: string }
+  | { type: "none" };
 
-/** Credential with its secret value (only returned on explicit reveal) */
-export interface CredentialWithValue extends Credential {
-  value: CredentialValue | null;
+/** Connection with its secret value (only returned on explicit reveal) */
+export interface ConnectionWithValue extends Connection {
+  value: ConnectionValue | null;
 }
 
-export interface CreateCredentialParams {
+export interface CreateConnectionParams {
   name: string;
-  type: CredentialType;
-  /** Whether the value may also be injected into the prompt (default: false) */
+  type: ConnectionType;
   allowPromptInjection?: boolean;
-  /** Whether the credential is injected only into the browser MCP (default: false) */
   allowBrowserInjection?: boolean;
-  value: CredentialValue;
-  /** Legacy single-scope (kept for backward compat) */
-  scopeType?: CredentialScope;
+  value?: ConnectionValue;
+  config?: ConnectionConfig;
+  scopeType?: ConnectionScope;
   scopeId?: string;
-  /** New multi-scope bindings — takes precedence over scopeType/scopeId when provided */
-  scopes?: CredentialScopeBinding[];
+  scopes?: ConnectionScopeBinding[];
 }
 
-export interface UpdateCredentialParams {
+export interface UpdateConnectionParams {
   id: string;
   name?: string;
   allowPromptInjection?: boolean;
   allowBrowserInjection?: boolean;
-  /** Named persistent Chrome profile for session reuse */
   browserProfileName?: string | null;
-  value?: CredentialValue;
-  /** Legacy single-scope (kept for backward compat) */
-  scopeType?: CredentialScope;
+  value?: ConnectionValue;
+  config?: Partial<ConnectionConfig>;
+  scopeType?: ConnectionScope;
   scopeId?: string;
-  /** Replace all scope bindings. null = make global (clear all bindings). */
-  scopes?: CredentialScopeBinding[] | null;
+  scopes?: ConnectionScopeBinding[] | null;
   isEnabled?: boolean;
+  installStatus?: ConnectionInstallStatus;
+  installError?: string | null;
+  authStatus?: ConnectionAuthStatus;
+  oauthTokenExpiresAt?: string | null;
 }
 
-export interface ListCredentialsParams {
+export interface ListConnectionsParams {
   projectId?: string;
-  scopeType?: CredentialScope;
-  type?: CredentialType;
+  scopeType?: ConnectionScope;
+  type?: ConnectionType;
 }
 
-export interface ListCredentialsByScopeParams {
+export interface ListConnectionsByScopeParams {
   scopeType: "project" | "goal" | "job";
   scopeId: string;
+}
+
+// Backward-compat aliases so old imports don't break immediately during migration
+/** @deprecated Use Connection instead */
+export type Credential = Connection;
+/** @deprecated Use ConnectionType instead */
+export type CredentialType = ConnectionType;
+/** @deprecated Use ConnectionScope instead */
+export type CredentialScope = ConnectionScope;
+/** @deprecated Use ConnectionScopeBinding instead */
+export type CredentialScopeBinding = ConnectionScopeBinding;
+/** @deprecated Use ConnectionValue instead */
+export type CredentialValue = ConnectionValue;
+/** @deprecated Use ConnectionWithValue instead */
+export type CredentialWithValue = ConnectionWithValue;
+/** @deprecated Use CreateConnectionParams instead */
+export type CreateCredentialParams = CreateConnectionParams;
+/** @deprecated Use UpdateConnectionParams instead */
+export type UpdateCredentialParams = UpdateConnectionParams;
+/** @deprecated Use ListConnectionsParams instead */
+export type ListCredentialsParams = ListConnectionsParams;
+/** @deprecated Use ListConnectionsByScopeParams instead */
+export type ListCredentialsByScopeParams = ListConnectionsByScopeParams;
+
+// ─── MCP Registry Types ───
+
+export interface McpRegistrySearchResult {
+  id: string;
+  name: string;
+  namespace: string;
+  description: string;
+  version?: string;
+  verified: boolean;
+  transports: string[];
+  oauthRequired: boolean;
+  installCommand?: string[];
+  iconUrl?: string;
+}
+
+export interface CliCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  packageManager: CliConfig["packageManager"];
+  installCommand: string[];
+  authFilePaths: string[];
+  authCommand?: string[];
+  iconUrl?: string;
+}
+
+// ─── Service catalogue (Plan 14c) ─────────────────────────────────────────────
+
+export type ServiceCategory = "productivity" | "dev" | "comms" | "design" | "data" | "infra" | "ai" | "other";
+
+/** A service the user may want to connect to. Drives the search-first create dialog. */
+export interface ServiceCatalogueEntry {
+  id: string;              // slug, e.g. "notion"
+  name: string;            // display, e.g. "Notion"
+  aliases?: string[];      // alt names matched in search
+  domain?: string;         // primary website, e.g. "notion.com" (seeds Browser connections)
+  iconSlug?: string;       // simple-icons slug; falls back to `id`
+  category: ServiceCategory;
+  description: string;
+  // Capability hints: which connection types should the type-picker surface?
+  hasMcp?: boolean;
+  mcpServerId?: string;
+  mcpInstallCommand?: string[];
+  mcpOauthRequired?: boolean;
+  hasCli?: boolean;
+  cliId?: string;
+}
+
+/** A single row in the combined search dropdown. */
+export interface ServiceSearchResult {
+  /** Catalogue entry if this is a known service; null for MCP-registry-only or custom entries. */
+  entry: ServiceCatalogueEntry | null;
+  /** MCP registry result, when the service was found (only) in the live MCP registry. */
+  mcpRegistry?: McpRegistrySearchResult;
+  /** True for the synthetic "use '<query>' as a custom service" trailing row. */
+  isCustom: boolean;
+  /** Fuzzy match score, 0-1. Used for ranking. */
+  score: number;
 }
 
 // ─── Browser Profile Setup Types ───
 
 export interface SetupBrowserProfileParams {
-  /** Credential ID to set up the profile for. */
-  credentialId: string;
+  /** Connection ID to set up the profile for. */
+  connectionId: string;
   /** Optional URL to navigate to for login (e.g. "https://x.com/login"). */
   loginUrl?: string;
+  // @deprecated alias
+  credentialId?: string;
 }
 
 export interface SetupBrowserProfileResult {
-  /** The name of the created/used profile. */
   profileName: string;
-  /** Whether the browser was successfully spawned. */
   launched: boolean;
-  /** User-facing message. */
   message: string;
-  /**
-   * Cloud mode only: E2B Desktop sandbox id. Identifies the session for
-   * later finalize/cancel RPCs. Undefined in local Tauri mode (Chrome runs
-   * on the user's machine and is keyed by credentialId instead).
-   */
   sandboxId?: string;
-  /**
-   * Cloud mode only: browser-embeddable signed noVNC URL for the sandbox's
-   * live desktop. The frontend renders this in an iframe so the user can
-   * log in and solve CAPTCHAs inside the sandbox.
-   */
   streamUrl?: string;
-  /** Cloud mode only: epoch ms after which the setup session times out. */
   expiresAt?: number;
 }
 
@@ -1102,6 +1214,8 @@ export interface FinalizeBrowserProfileParams {
 }
 
 export interface FinalizeBrowserProfileResult {
+  connectionId: string;
+  /** @deprecated Use connectionId */
   credentialId: string;
   status: "likely_logged_in" | "no_cookies_detected";
   storageKey: string;
@@ -1122,6 +1236,8 @@ export type BrowserSetupStatus =
   | "error";
 
 export interface BrowserSessionVerification {
+  connectionId: string;
+  /** @deprecated Use connectionId */
   credentialId: string;
   status: "likely_logged_in" | "no_cookies_detected" | "unknown";
   cookiesSizeKb?: number;

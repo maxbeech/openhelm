@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import type { CredentialType, CredentialScope } from "@openhelm/shared";
 
 const typeOptions: { value: CredentialType; label: string }[] = [
-  { value: "username_password", label: "Username & Password" },
+  { value: "plain_text", label: "Username & Password" },
   { value: "token", label: "Token" },
 ];
 

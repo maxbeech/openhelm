@@ -46,7 +46,7 @@ export function CredentialCreateDialog({ open, onOpenChange, projectId, onSave }
   const { jobs } = useJobStore();
 
   const [name, setName] = useState("");
-  const [type, setType] = useState<CredentialType>("username_password");
+  const [type, setType] = useState<CredentialType>("plain_text");
   const [injectionMode, setInjectionMode] = useState<"env" | "prompt" | "browser">("browser");
   const [value, setValue] = useState("");
   const [username, setUsername] = useState("");
@@ -60,7 +60,7 @@ export function CredentialCreateDialog({ open, onOpenChange, projectId, onSave }
   const [savedCredentialId, setSavedCredentialId] = useState<string | null>(null);
 
   const reset = useCallback(() => {
-    setName(""); setType("username_password"); setInjectionMode("browser");
+    setName(""); setType("plain_text"); setInjectionMode("browser");
     setValue(""); setUsername(""); setPassword(""); setScopes([]); setSaveError(null);
     setShowBrowserSetup(false); setSavedCredentialId(null);
   }, []);
@@ -68,12 +68,12 @@ export function CredentialCreateDialog({ open, onOpenChange, projectId, onSave }
   const envVarPreview = useMemo(() => previewEnvVarName(name), [name]);
 
   const canSave = name.trim() &&
-    (type !== "username_password" ? value.trim() : (username.trim() && password.trim()));
+    (type !== "plain_text" ? value.trim() : (username.trim() && password.trim()));
 
   const handleSave = useCallback(async () => {
     if (!canSave) return;
     setSaving(true);
-    const credValue: CredentialValue = type === "username_password"
+    const credValue: CredentialValue = type === "plain_text"
       ? { type: "username_password", username, password }
       : { type: "token", value };
 
@@ -132,7 +132,7 @@ export function CredentialCreateDialog({ open, onOpenChange, projectId, onSave }
                 {name.trim() && (
                   <p className="mt-1 font-mono text-2xs text-muted-foreground">
                     Env var: <span className="text-foreground/70">{envVarPreview}</span>
-                    {type === "username_password" && (
+                    {type === "plain_text" && (
                       <span className="text-muted-foreground/60"> / {envVarPreview}_USERNAME / {envVarPreview}_PASSWORD</span>
                     )}
                   </p>
@@ -145,14 +145,14 @@ export function CredentialCreateDialog({ open, onOpenChange, projectId, onSave }
                 <Select value={type} onValueChange={(v) => setType(v as CredentialType)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="username_password">Username &amp; Password</SelectItem>
+                    <SelectItem value="plain_text">Username &amp; Password</SelectItem>
                     <SelectItem value="token">Token / API Key</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               {/* Value fields */}
-              {type === "username_password" ? (
+              {type === "plain_text" ? (
                 <div className="space-y-2">
                   <div>
                     <Label>Username</Label>

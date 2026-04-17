@@ -38,6 +38,16 @@ export interface BuildRunMcpContextOptions {
     type: "username_password" | "token";
     profileName?: string;
   }>;
+  /**
+   * User-configured MCP connections resolved for this run.
+   * Each entry's config.installCommand is used to construct a McpServerEntry.
+   * Bundled servers (openhelm_browser, openhelm_data) always win on name collision.
+   */
+  resolvedMcpConnections?: Array<{
+    id: string;
+    name: string;
+    config: { installCommand?: string[]; serverUrl?: string; transport?: string };
+  }>;
 }
 
 /**
@@ -48,7 +58,21 @@ export interface BuildRunMcpContextOptions {
 export async function buildRunMcpContext(
   opts: BuildRunMcpContextOptions,
 ): Promise<McpRunContext> {
-  const { runId, projectId, browserCredentialsFilePath, resolvedBrowserCredentials } = opts;
+  const { runId, projectId, browserCredentialsFilePath, resolvedBrowserCredentials, resolvedMcpConnections } = opts;
+
+  // Build user McpServerEntry map from resolved MCP connections (stdio/npx/uvx only)
+  let userMcpServers: Record<string, import("./mcp-config-builder.js").McpServerEntry> | undefined;
+  if (resolvedMcpConnections && resolvedMcpConnections.length > 0) {
+    userMcpServers = {};
+    for (const conn of resolvedMcpConnections) {
+      const cmd = conn.config.installCommand;
+      if (!cmd || cmd.length === 0) continue;
+      const [command, ...args] = cmd;
+      // Sanitize name to a valid MCP server key
+      const key = conn.name.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+      userMcpServers[key] = { command, args };
+    }
+  }
 
   // ── Ensure the browser MCP venv is ready (auto-setup on first run) ──
   let hasBrowserMcp = false;
@@ -81,6 +105,7 @@ export async function buildRunMcpContext(
       runId,
       hasBrowserMcp ? browserCredentialsFilePath : undefined,
       projectId,
+      userMcpServers,
     );
     if (mcpInfo) {
       mcpConfigPath = mcpInfo.path;

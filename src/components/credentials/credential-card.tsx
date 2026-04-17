@@ -55,7 +55,7 @@ export function CredentialCard({ credential, onEdit, onDelete }: CredentialCardP
   }, [credential.id, revealed, revealValue]);
 
   const formatValue = (cred: CredentialWithValue): string => {
-    if (!cred.value) return "(empty)";
+    if (!cred.value || cred.value.type === "none") return "(empty)";
     if (cred.value.type === "username_password") {
       return `${cred.value.username} / ${cred.value.password}`;
     }
@@ -97,7 +97,7 @@ export function CredentialCard({ credential, onEdit, onDelete }: CredentialCardP
 
       {/* Row 2: Env var name */}
       <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-        {credential.type === "username_password" ? (
+        {credential.type === "plain_text" ? (
           <code className="rounded bg-muted px-1.5 py-0.5 text-3xs">
             {credential.envVarName}_USERNAME / {credential.envVarName}_PASSWORD
           </code>

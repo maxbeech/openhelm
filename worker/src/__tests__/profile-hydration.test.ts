@@ -60,10 +60,10 @@ const mockDownload = jest
 
 const mockSupabase: any = {
   from: jest.fn((table: string) => {
-    if (table === "credentials") {
+    if (table === "connections") {
       return chain({ data: credentialRows, error: null });
     }
-    if (table === "credential_scope_bindings") {
+    if (table === "connection_scope_bindings") {
       return chain({ data: [], error: null });
     }
     return chain({ data: null, error: null });
@@ -124,7 +124,7 @@ describe("hydrateBrowserProfiles", () => {
     expect(result.map((p) => p.credentialId)).not.toContain("ghi3");
     // Each hydrated profile should have a matching directory path.
     for (const p of result) {
-      expect(p.profileDir).toBe(`/home/user/profiles/cred-${p.credentialId}`);
+      expect(p.profileDir).toBe(`/home/user/profiles/conn-${p.credentialId}`);
     }
     // Each profile should have triggered a tar -xzf in the sandbox.
     const tarCalls = runMock.mock.calls.filter((c) =>
